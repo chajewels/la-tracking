@@ -2049,3 +2049,22 @@ looks like an anon write path. `extension_requests.portal_token` stays.
 - Reads: `get_clearing_summary(int)`, `get_fx_revaluation(date)`, `get_rate_history()` — view_ledger.
 - `gl_post_settled(text, uuid)` (internal) = gl_post_pending up to 3 passes; `gl_post_now` re-stated to use it; cron `gl-post-pending` re-scheduled to it.
 - Transfer endpoints: active asset accounts with code < '1130' (bank / cash only).
+
+## Statements / 税理士 pack (Expenses Phase 7, 2026-10-26)
+
+- Migration `20270106100000_expenses_statements.sql` (applied NOWHERE; branch feat/expenses). Rules in docs/EXPENSES.md "Phase 7".
+- `gl_accounts.name_ja text NULL` (CHECK 1–60 chars) seeded for every account; `upsert_gl_account(jsonb)` re-stated: accepts `name_ja`
+  on insert and update (key present → set / clear; absent → unchanged); error `invalid_name_ja`.
+- system_settings `statement_flag_pct` ("15") / `statement_flag_jpy` ("100000"); `gl_statement_flags()` internal; `set_statement_flags(numeric, numeric)`
+  (admin_settings; errors invalid_pct / invalid_amount; audit entity 'gl_setting' action 'set_statement_flags').
+- `get_receivable_ageing(date)` (view_ledger): reads layaway_schedule (status pending / partially_paid / overdue, total_due_amount − paid_amount > 0)
+  joined to live non-test layaway_accounts ordered on/before as_of, pending non-test cash_orders, gl lines of 1200 / 1210; yen at `gl_rate()`;
+  due_date ≥ as_of = not due; as_of clamped to today (`requested_as_of` returned).
+- `get_statements(date, date)` (view_ledger; range ≤ 1100 days): one aggregate over gl_journal_lines per account (current / prior / prior-year
+  movements, PHP-only movements, balances at `to` and `from − 1`, balances before the fiscal-year start, fx_revaluation movements) →
+  income_statement.lines[], balance_sheet.lines[] + totals, cash_flow.lines[] + tie-out, ageing, currency_checks (reads customers.country),
+  outside_hub. Internal helpers `gl_stmt_pick`, `gl_stmt_kind_sum`, `gl_stmt_line` (revoked from authenticated).
+- `get_journal_export(date, date, integer)` (view_ledger): ≤ 20,000 flat lines per call ordered by journal_no, line_no; `tax_flag` export /
+  domestic by line currency on revenue-kind lines except 4400 / 4500 / 4900 / 4950.
+- Client: `/finance/tax-pack` route (PermissionsContext → view_ledger), `src/lib/csv.ts` gained `csvText` / `downloadCsv(…, { bom, exactName })`.
+

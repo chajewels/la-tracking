@@ -2,7 +2,7 @@
 
 Stand-ins for the live objects the Expenses migrations depend on (`stubs.sql`: auth, roles,
 `has_permission` verbatim, `system_settings`, `audit_logs`, storage; `stubs_ledger.sql`: the money
-tables the ledger reads, baseline columns only, plus website_product_variants, the two item tables and trade_ins for Phase 5; square_payments carries payload columns for Phase 6) plus seven suites:
+tables the ledger reads, baseline columns only, plus website_product_variants, the two item tables and trade_ins for Phase 5; square_payments carries payload columns for Phase 6; layaway_schedule and customers for Phase 7) plus eight suites:
 
 - `test_expenses.sql` — Phase 1 (17 groups)
 - `test_phase2.sql` — Mark as paid (5 groups; loads the Phase 2 migration itself via `-v migration2=`)
@@ -13,6 +13,9 @@ tables the ledger reads, baseline columns only, plus website_product_variants, t
   inventory, trade-ins, valuation, real profit — own clean book)
 - `test_clearing.sql` — Phase 6 clearing & FX (7 groups; rate history, Square fee from payload, settlements, transfers,
   peso revaluation across a dated rate change, fee categories automatic — own clean book)
+- `test_statements.sql` — Phase 7 statements (10 groups; 勘定科目 names, permissions, a fixture book, income statement with the
+  domestic / export split, balance sheet, cash-flow tie-out, ageing + forecast + currency checks, comparisons and flags, journal
+  export — own clean book)
 - `test_ledger.sql` — Phase 2b general ledger (11 groups: start-date gate, permissions, every event set,
   reversal / repost on source change, fingerprint stability, forfeiture + reactivation, store credit,
   expenses with Paid from, refunds, periods and manual journals, closed-month move, immutability)

@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle, BookOpen, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Download, Loader2, Lock, LockOpen,
-  Play, Plus, RotateCcw, Trash2,
+  Play, Plus, Printer, RotateCcw, Trash2,
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
@@ -20,11 +20,14 @@ import { callRpc } from "@/components/finance/useBookedMonths";
 import { monthKeyTokyo, shiftMonth, todayTokyo } from "@/components/finance/expenses";
 import CostOfGoodsSection from "@/components/finance/CostOfGoodsSection";
 import ClearingFxSection from "@/components/finance/ClearingFxSection";
+import StatementsSection from "@/components/finance/StatementsSection";
+import { downloadCsv } from "@/lib/csv";
+import { TRIAL_BALANCE_CSV_HEADER, exportFileName, fiscalYearSpan, statementRefusal, taxPackHref, trialBalanceCsvRows } from "@/components/finance/statements";
 import { costCoverageLabel, normaliseRealProfit } from "@/components/finance/cogs";
 import {
   JOURNAL_KIND_LABEL, KIND_LABEL, KIND_ORDER, LEDGER_COA_KEY, LEDGER_JOURNALS_KEY, LEDGER_STATUS_KEY, LEDGER_TB_KEY, SOURCE_TYPES,
   type GlAccount, type Journal, type JournalKind, type LedgerState, type ManualJournalForm, type MethodKind, type Period, type RangeMode,
-  dayLabel, emptyManualForm, emptyManualLine, fiscalYearOf, formatNative, formatYen, lastRunLabel, ledgerRefusal, lineYen, longMonth,
+  dayLabel, emptyManualForm, emptyManualLine, fiscalYearOf, formatNative, formatYen, lastRunLabel, ledgerRefusal, lineYen, longMonth, monthRange,
   manualPayload, manualTotals, naturalBalance, normaliseAccounts, normaliseJournals, normaliseStatus, normaliseTrialBalance, postingSummary,
   profitSummary, rangeFor, sourceLink, sourceTypeLabel, trialBalanceTotals, validateManualForm,
 } from "@/components/finance/ledger";
@@ -44,14 +47,14 @@ const METHOD_KINDS: { value: MethodKind; label: string }[] = [
 
 function refusalToast(e: unknown, fallback: string) {
   const code = (e as { code?: string })?.code ?? "";
-  toast({ title: ledgerRefusal(code) || fallback, variant: "destructive" });
+  toast({ title: statementRefusal(code) || ledgerRefusal(code) || fallback, variant: "destructive" });
 }
 
 export default function LedgerTab() {
   const qc = useQueryClient();
   const today = todayTokyo();
   const thisMonth = monthKeyTokyo();
-  const [view, setView] = useState<"journals" | "trial" | "cogs" | "clearing" | "accounts" | "periods">("journals");
+  const [view, setView] = useState<"journals" | "trial" | "statements" | "cogs" | "clearing" | "accounts" | "periods">("journals");
   const [checkPending, setCheckPending] = useState(false);
 
   const state = useQuery<LedgerState>({
@@ -158,6 +161,7 @@ export default function LedgerTab() {
         <TabsList className="flex-wrap h-auto">
           <TabsTrigger value="journals">Journals</TabsTrigger>
           <TabsTrigger value="trial">Trial balance</TabsTrigger>
+          <TabsTrigger value="statements">Statements</TabsTrigger>
           <TabsTrigger value="cogs">Cost of goods</TabsTrigger>
           <TabsTrigger value="clearing">Clearing &amp; FX</TabsTrigger>
           <TabsTrigger value="accounts">Accounts</TabsTrigger>
@@ -165,6 +169,7 @@ export default function LedgerTab() {
         </TabsList>
         <TabsContent value="journals"><JournalsView canPost={s.can_post} thisMonth={thisMonth} startMonth={s.fiscal_year_start_month} onChanged={refreshAll} /></TabsContent>
         <TabsContent value="trial"><TrialBalanceView thisMonth={thisMonth} startMonth={s.fiscal_year_start_month} /></TabsContent>
+        <TabsContent value="statements"><StatementsSection thisMonth={thisMonth} startMonth={s.fiscal_year_start_month} canAdmin={s.can_admin} /></TabsContent>
         <TabsContent value="cogs"><CostOfGoodsSection thisMonth={thisMonth} today={today} canPost={s.can_post} onChanged={refreshAll} /></TabsContent>
         <TabsContent value="clearing"><ClearingFxSection thisMonth={thisMonth} today={today} onChanged={refreshAll} /></TabsContent>
         <TabsContent value="accounts"><AccountsView canAdmin={s.can_admin} canPost={s.can_post} onChanged={refreshAll} /></TabsContent>
@@ -374,15 +379,10 @@ function TrialBalanceView({ thisMonth, startMonth }: { thisMonth: string; startM
   });
   const coverage = real.data && real.data.ledger_started ? costCoverageLabel(real.data.sales_with_cost, real.data.sales_total) : null;
 
+  const coa = useQuery({ queryKey: [...LEDGER_COA_KEY, "names"], staleTime: 60_000, queryFn: async () => normaliseAccounts((await callRpc("get_chart_of_accounts", { p_as_of: null })).accounts) });
+  const nameJa = (code: string) => (coa.data ?? []).find((a) => a.code === code)?.name_ja ?? "";
   const exportCsv = () => {
-    const head = ["code", "name", "kind", "opening_jpy", "debit_jpy", "credit_jpy", "closing_jpy"];
-    const body = rows.map((x) => [x.code, `"${x.name.replace(/"/g, '""')}"`, x.kind, x.opening_jpy, x.debit_jpy, x.credit_jpy, x.closing_jpy].join(","));
-    const blob = new Blob([[head.join(","), ...body].join("\n")], { type: "text/csv;charset=utf-8" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `trial-balance-${r.from}-${r.to}.csv`;
-    a.click();
-    URL.revokeObjectURL(a.href);
+    downloadCsv(exportFileName("trial-balance", r.from, r.to), TRIAL_BALANCE_CSV_HEADER, trialBalanceCsvRows(rows, nameJa), { bom: true, exactName: true });
   };
 
   return (
@@ -421,7 +421,7 @@ function TrialBalanceView({ thisMonth, startMonth }: { thisMonth: string; startM
                       <tr key={`h-${k}`} className="border-t bg-muted/40"><td colSpan={6} className="py-1 font-medium">{KIND_LABEL[k]}</td></tr>,
                       ...group.map((x) => (
                         <tr key={x.code} className="border-t">
-                          <td className="py-1"><span className="text-muted-foreground mr-2">{x.code}</span>{x.name}{x.contra ? <span className="text-xs text-muted-foreground"> (contra)</span> : null}</td>
+                          <td className="py-1"><span className="text-muted-foreground mr-2">{x.code}</span>{x.name}{nameJa(x.code) ? <span className="text-xs text-muted-foreground"> · {nameJa(x.code)}</span> : null}{x.contra ? <span className="text-xs text-muted-foreground"> (contra)</span> : null}</td>
                           <td className="py-1 text-right tabular-nums">{formatYen(x.opening_jpy)}</td>
                           <td className="py-1 text-right tabular-nums">{x.debit_jpy ? formatYen(x.debit_jpy) : ""}</td>
                           <td className="py-1 text-right tabular-nums">{x.credit_jpy ? formatYen(x.credit_jpy) : ""}</td>
@@ -472,10 +472,11 @@ function AccountsView({ canAdmin, canPost, onChanged }: { canAdmin: boolean; can
     },
   });
   const [adding, setAdding] = useState(false);
-  const [form, setForm] = useState({ code: "", name: "", kind: "expense" as GlAccount["kind"] });
+  const [form, setForm] = useState({ code: "", name: "", name_ja: "", kind: "expense" as GlAccount["kind"] });
+  const [editingJa, setEditingJa] = useState<{ code: string; value: string } | null>(null);
   const upsert = useMutation({
     mutationFn: (p: Record<string, unknown>) => callRpc("upsert_gl_account", { p }),
-    onSuccess: () => { toast({ title: "Account saved" }); setAdding(false); setForm({ code: "", name: "", kind: "expense" }); q.refetch(); onChanged(); },
+    onSuccess: () => { toast({ title: "Account saved" }); setAdding(false); setEditingJa(null); setForm({ code: "", name: "", name_ja: "", kind: "expense" }); q.refetch(); onChanged(); },
     onError: (e) => refusalToast(e, "Could not save the account"),
   });
   const accounts = q.data?.accounts ?? [];
@@ -490,13 +491,14 @@ function AccountsView({ canAdmin, canPost, onChanged }: { canAdmin: boolean; can
           <div className="flex flex-wrap items-end gap-2 pt-2">
             <div><Label className="text-xs" htmlFor="acct-code">Code (4 digits)</Label><Input id="acct-code" className="min-h-11 w-[110px]" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value.replace(/\D/g, "").slice(0, 4) })} /></div>
             <div><Label className="text-xs" htmlFor="acct-name">Name</Label><Input id="acct-name" className="min-h-11 w-[260px]" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
+            <div><Label className="text-xs" htmlFor="acct-name-ja">勘定科目 (optional)</Label><Input id="acct-name-ja" className="min-h-11 w-[200px]" value={form.name_ja} onChange={(e) => setForm({ ...form, name_ja: e.target.value })} /></div>
             <div><Label className="text-xs">Kind</Label>
               <Select value={form.kind} onValueChange={(v) => setForm({ ...form, kind: v as GlAccount["kind"] })}>
                 <SelectTrigger className="min-h-11 w-[170px]" aria-label="Account kind"><SelectValue /></SelectTrigger>
                 <SelectContent>{KIND_ORDER.map((k) => <SelectItem key={k} value={k}>{KIND_LABEL[k]}</SelectItem>)}</SelectContent>
               </Select>
             </div>
-            <Button size="sm" disabled={!/^[1-6]\d{3}$/.test(form.code) || form.name.trim().length === 0 || upsert.isPending} onClick={() => upsert.mutate({ code: form.code, name: form.name.trim(), kind: form.kind })}>Save</Button>
+            <Button size="sm" disabled={!/^[1-6]\d{3}$/.test(form.code) || form.name.trim().length === 0 || upsert.isPending} onClick={() => upsert.mutate({ code: form.code, name: form.name.trim(), kind: form.kind, name_ja: form.name_ja.trim() })}>Save</Button>
           </div>
         )}
       </CardHeader>
@@ -515,6 +517,17 @@ function AccountsView({ canAdmin, canPost, onChanged }: { canAdmin: boolean; can
                     <tr key={a.code} className={`border-t ${a.active ? "" : "opacity-50"}`}>
                       <td className="py-1 w-[64px] text-muted-foreground">{a.code}</td>
                       <td className="py-1">{a.name}{a.contra ? <span className="text-xs text-muted-foreground"> (contra)</span> : null}{a.currency_hint ? <span className="text-xs text-muted-foreground"> · {a.currency_hint}</span> : null}{!a.active ? <span className="text-xs"> · inactive</span> : null}</td>
+                      <td className="py-1 text-muted-foreground">
+                        {editingJa?.code === a.code ? (
+                          <span className="inline-flex items-center gap-1">
+                            <Input className="min-h-11 w-[180px]" aria-label={`勘定科目 for ${a.code}`} value={editingJa.value} onChange={(e) => setEditingJa({ code: a.code, value: e.target.value })} />
+                            <Button size="sm" className="min-h-11" disabled={upsert.isPending} onClick={() => upsert.mutate({ code: a.code, name: a.name, active: a.active, name_ja: editingJa.value.trim() })}>Save</Button>
+                            <Button size="sm" variant="ghost" className="min-h-11" onClick={() => setEditingJa(null)}>Cancel</Button>
+                          </span>
+                        ) : canAdmin ? (
+                          <button type="button" className="min-h-11 text-left hover:underline" onClick={() => setEditingJa({ code: a.code, value: a.name_ja ?? "" })}>{a.name_ja ?? <span className="text-xs">add 勘定科目</span>}</button>
+                        ) : (a.name_ja ?? "")}
+                      </td>
                       <td className="py-1 text-right tabular-nums">{formatYen(a.balance_jpy ?? 0)}</td>
                       {canAdmin && (
                         <td className="py-1 text-right w-[90px]">
@@ -616,7 +629,7 @@ function PeriodsView({ periods, canClose, ledgerStart, thisMonth, startMonth, on
     <Card>
       <CardHeader className="pb-2">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <CardTitle className="text-base">Months (fiscal year {startMonth === 5 ? "May – April" : `starts month ${startMonth}`})</CardTitle>
+          <CardTitle className="text-base">Months (fiscal year {fiscalYearSpan(startMonth)})</CardTitle>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="icon" className="h-11 w-11" aria-label="Earlier year" onClick={() => setFy((y) => y - 1)}><ChevronLeft className="h-4 w-4" /></Button>
             <span className="text-sm font-medium min-w-[70px] text-center">FY{fy}</span>
@@ -645,6 +658,11 @@ function PeriodsView({ periods, canClose, ledgerStart, thisMonth, startMonth, on
                   {!ended && !beforeStart && <span className="text-xs text-muted-foreground">{m === thisMonth ? "current month" : "future"}</span>}
                 </div>
                 <div className="flex items-center gap-2">
+                  {!beforeStart && (ended || m === thisMonth) && (
+                    <Button asChild size="sm" variant="ghost" className="min-h-11" title="税理士 pack for this month (print / PDF)">
+                      <a href={taxPackHref(key, monthRange(m).to)} target="_blank" rel="noreferrer"><Printer className="h-3 w-3 mr-1" />税理士 pack</a>
+                    </Button>
+                  )}
                   {canCloseThis && <Button size="sm" variant="outline" className="min-h-11" onClick={() => close.mutate(key)} disabled={close.isPending}><Lock className="h-3 w-3 mr-1" />Close</Button>}
                   {canReopenThis && reopening !== key && <Button size="sm" variant="ghost" className="min-h-11" onClick={() => setReopening(key)}><LockOpen className="h-3 w-3 mr-1" />Reopen</Button>}
                   {reopening === key && (

@@ -64,4 +64,12 @@ CREATE TABLE public.trade_ins (
   old_invoice_number text NOT NULL DEFAULT '0', new_invoice_number text, item_code text NOT NULL DEFAULT 'X', item_description text NOT NULL DEFAULT 'piece',
   trade_amount numeric(12,2) NOT NULL DEFAULT 0, resale_amount numeric(12,2), resale_status resale_status NOT NULL DEFAULT 'In stock',
   notes text, created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now());
+-- Phase 7 (statements): the payment schedule the ageing reads and the customers' country for the currency checks.
+CREATE TYPE public.schedule_status AS ENUM ('pending','partially_paid','paid','overdue','cancelled');
+CREATE TABLE public.layaway_schedule (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), account_id uuid NOT NULL, installment_number integer NOT NULL DEFAULT 1, due_date date NOT NULL,
+  base_installment_amount numeric(15,2) NOT NULL DEFAULT 0, penalty_amount numeric(15,2) NOT NULL DEFAULT 0, total_due_amount numeric(15,2) NOT NULL,
+  paid_amount numeric(15,2) NOT NULL DEFAULT 0, currency account_currency NOT NULL, status schedule_status NOT NULL DEFAULT 'pending',
+  generated_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE public.customers (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), full_name text NOT NULL DEFAULT 'Customer', country text);
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO authenticated;
