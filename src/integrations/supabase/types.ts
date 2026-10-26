@@ -178,6 +178,260 @@ export type Database = {
         }
         Relationships: []
       }
+      bank_import_profiles: {
+        Row: {
+          account_code: string
+          balance_col: number | null
+          date_col: number
+          date_format: string
+          delimiter: string
+          description_col: number | null
+          encoding: string
+          header_rows: number
+          in_col: number | null
+          out_col: number | null
+          signed_col: number | null
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          account_code: string
+          balance_col?: number | null
+          date_col: number
+          date_format?: string
+          delimiter?: string
+          description_col?: number | null
+          encoding?: string
+          header_rows?: number
+          in_col?: number | null
+          out_col?: number | null
+          signed_col?: number | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          account_code?: string
+          balance_col?: number | null
+          date_col?: number
+          date_format?: string
+          delimiter?: string
+          description_col?: number | null
+          encoding?: string
+          header_rows?: number
+          in_col?: number | null
+          out_col?: number | null
+          signed_col?: number | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bank_import_profiles_account_code_fkey"
+            columns: ["account_code"]
+            isOneToOne: true
+            referencedRelation: "gl_accounts"
+            referencedColumns: ["code"]
+          },
+        ]
+      }
+      bank_reconciliations: {
+        Row: {
+          account_code: string
+          difference: number | null
+          ledger_closing_jpy: number | null
+          ledger_closing_native: number | null
+          month_start: string
+          note: string | null
+          reconciled_at: string | null
+          reconciled_by: string | null
+          statement_closing: number | null
+          status: string
+          unmatched_ledger: number
+          unmatched_statement: number
+          updated_at: string
+        }
+        Insert: {
+          account_code: string
+          difference?: number | null
+          ledger_closing_jpy?: number | null
+          ledger_closing_native?: number | null
+          month_start: string
+          note?: string | null
+          reconciled_at?: string | null
+          reconciled_by?: string | null
+          statement_closing?: number | null
+          status?: string
+          unmatched_ledger?: number
+          unmatched_statement?: number
+          updated_at?: string
+        }
+        Update: {
+          account_code?: string
+          difference?: number | null
+          ledger_closing_jpy?: number | null
+          ledger_closing_native?: number | null
+          month_start?: string
+          note?: string | null
+          reconciled_at?: string | null
+          reconciled_by?: string | null
+          statement_closing?: number | null
+          status?: string
+          unmatched_ledger?: number
+          unmatched_statement?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bank_reconciliations_account_code_fkey"
+            columns: ["account_code"]
+            isOneToOne: false
+            referencedRelation: "gl_accounts"
+            referencedColumns: ["code"]
+          },
+        ]
+      }
+      bank_statement_imports: {
+        Row: {
+          account_code: string
+          encoding: string
+          file_name: string
+          file_sha256: string
+          id: string
+          imported_at: string
+          imported_by: string | null
+          inserted: number
+          period_from: string | null
+          period_to: string | null
+          rows_in_file: number
+          skipped: number
+          void_reason: string | null
+          voided_at: string | null
+          voided_by: string | null
+        }
+        Insert: {
+          account_code: string
+          encoding: string
+          file_name: string
+          file_sha256: string
+          id?: string
+          imported_at?: string
+          imported_by?: string | null
+          inserted?: number
+          period_from?: string | null
+          period_to?: string | null
+          rows_in_file: number
+          skipped?: number
+          void_reason?: string | null
+          voided_at?: string | null
+          voided_by?: string | null
+        }
+        Update: {
+          account_code?: string
+          encoding?: string
+          file_name?: string
+          file_sha256?: string
+          id?: string
+          imported_at?: string
+          imported_by?: string | null
+          inserted?: number
+          period_from?: string | null
+          period_to?: string | null
+          rows_in_file?: number
+          skipped?: number
+          void_reason?: string | null
+          voided_at?: string | null
+          voided_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bank_statement_imports_account_code_fkey"
+            columns: ["account_code"]
+            isOneToOne: false
+            referencedRelation: "gl_accounts"
+            referencedColumns: ["code"]
+          },
+        ]
+      }
+      bank_statement_lines: {
+        Row: {
+          account_code: string
+          amount: number
+          balance_after: number | null
+          booked_on: string
+          description: string
+          id: string
+          ignore_reason: string | null
+          import_id: string
+          line_no: number
+          match_kind: string | null
+          matched_at: string | null
+          matched_by: string | null
+          matched_journal_line_id: string | null
+          raw: Json
+        }
+        Insert: {
+          account_code: string
+          amount: number
+          balance_after?: number | null
+          booked_on: string
+          description?: string
+          id?: string
+          ignore_reason?: string | null
+          import_id: string
+          line_no: number
+          match_kind?: string | null
+          matched_at?: string | null
+          matched_by?: string | null
+          matched_journal_line_id?: string | null
+          raw?: Json
+        }
+        Update: {
+          account_code?: string
+          amount?: number
+          balance_after?: number | null
+          booked_on?: string
+          description?: string
+          id?: string
+          ignore_reason?: string | null
+          import_id?: string
+          line_no?: number
+          match_kind?: string | null
+          matched_at?: string | null
+          matched_by?: string | null
+          matched_journal_line_id?: string | null
+          raw?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bank_statement_lines_account_code_fkey"
+            columns: ["account_code"]
+            isOneToOne: false
+            referencedRelation: "gl_accounts"
+            referencedColumns: ["code"]
+          },
+          {
+            foreignKeyName: "bank_statement_lines_import_id_fkey"
+            columns: ["import_id"]
+            isOneToOne: false
+            referencedRelation: "bank_statement_imports"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bank_statement_lines_matched_journal_line_id_fkey"
+            columns: ["matched_journal_line_id"]
+            isOneToOne: false
+            referencedRelation: "gl_journal_lines"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bank_statement_lines_matched_journal_line_id_fkey"
+            columns: ["matched_journal_line_id"]
+            isOneToOne: false
+            referencedRelation: "gl_live_money_lines"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       card_refund_exceptions: {
         Row: {
           amount_jpy: number
@@ -1663,6 +1917,7 @@ export type Database = {
         Row: {
           active: boolean
           created_at: string
+          gl_account_code: string | null
           group_key: string
           id: string
           name: string
@@ -1672,6 +1927,7 @@ export type Database = {
         Insert: {
           active?: boolean
           created_at?: string
+          gl_account_code?: string | null
           group_key: string
           id?: string
           name: string
@@ -1681,13 +1937,239 @@ export type Database = {
         Update: {
           active?: boolean
           created_at?: string
+          gl_account_code?: string | null
           group_key?: string
           id?: string
           name?: string
           sort_order?: number
           system_key?: string | null
         }
+        Relationships: [
+          {
+            foreignKeyName: "expense_categories_gl_account_code_fkey"
+            columns: ["gl_account_code"]
+            isOneToOne: false
+            referencedRelation: "gl_accounts"
+            referencedColumns: ["code"]
+          },
+        ]
+      }
+      expense_email_messages: {
+        Row: {
+          attachments: Json
+          confidence: number | null
+          created_at: string
+          error: string | null
+          expense_id: string | null
+          extracted: Json
+          from_email: string | null
+          from_name: string | null
+          gmail_message_id: string
+          mailbox: string
+          matched_expense_id: string | null
+          received_at: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          status: string
+          subject: string | null
+          thread_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          attachments?: Json
+          confidence?: number | null
+          created_at?: string
+          error?: string | null
+          expense_id?: string | null
+          extracted?: Json
+          from_email?: string | null
+          from_name?: string | null
+          gmail_message_id: string
+          mailbox: string
+          matched_expense_id?: string | null
+          received_at?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status: string
+          subject?: string | null
+          thread_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          attachments?: Json
+          confidence?: number | null
+          created_at?: string
+          error?: string | null
+          expense_id?: string | null
+          extracted?: Json
+          from_email?: string | null
+          from_name?: string | null
+          gmail_message_id?: string
+          mailbox?: string
+          matched_expense_id?: string | null
+          received_at?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+          subject?: string | null
+          thread_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "expense_email_messages_expense_id_fkey"
+            columns: ["expense_id"]
+            isOneToOne: false
+            referencedRelation: "expenses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "expense_email_messages_matched_expense_id_fkey"
+            columns: ["matched_expense_id"]
+            isOneToOne: false
+            referencedRelation: "expenses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      expense_email_runs: {
+        Row: {
+          drafted: number
+          errors: number
+          finished_at: string | null
+          id: string
+          looked_at: number
+          matched: number
+          needs_review: number
+          note: string | null
+          run_by: string | null
+          skipped: number
+          started_at: string
+          trigger: string
+        }
+        Insert: {
+          drafted?: number
+          errors?: number
+          finished_at?: string | null
+          id?: string
+          looked_at?: number
+          matched?: number
+          needs_review?: number
+          note?: string | null
+          run_by?: string | null
+          skipped?: number
+          started_at?: string
+          trigger: string
+        }
+        Update: {
+          drafted?: number
+          errors?: number
+          finished_at?: string | null
+          id?: string
+          looked_at?: number
+          matched?: number
+          needs_review?: number
+          note?: string | null
+          run_by?: string | null
+          skipped?: number
+          started_at?: string
+          trigger?: string
+        }
         Relationships: []
+      }
+      expense_recurring_bills: {
+        Row: {
+          active: boolean
+          amount: number
+          category_id: string
+          created_at: string
+          created_by: string | null
+          currency: string
+          description: string
+          due_day: number
+          ends_on: string | null
+          frequency: string
+          id: string
+          last_generated_on: string | null
+          name: string
+          next_due_on: string
+          notes: string | null
+          paid_from: string | null
+          payment_method: string
+          spread_months: number | null
+          starts_on: string
+          updated_at: string
+          vendor_id: string | null
+        }
+        Insert: {
+          active?: boolean
+          amount: number
+          category_id: string
+          created_at?: string
+          created_by?: string | null
+          currency: string
+          description: string
+          due_day: number
+          ends_on?: string | null
+          frequency: string
+          id?: string
+          last_generated_on?: string | null
+          name: string
+          next_due_on: string
+          notes?: string | null
+          paid_from?: string | null
+          payment_method?: string
+          spread_months?: number | null
+          starts_on: string
+          updated_at?: string
+          vendor_id?: string | null
+        }
+        Update: {
+          active?: boolean
+          amount?: number
+          category_id?: string
+          created_at?: string
+          created_by?: string | null
+          currency?: string
+          description?: string
+          due_day?: number
+          ends_on?: string | null
+          frequency?: string
+          id?: string
+          last_generated_on?: string | null
+          name?: string
+          next_due_on?: string
+          notes?: string | null
+          paid_from?: string | null
+          payment_method?: string
+          spread_months?: number | null
+          starts_on?: string
+          updated_at?: string
+          vendor_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "expense_recurring_bills_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "expense_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "expense_recurring_bills_paid_from_fkey"
+            columns: ["paid_from"]
+            isOneToOne: false
+            referencedRelation: "gl_accounts"
+            referencedColumns: ["code"]
+          },
+          {
+            foreignKeyName: "expense_recurring_bills_vendor_id_fkey"
+            columns: ["vendor_id"]
+            isOneToOne: false
+            referencedRelation: "expense_vendors"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       expense_vendors: {
         Row: {
@@ -1740,7 +2222,9 @@ export type Database = {
           fx_php_per_jpy: number | null
           id: string
           notes: string | null
+          paid_from: string | null
           payment_method: string
+          prepaid_months: number | null
           receipt_path: string | null
           source: string
           source_ref: string | null
@@ -1766,7 +2250,9 @@ export type Database = {
           fx_php_per_jpy?: number | null
           id?: string
           notes?: string | null
+          paid_from?: string | null
           payment_method?: string
+          prepaid_months?: number | null
           receipt_path?: string | null
           source?: string
           source_ref?: string | null
@@ -1792,7 +2278,9 @@ export type Database = {
           fx_php_per_jpy?: number | null
           id?: string
           notes?: string | null
+          paid_from?: string | null
           payment_method?: string
+          prepaid_months?: number | null
           receipt_path?: string | null
           source?: string
           source_ref?: string | null
@@ -1810,6 +2298,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "expense_categories"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "expenses_paid_from_fkey"
+            columns: ["paid_from"]
+            isOneToOne: false
+            referencedRelation: "gl_accounts"
+            referencedColumns: ["code"]
           },
           {
             foreignKeyName: "expenses_vendor_id_fkey"
@@ -2034,6 +2529,91 @@ export type Database = {
         }
         Relationships: []
       }
+      fund_transfers: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          fee_account: string
+          fee_amount: number
+          fee_currency: string
+          from_account: string
+          from_amount: number
+          from_currency: string
+          id: string
+          note: string | null
+          reference: string | null
+          to_account: string
+          to_amount: number
+          to_currency: string
+          transfer_on: string
+          void_reason: string | null
+          voided_at: string | null
+          voided_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          fee_account?: string
+          fee_amount?: number
+          fee_currency?: string
+          from_account: string
+          from_amount: number
+          from_currency: string
+          id?: string
+          note?: string | null
+          reference?: string | null
+          to_account: string
+          to_amount: number
+          to_currency: string
+          transfer_on: string
+          void_reason?: string | null
+          voided_at?: string | null
+          voided_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          fee_account?: string
+          fee_amount?: number
+          fee_currency?: string
+          from_account?: string
+          from_amount?: number
+          from_currency?: string
+          id?: string
+          note?: string | null
+          reference?: string | null
+          to_account?: string
+          to_amount?: number
+          to_currency?: string
+          transfer_on?: string
+          void_reason?: string | null
+          voided_at?: string | null
+          voided_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fund_transfers_fee_account_fkey"
+            columns: ["fee_account"]
+            isOneToOne: false
+            referencedRelation: "gl_accounts"
+            referencedColumns: ["code"]
+          },
+          {
+            foreignKeyName: "fund_transfers_from_account_fkey"
+            columns: ["from_account"]
+            isOneToOne: false
+            referencedRelation: "gl_accounts"
+            referencedColumns: ["code"]
+          },
+          {
+            foreignKeyName: "fund_transfers_to_account_fkey"
+            columns: ["to_account"]
+            isOneToOne: false
+            referencedRelation: "gl_accounts"
+            referencedColumns: ["code"]
+          },
+        ]
+      }
       fx_rates: {
         Row: {
           created_at: string
@@ -2135,6 +2715,342 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      gl_accounts: {
+        Row: {
+          active: boolean
+          code: string
+          contra: boolean
+          created_at: string
+          currency_hint: string | null
+          kind: string
+          name: string
+          name_ja: string | null
+          sort_order: number
+          system_key: string | null
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          code: string
+          contra?: boolean
+          created_at?: string
+          currency_hint?: string | null
+          kind: string
+          name: string
+          name_ja?: string | null
+          sort_order?: number
+          system_key?: string | null
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          code?: string
+          contra?: boolean
+          created_at?: string
+          currency_hint?: string | null
+          kind?: string
+          name?: string
+          name_ja?: string | null
+          sort_order?: number
+          system_key?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      gl_check_runs: {
+        Row: {
+          bell_rung: boolean
+          duration_ms: number | null
+          errors: number
+          id: string
+          issues: Json
+          ran_at: string
+          run_by: string | null
+          trigger: string
+          warnings: number
+        }
+        Insert: {
+          bell_rung?: boolean
+          duration_ms?: number | null
+          errors?: number
+          id?: string
+          issues?: Json
+          ran_at?: string
+          run_by?: string | null
+          trigger: string
+          warnings?: number
+        }
+        Update: {
+          bell_rung?: boolean
+          duration_ms?: number | null
+          errors?: number
+          id?: string
+          issues?: Json
+          ran_at?: string
+          run_by?: string | null
+          trigger?: string
+          warnings?: number
+        }
+        Relationships: []
+      }
+      gl_journal_lines: {
+        Row: {
+          account_code: string
+          account_id: string | null
+          cash_order_id: string | null
+          credit: number
+          credit_jpy: number
+          currency: string
+          customer_id: string | null
+          debit: number
+          debit_jpy: number
+          expense_id: string | null
+          fx_php_per_jpy: number | null
+          id: string
+          journal_id: string
+          line_no: number
+          memo: string | null
+        }
+        Insert: {
+          account_code: string
+          account_id?: string | null
+          cash_order_id?: string | null
+          credit?: number
+          credit_jpy?: number
+          currency: string
+          customer_id?: string | null
+          debit?: number
+          debit_jpy?: number
+          expense_id?: string | null
+          fx_php_per_jpy?: number | null
+          id?: string
+          journal_id: string
+          line_no: number
+          memo?: string | null
+        }
+        Update: {
+          account_code?: string
+          account_id?: string | null
+          cash_order_id?: string | null
+          credit?: number
+          credit_jpy?: number
+          currency?: string
+          customer_id?: string | null
+          debit?: number
+          debit_jpy?: number
+          expense_id?: string | null
+          fx_php_per_jpy?: number | null
+          id?: string
+          journal_id?: string
+          line_no?: number
+          memo?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "gl_journal_lines_account_code_fkey"
+            columns: ["account_code"]
+            isOneToOne: false
+            referencedRelation: "gl_accounts"
+            referencedColumns: ["code"]
+          },
+          {
+            foreignKeyName: "gl_journal_lines_journal_id_fkey"
+            columns: ["journal_id"]
+            isOneToOne: false
+            referencedRelation: "gl_journals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      gl_journals: {
+        Row: {
+          description: string
+          entry_date: string
+          id: string
+          journal_no: number
+          kind: string
+          period_start: string
+          posted_at: string
+          posted_by: string | null
+          reason: string | null
+          reversed_by: string | null
+          reverses: string | null
+          source_date: string
+          source_id: string | null
+          source_type: string
+          source_version: string | null
+          status: string
+          total_jpy: number
+        }
+        Insert: {
+          description: string
+          entry_date: string
+          id?: string
+          journal_no?: never
+          kind: string
+          period_start: string
+          posted_at?: string
+          posted_by?: string | null
+          reason?: string | null
+          reversed_by?: string | null
+          reverses?: string | null
+          source_date: string
+          source_id?: string | null
+          source_type: string
+          source_version?: string | null
+          status?: string
+          total_jpy?: number
+        }
+        Update: {
+          description?: string
+          entry_date?: string
+          id?: string
+          journal_no?: never
+          kind?: string
+          period_start?: string
+          posted_at?: string
+          posted_by?: string | null
+          reason?: string | null
+          reversed_by?: string | null
+          reverses?: string | null
+          source_date?: string
+          source_id?: string | null
+          source_type?: string
+          source_version?: string | null
+          status?: string
+          total_jpy?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "gl_journals_period_start_fkey"
+            columns: ["period_start"]
+            isOneToOne: false
+            referencedRelation: "gl_periods"
+            referencedColumns: ["period_start"]
+          },
+          {
+            foreignKeyName: "gl_journals_reversed_by_fkey"
+            columns: ["reversed_by"]
+            isOneToOne: false
+            referencedRelation: "gl_journals"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "gl_journals_reverses_fkey"
+            columns: ["reverses"]
+            isOneToOne: false
+            referencedRelation: "gl_journals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      gl_payment_method_map: {
+        Row: {
+          account_code: string
+          kind: string
+          note: string | null
+          spelling: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          account_code: string
+          kind: string
+          note?: string | null
+          spelling: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          account_code?: string
+          kind?: string
+          note?: string | null
+          spelling?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "gl_payment_method_map_account_code_fkey"
+            columns: ["account_code"]
+            isOneToOne: false
+            referencedRelation: "gl_accounts"
+            referencedColumns: ["code"]
+          },
+        ]
+      }
+      gl_periods: {
+        Row: {
+          closed_at: string | null
+          closed_by: string | null
+          fiscal_year: number
+          note: string | null
+          period_start: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          closed_at?: string | null
+          closed_by?: string | null
+          fiscal_year: number
+          note?: string | null
+          period_start: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          closed_at?: string | null
+          closed_by?: string | null
+          fiscal_year?: number
+          note?: string | null
+          period_start?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      gl_posting_runs: {
+        Row: {
+          failed: number
+          finished_at: string | null
+          id: string
+          moved: number
+          note: string | null
+          posted: number
+          reversed: number
+          run_by: string | null
+          skipped: number
+          started_at: string
+          trigger: string
+        }
+        Insert: {
+          failed?: number
+          finished_at?: string | null
+          id?: string
+          moved?: number
+          note?: string | null
+          posted?: number
+          reversed?: number
+          run_by?: string | null
+          skipped?: number
+          started_at?: string
+          trigger: string
+        }
+        Update: {
+          failed?: number
+          finished_at?: string | null
+          id?: string
+          moved?: number
+          note?: string | null
+          posted?: number
+          reversed?: number
+          run_by?: string | null
+          skipped?: number
+          started_at?: string
+          trigger?: string
+        }
+        Relationships: []
       }
       inquiry_dropdown_options: {
         Row: {
@@ -5906,6 +6822,27 @@ export type Database = {
           },
         ]
       }
+      php_jpy_rate_history: {
+        Row: {
+          created_at: string
+          effective_from: string
+          rate: number
+          set_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          effective_from: string
+          rate: number
+          set_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          effective_from?: string
+          rate?: number
+          set_by?: string | null
+        }
+        Relationships: []
+      }
       plan_configurations: {
         Row: {
           created_at: string | null
@@ -6337,6 +7274,71 @@ export type Database = {
         }
         Relationships: []
       }
+      provider_settlements: {
+        Row: {
+          adjustments_jpy: number
+          amount_received_jpy: number
+          bank_account: string | null
+          created_at: string
+          created_by: string | null
+          fees_jpy: number
+          id: string
+          note: string | null
+          period_from: string | null
+          period_to: string | null
+          provider: string
+          received_on: string
+          reference: string | null
+          void_reason: string | null
+          voided_at: string | null
+          voided_by: string | null
+        }
+        Insert: {
+          adjustments_jpy?: number
+          amount_received_jpy?: number
+          bank_account?: string | null
+          created_at?: string
+          created_by?: string | null
+          fees_jpy?: number
+          id?: string
+          note?: string | null
+          period_from?: string | null
+          period_to?: string | null
+          provider: string
+          received_on: string
+          reference?: string | null
+          void_reason?: string | null
+          voided_at?: string | null
+          voided_by?: string | null
+        }
+        Update: {
+          adjustments_jpy?: number
+          amount_received_jpy?: number
+          bank_account?: string | null
+          created_at?: string
+          created_by?: string | null
+          fees_jpy?: number
+          id?: string
+          note?: string | null
+          period_from?: string | null
+          period_to?: string | null
+          provider?: string
+          received_on?: string
+          reference?: string | null
+          void_reason?: string | null
+          voided_at?: string | null
+          voided_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "provider_settlements_bank_account_fkey"
+            columns: ["bank_account"]
+            isOneToOne: false
+            referencedRelation: "gl_accounts"
+            referencedColumns: ["code"]
+          },
+        ]
+      }
       reconciliation_log: {
         Row: {
           account_id: string | null
@@ -6553,6 +7555,69 @@ export type Database = {
           role?: Database["public"]["Enums"]["app_role"]
           updated_at?: string
           updated_by_user_id?: string | null
+        }
+        Relationships: []
+      }
+      sale_costs: {
+        Row: {
+          cost_jpy: number
+          created_at: string
+          note: string | null
+          sale_id: string
+          sale_type: string
+          set_at: string
+          set_by: string | null
+        }
+        Insert: {
+          cost_jpy: number
+          created_at?: string
+          note?: string | null
+          sale_id: string
+          sale_type: string
+          set_at?: string
+          set_by?: string | null
+        }
+        Update: {
+          cost_jpy?: number
+          created_at?: string
+          note?: string | null
+          sale_id?: string
+          sale_type?: string
+          set_at?: string
+          set_by?: string | null
+        }
+        Relationships: []
+      }
+      sale_item_costs: {
+        Row: {
+          cost_jpy: number
+          created_at: string
+          item_id: string
+          item_table: string
+          quantity: number
+          sale_id: string
+          sale_type: string
+          variant_id: string | null
+        }
+        Insert: {
+          cost_jpy: number
+          created_at?: string
+          item_id: string
+          item_table: string
+          quantity?: number
+          sale_id: string
+          sale_type: string
+          variant_id?: string | null
+        }
+        Update: {
+          cost_jpy?: number
+          created_at?: string
+          item_id?: string
+          item_table?: string
+          quantity?: number
+          sale_id?: string
+          sale_type?: string
+          variant_id?: string | null
         }
         Relationships: []
       }
@@ -7982,6 +9047,39 @@ export type Database = {
         }
         Relationships: []
       }
+      timesheet_corrections: {
+        Row: {
+          comment: string
+          corrected_at: string
+          corrected_by: string
+          id: string
+          new_punches: Json
+          old_punches: Json
+          user_id: string
+          work_date: string
+        }
+        Insert: {
+          comment: string
+          corrected_at?: string
+          corrected_by: string
+          id?: string
+          new_punches: Json
+          old_punches: Json
+          user_id: string
+          work_date: string
+        }
+        Update: {
+          comment?: string
+          corrected_at?: string
+          corrected_by?: string
+          id?: string
+          new_punches?: Json
+          old_punches?: Json
+          user_id?: string
+          work_date?: string
+        }
+        Relationships: []
+      }
       timesheet_entries: {
         Row: {
           am_in: string | null
@@ -8118,6 +9216,8 @@ export type Database = {
           old_invoice_number: string
           resale_amount: number | null
           resale_status: Database["public"]["Enums"]["resale_status"]
+          resold_at: string | null
+          resold_invoice_number: string | null
           trade_amount: number
           updated_at: string
         }
@@ -8133,6 +9233,8 @@ export type Database = {
           old_invoice_number: string
           resale_amount?: number | null
           resale_status?: Database["public"]["Enums"]["resale_status"]
+          resold_at?: string | null
+          resold_invoice_number?: string | null
           trade_amount?: number
           updated_at?: string
         }
@@ -8148,6 +9250,8 @@ export type Database = {
           old_invoice_number?: string
           resale_amount?: number | null
           resale_status?: Database["public"]["Enums"]["resale_status"]
+          resold_at?: string | null
+          resold_invoice_number?: string | null
           trade_amount?: number
           updated_at?: string
         }
@@ -9794,6 +10898,43 @@ export type Database = {
       }
     }
     Views: {
+      gl_live_money_lines: {
+        Row: {
+          account_code: string | null
+          account_id: string | null
+          cash_order_id: string | null
+          currency: string | null
+          customer_id: string | null
+          description: string | null
+          entry_date: string | null
+          expense_id: string | null
+          id: string | null
+          journal_id: string | null
+          journal_no: number | null
+          kind: string | null
+          memo: string | null
+          posted_on: string | null
+          signed_amount: number | null
+          signed_jpy: number | null
+          source_type: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "gl_journal_lines_account_code_fkey"
+            columns: ["account_code"]
+            isOneToOne: false
+            referencedRelation: "gl_accounts"
+            referencedColumns: ["code"]
+          },
+          {
+            foreignKeyName: "gl_journal_lines_journal_id_fkey"
+            columns: ["journal_id"]
+            isOneToOne: false
+            referencedRelation: "gl_journals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       product_inquiries_with_accumulated: {
         Row: {
           accumulated_inquiry_count: number | null
@@ -10000,6 +11141,19 @@ export type Database = {
           severity: string
         }[]
       }
+      auto_match_bank_lines: {
+        Args: { p_account: string; p_month: string }
+        Returns: Json
+      }
+      book_commission_month: {
+        Args: { p_lines: Json; p_month: string; p_paid_on: string }
+        Returns: Json
+      }
+      book_payroll_month: {
+        Args: { p_lines: Json; p_month: string; p_paid_on: string }
+        Returns: Json
+      }
+      can_correct_timesheet: { Args: { p_uid: string }; Returns: boolean }
       can_manage_payslips: { Args: { p_uid: string }; Returns: boolean }
       cancel_card_refund_exception_atomic: {
         Args: { p_order_id: string; p_reason: string; p_user_id: string }
@@ -10151,6 +11305,10 @@ export type Database = {
         Args: { p_case_id: string; p_note: string; p_resolution: string }
         Returns: Json
       }
+      close_period: {
+        Args: { p_note?: string; p_period_start: string }
+        Returns: Json
+      }
       close_square_attempt_atomic: {
         Args: { p_attempt_id: string; p_note: string }
         Returns: Json
@@ -10180,6 +11338,18 @@ export type Database = {
           p_customer_id: string
           p_shopify_reference?: string
           p_source?: string
+        }
+        Returns: Json
+      }
+      correct_timesheet_day: {
+        Args: {
+          p_am_in: string
+          p_am_out: string
+          p_comment: string
+          p_pm_in: string
+          p_pm_out: string
+          p_user_id: string
+          p_work_date: string
         }
         Returns: Json
       }
@@ -10267,6 +11437,11 @@ export type Database = {
         Args: { p_account_id: string }
         Returns: number
       }
+      email_bill_dismiss: { Args: { p_message_id: string }; Returns: Json }
+      email_bill_make_expense: {
+        Args: { p: Json; p_message_id: string }
+        Returns: Json
+      }
       email_delivery_report: { Args: { p_hours?: number }; Returns: Json }
       email_queue_dispatch: { Args: never; Returns: undefined }
       end_paidy_checkout_attempt: {
@@ -10290,6 +11465,59 @@ export type Database = {
       enqueue_email: {
         Args: { payload: Json; queue_name: string }
         Returns: number
+      }
+      expenses_book_auto_month: {
+        Args: {
+          p_action: string
+          p_amount_php: number
+          p_description: string
+          p_details: Json
+          p_month: string
+          p_paid_on: string
+          p_source: string
+          p_system_key: string
+          p_uid: string
+        }
+        Returns: Json
+      }
+      expenses_create_email_draft: { Args: { p: Json }; Returns: Json }
+      expenses_create_recurring_draft: {
+        Args: {
+          p_bill: Database["public"]["Tables"]["expense_recurring_bills"]["Row"]
+          p_due: string
+          p_uid: string
+        }
+        Returns: string
+      }
+      expenses_email_attach_to_draft: {
+        Args: {
+          p_amount: number
+          p_email: Json
+          p_expense_id: string
+          p_receipt_path: string
+        }
+        Returns: Json
+      }
+      expenses_email_build_draft: {
+        Args: { p: Json; p_action: string; p_message_id: string; p_uid: string }
+        Returns: Json
+      }
+      expenses_email_context: { Args: never; Returns: Json }
+      expenses_email_match_recurring: {
+        Args: {
+          p_amount: number
+          p_category_id: string
+          p_currency: string
+          p_date: string
+          p_vendor: string
+        }
+        Returns: Json
+      }
+      expenses_email_record: { Args: { p: Json }; Returns: Json }
+      expenses_email_run: { Args: { p: Json }; Returns: Json }
+      expenses_generate_recurring: {
+        Args: { p_as_of?: string; p_uid?: string }
+        Returns: Json
       }
       expire_paidy_checkout_attempts: {
         Args: { p_cash_order_id?: string }
@@ -10455,6 +11683,10 @@ export type Database = {
         }[]
       }
       fc_portfolio_value: { Args: never; Returns: number }
+      fc_real_profit: {
+        Args: { p_from?: string; p_to?: string }
+        Returns: Json
+      }
       file_paidy_submission_atomic: {
         Args: {
           p_amount_jpy: number
@@ -10558,6 +11790,10 @@ export type Database = {
         Args: { p_detail: string; p_id: string; p_status: string }
         Returns: undefined
       }
+      generate_recurring_now: {
+        Args: { p_bill_id?: string; p_for?: string }
+        Returns: Json
+      }
       get_aging_buckets: {
         Args: { p_scope?: string }
         Returns: {
@@ -10568,6 +11804,11 @@ export type Database = {
         }[]
       }
       get_audit_filter_options: { Args: never; Returns: Json }
+      get_bank_reconciliation: {
+        Args: { p_account: string; p_month: string }
+        Returns: Json
+      }
+      get_booked_months: { Args: { p_source: string }; Returns: Json }
       get_bulk_setup_invite_candidates: {
         Args: {
           p_count_only?: boolean
@@ -10590,6 +11831,9 @@ export type Database = {
           order_count: number
         }[]
       }
+      get_chart_of_accounts: { Args: { p_as_of?: string }; Returns: Json }
+      get_clearing_summary: { Args: { p_months?: number }; Returns: Json }
+      get_close_readiness: { Args: { p_period_start: string }; Returns: Json }
       get_cod_settings: { Args: never; Returns: Json }
       get_collection_analytics: {
         Args: { currency_mode?: string; months_back?: number }
@@ -10605,6 +11849,7 @@ export type Database = {
         Args: { currency_mode?: string }
         Returns: Json
       }
+      get_email_bills: { Args: { p_days?: number }; Returns: Json }
       get_expense_book: { Args: { p_month: string }; Returns: Json }
       get_forecast_6m: {
         Args: never
@@ -10629,8 +11874,29 @@ export type Database = {
           schedule_id: string
         }[]
       }
+      get_fx_revaluation: { Args: { p_month?: string }; Returns: Json }
       get_hero_cutout_overview: { Args: never; Returns: Json }
       get_hero_lineup: { Args: never; Returns: Json }
+      get_inventory_valuation: { Args: never; Returns: Json }
+      get_journal_export: {
+        Args: { p_from: string; p_offset?: number; p_to: string }
+        Returns: Json
+      }
+      get_ledger: {
+        Args: {
+          p_account?: string
+          p_from: string
+          p_kind?: string
+          p_limit?: number
+          p_offset?: number
+          p_search?: string
+          p_source_type?: string
+          p_to: string
+        }
+        Returns: Json
+      }
+      get_ledger_checks: { Args: { p_limit?: number }; Returns: Json }
+      get_ledger_status: { Args: { p_check_pending?: boolean }; Returns: Json }
       get_media_cutout_overview: { Args: never; Returns: Json }
       get_media_cutout_provider: { Args: never; Returns: Json }
       get_media_cutout_tab_totals: { Args: never; Returns: Json }
@@ -10666,8 +11932,11 @@ export type Database = {
       }
       get_page365_inventory_auto_apply: { Args: never; Returns: Json }
       get_page365_inventory_interval: { Args: never; Returns: Json }
+      get_paid_from_accounts: { Args: never; Returns: Json }
       get_paidy_settings: { Args: never; Returns: Json }
       get_payslip_book: { Args: { p_pay_month: string }; Returns: Json }
+      get_rate_history: { Args: never; Returns: Json }
+      get_receivable_ageing: { Args: { p_as_of?: string }; Returns: Json }
       get_recent_qualifying_order: {
         Args: { p_customer_id: string; p_lookback_days?: number }
         Returns: {
@@ -10681,10 +11950,14 @@ export type Database = {
           total_amount: number
         }[]
       }
+      get_recurring_bills: { Args: never; Returns: Json }
+      get_sales_costs: { Args: { p_month?: string }; Returns: Json }
       get_shipping_rates: { Args: never; Returns: Json }
       get_square_settings: { Args: never; Returns: Json }
       get_staff_bell_emails: { Args: never; Returns: Json }
       get_staff_performance: { Args: { months_back?: number }; Returns: Json }
+      get_statements: { Args: { p_from: string; p_to: string }; Returns: Json }
+      get_timesheet_corrections: { Args: { p_month: string }; Returns: Json }
       get_top_outstanding_customers: {
         Args: never
         Returns: {
@@ -10718,10 +11991,179 @@ export type Database = {
           trade_value_jpy: number
         }[]
       }
+      get_trial_balance: {
+        Args: { p_from: string; p_to: string }
+        Returns: Json
+      }
       get_unpaid_schedule: { Args: { p_account_id: string }; Returns: Json }
       get_web_checkout_mode: { Args: never; Returns: Json }
       get_web_payment_reminders: { Args: never; Returns: Json }
       get_website_coupons: { Args: never; Returns: Json }
+      gl_account_currency: { Args: { p_code: string }; Returns: string }
+      gl_auto_match: {
+        Args: { p_account: string; p_month: string; p_uid: string }
+        Returns: Json
+      }
+      gl_base_events: {
+        Args: { p_until: string }
+        Returns: {
+          account_id: string
+          cash_order_id: string
+          customer_id: string
+          description: string
+          expense_id: string
+          lines: Json
+          source_date: string
+          source_id: string
+          source_type: string
+        }[]
+      }
+      gl_clearing_account: { Args: { p_provider: string }; Returns: string }
+      gl_clearing_events: {
+        Args: { p_until: string }
+        Returns: {
+          account_id: string
+          cash_order_id: string
+          customer_id: string
+          description: string
+          expense_id: string
+          lines: Json
+          source_date: string
+          source_id: string
+          source_type: string
+        }[]
+      }
+      gl_close_readiness: {
+        Args: { p_dry_run: boolean; p_period_start: string }
+        Returns: Json
+      }
+      gl_cogs_events: {
+        Args: { p_until: string }
+        Returns: {
+          account_id: string
+          cash_order_id: string
+          customer_id: string
+          description: string
+          expense_id: string
+          lines: Json
+          source_date: string
+          source_id: string
+          source_type: string
+        }[]
+      }
+      gl_current_events: {
+        Args: { p_until: string }
+        Returns: {
+          account_id: string
+          cash_order_id: string
+          customer_id: string
+          description: string
+          expense_id: string
+          lines: Json
+          source_date: string
+          source_id: string
+          source_type: string
+        }[]
+      }
+      gl_expenses_without_paid_from: {
+        Args: { p_start: string }
+        Returns: Json
+      }
+      gl_fiscal_year: { Args: { p_date: string }; Returns: number }
+      gl_is_money_account: { Args: { p_code: string }; Returns: boolean }
+      gl_ledger_start: { Args: never; Returns: string }
+      gl_method_account: {
+        Args: { p_currency: string; p_method: string }
+        Returns: string
+      }
+      gl_pending_counts: { Args: { p_until: string }; Returns: Json }
+      gl_period_for: { Args: { p_date: string }; Returns: string }
+      gl_period_is_closed: { Args: { p_date: string }; Returns: boolean }
+      gl_post_now: { Args: never; Returns: Json }
+      gl_post_pending: {
+        Args: { p_dry?: boolean; p_trigger?: string; p_user_id?: string }
+        Returns: Json
+      }
+      gl_post_settled: {
+        Args: { p_trigger: string; p_user_id: string }
+        Returns: Json
+      }
+      gl_posting_date: { Args: { p_source_date: string }; Returns: string }
+      gl_rate: { Args: never; Returns: number }
+      gl_rate_at: { Args: { p_date: string }; Returns: number }
+      gl_run_completeness_check: {
+        Args: { p_trigger: string; p_user_id: string }
+        Returns: Json
+      }
+      gl_sale_costs: {
+        Args: never
+        Returns: {
+          cost_jpy: number
+          cost_source: string
+          sale_id: string
+          sale_type: string
+        }[]
+      }
+      gl_statement_flags: {
+        Args: never
+        Returns: {
+          jpy: number
+          pct: number
+        }[]
+      }
+      gl_stmt_kind_sum: {
+        Args: {
+          p: Json
+          p_exclude: string[]
+          p_field: string
+          p_kinds: string[]
+        }
+        Returns: number
+      }
+      gl_stmt_line: {
+        Args: {
+          p_cur: number
+          p_jpy: number
+          p_key: string
+          p_label: string
+          p_label_ja: string
+          p_level: number
+          p_pct: number
+          p_prior: number
+          p_py: number
+          p_section: string
+        }
+        Returns: Json
+      }
+      gl_stmt_pick: {
+        Args: { p: Json; p_codes: string[]; p_field: string }
+        Returns: number
+      }
+      gl_to_jpy: {
+        Args: { p_amount: number; p_currency: string; p_rate: number }
+        Returns: number
+      }
+      gl_unmapped_methods: { Args: { p_start: string }; Returns: Json }
+      gl_unreconciled_accounts: { Args: { p_month: string }; Returns: Json }
+      gl_write_journal: {
+        Args: {
+          p_account_id: string
+          p_cash_order_id: string
+          p_customer_id: string
+          p_description: string
+          p_expense_id: string
+          p_kind: string
+          p_lines: Json
+          p_posted_by: string
+          p_reason: string
+          p_reverses: string
+          p_source_date: string
+          p_source_id: string
+          p_source_type: string
+          p_source_version: string
+        }
+        Returns: string
+      }
       has_permission: {
         Args: { _permission_key: string; _user_id: string }
         Returns: boolean
@@ -10776,6 +12218,12 @@ export type Database = {
       }
       hero_picks_carry_over: { Args: { p_apply?: boolean }; Returns: Json }
       hero_product_counts: { Args: { p_extra?: string[] }; Returns: Json }
+      ignore_bank_line: {
+        Args: { p_line: string; p_reason: string }
+        Returns: Json
+      }
+      import_bank_statement: { Args: { p: Json }; Returns: Json }
+      import_sale_costs: { Args: { p_rows: Json }; Returns: Json }
       insert_lot_and_extend: {
         Args: {
           p_amount: number
@@ -10920,6 +12368,10 @@ export type Database = {
           p_refunded_on: string
           p_user_id: string
         }
+        Returns: Json
+      }
+      match_bank_line: {
+        Args: { p_journal_line: string; p_line: string }
         Returns: Json
       }
       materialize_web_draft_atomic: {
@@ -11336,6 +12788,7 @@ export type Database = {
           use_count: number
         }[]
       }
+      post_manual_journal: { Args: { p: Json }; Returns: Json }
       purge_stale_customer_carts: { Args: never; Returns: number }
       reactivate_layaway_atomic: {
         Args: {
@@ -11387,6 +12840,7 @@ export type Database = {
           old_total_paid: number
         }[]
       }
+      record_fund_transfer: { Args: { p: Json }; Returns: Json }
       record_paidy_refund: {
         Args: {
           p_amount_jpy: number
@@ -11412,6 +12866,7 @@ export type Database = {
         Args: { p_customer_id: string; p_token_id?: string }
         Returns: undefined
       }
+      record_provider_settlement: { Args: { p: Json }; Returns: Json }
       record_square_dispute: {
         Args: {
           p_amount_jpy: number
@@ -11438,6 +12893,14 @@ export type Database = {
           p_status: string
         }
         Returns: Json
+      }
+      recurring_first_due: {
+        Args: { p_due_day: number; p_starts_on: string }
+        Returns: string
+      }
+      recurring_next_due: {
+        Args: { p_due: string; p_frequency: string }
+        Returns: string
       }
       redeem_store_credit_atomic: {
         Args: {
@@ -11481,6 +12944,14 @@ export type Database = {
           p_new_invoice_number: string
           p_performed_by_user_id?: string
         }
+        Returns: Json
+      }
+      reopen_period: {
+        Args: { p_period_start: string; p_reason: string }
+        Returns: Json
+      }
+      reopen_reconciliation: {
+        Args: { p_account: string; p_month: string; p_reason: string }
         Returns: Json
       }
       replace_customer_addresses: {
@@ -11542,6 +13013,10 @@ export type Database = {
       }
       revalidate_account_from_vault: {
         Args: { p_invoice_number: string }
+        Returns: Json
+      }
+      reverse_journal: {
+        Args: { p_id: string; p_reason: string }
         Returns: Json
       }
       review_hero_cutout: {
@@ -11623,6 +13098,7 @@ export type Database = {
         Returns: string
       }
       ring_square_deadline_bells: { Args: { p_now?: string }; Returns: Json }
+      run_ledger_check: { Args: never; Returns: Json }
       save_staff_payroll_details: {
         Args: { p_address: string; p_date_of_birth: string; p_user_id: string }
         Returns: Json
@@ -11651,6 +13127,15 @@ export type Database = {
         Args: { p_expected_mode?: string; p_fee_table?: Json; p_mode: string }
         Returns: Json
       }
+      set_email_bills_enabled: { Args: { p_enabled: boolean }; Returns: Json }
+      set_expense_paid_from: {
+        Args: { p_code: string; p_id: string }
+        Returns: Json
+      }
+      set_expense_prepaid: {
+        Args: { p_id: string; p_months: number }
+        Returns: Json
+      }
       set_hero_cutout_mode: {
         Args: { p_expected_mode?: string; p_mode: string }
         Returns: Json
@@ -11663,6 +13148,7 @@ export type Database = {
         Args: { p_pick: boolean; p_source_url: string }
         Returns: Json
       }
+      set_ledger_start: { Args: { p_date: string }; Returns: Json }
       set_media_cutout_provider: {
         Args: {
           p_expected_provider?: string
@@ -11691,6 +13177,27 @@ export type Database = {
         }
         Returns: Json
       }
+      set_payment_method_map: {
+        Args: { p_account_code: string; p_kind: string; p_spelling: string }
+        Returns: Json
+      }
+      set_php_jpy_rate: {
+        Args: { p_effective_from?: string; p_rate: number }
+        Returns: Json
+      }
+      set_recurring_bill_active: {
+        Args: { p_active: boolean; p_id: string }
+        Returns: Json
+      }
+      set_sale_cost: {
+        Args: {
+          p_cost_jpy: number
+          p_note?: string
+          p_sale_id: string
+          p_sale_type: string
+        }
+        Returns: Json
+      }
       set_shipping_rate: {
         Args: {
           p_country: string
@@ -11713,6 +13220,10 @@ export type Database = {
       }
       set_staff_bell_emails: {
         Args: { p_addresses?: Json; p_roles?: Json; p_types?: Json }
+        Returns: Json
+      }
+      set_statement_flags: {
+        Args: { p_jpy: number; p_pct: number }
         Returns: Json
       }
       set_web_checkout_mode: {
@@ -11744,6 +13255,15 @@ export type Database = {
           p_reference_number: string
           p_sender_name: string
           p_user_id: string
+        }
+        Returns: Json
+      }
+      sign_off_reconciliation: {
+        Args: {
+          p_account: string
+          p_month: string
+          p_note?: string
+          p_statement_closing: number
         }
         Returns: Json
       }
@@ -11843,6 +13363,7 @@ export type Database = {
         Returns: Json
       }
       timesheet_can_view_all: { Args: { uid: string }; Returns: boolean }
+      unmatch_bank_line: { Args: { p_line: string }; Returns: Json }
       unwaive_penalty_atomic: {
         Args: { p_user_email: string; p_user_id: string; p_waiver_id: string }
         Returns: Json
@@ -11852,10 +13373,24 @@ export type Database = {
         Returns: Json
       }
       upsert_expense: { Args: { p: Json }; Returns: Json }
+      upsert_gl_account: { Args: { p: Json }; Returns: Json }
+      upsert_recurring_bill: { Args: { p: Json }; Returns: Json }
       upsert_website_coupon: { Args: { p: Json }; Returns: Json }
       validate_bulk_import: { Args: { p_rows: Json }; Returns: Json }
+      void_bank_import: {
+        Args: { p_import: string; p_reason: string }
+        Returns: Json
+      }
       void_expense: { Args: { p_id: string; p_reason: string }; Returns: Json }
+      void_fund_transfer: {
+        Args: { p_id: string; p_reason: string }
+        Returns: Json
+      }
       void_payslip: { Args: { p_id: string; p_reason: string }; Returns: Json }
+      void_provider_settlement: {
+        Args: { p_id: string; p_reason: string }
+        Returns: Json
+      }
       void_redemption_atomic: {
         Args: {
           p_redemption_id: string
