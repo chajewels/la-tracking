@@ -235,6 +235,8 @@ export const SOURCE_TYPE_LABEL: Record<string, string> = {
   store_credit_issue: "Store credit issued", store_credit_use: "Store credit used", expense: "Expense", expense_amortisation: "Prepaid release",
   square_refund: "Square refund", paidy_refund: "Paidy refund", web_refund: "Refund issued",
   cogs_sale: "Cost of pieces sold", cogs_return: "Piece back in stock", trade_in_received: "Trade-in received", trade_in_resold: "Trade-in resold",
+  square_fee: "Square fee", settlement_payout: "Provider payout", settlement_fee: "Provider statement fees", settlement_adjustment: "Provider adjustment",
+  fund_transfer: "Transfer between our accounts", fx_revaluation: "Peso revaluation",
   manual: "Manual", opening: "Opening balance",
 };
 export const SOURCE_TYPES = Object.keys(SOURCE_TYPE_LABEL).filter((k) => k !== "manual" && k !== "opening");

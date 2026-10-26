@@ -19,7 +19,7 @@ never recorded as paid.
 | 3 | Recurring bills + prepaid amortisation | built — migration `20270102100000_expenses_recurring_prepaid.sql` (+ prepaid column/events in the 2b file; plan `claude/expenses-phase3-recurring-plan-2026-10-25.md`) |
 | 4 | Email bills → drafts (sales@ read directly; personal Gmail forwards to sales@) | built — migration `20270103100000_expenses_email_bills.sql` + edge function `expenses-email-bills` (separate Lovable deploy prompt; needs gmail.readonly in Google Admin; plan `claude/expenses-phase4-email-bills-plan-2026-10-26.md`) |
 | 5 | Real cost of goods / inventory on every ledger; replaces the 15% | built — migration `20270104100000_expenses_cost_of_goods.sql` (plan `claude/expenses-phase5-cogs-plan-2026-10-26.md`) |
-| 6 | Provider fees, clearing, FX revaluation | not started |
+| 6 | Provider fees, clearing, FX revaluation | built — migration `20270105100000_expenses_clearing_fx.sql` (plan `claude/expenses-phase6-clearing-fx-plan-2026-10-26.md`) |
 | 7 | Statements (P&L, balance sheet, cash flow) + 税理士 pack (CSV + PDF) | not started |
 | 8 | Controls (period lock, bank reconciliation, completeness check) + full testing → owner-approved live apply → merge | not started |
 
@@ -515,6 +515,83 @@ from the product cost basis for new stock). Opening inventory comes from the acc
   excluded; `resold_at` cannot be moved by a client.
 - tsc exit 0; Vitest cogs (7) + ledger (14, April–March) + full suite (116 files / 1,873) pass; build passes;
   lint unchanged (881 / 150).
+
+## Phase 6 — Provider fees, clearing, own-account transfers, peso revaluation
+
+Owner decisions 2026-10-26 (D1–D6 as recommended): Square fees booked from each payment; finance records
+Square / Paidy / Stripe payouts and courier COD remittances on a Clearing screen (courier charges → 5400);
+"Record transfer" for money moved between the company's own accounts (fee → 6300, bank-rate difference →
+FX gain / loss); month-end revaluation of every peso balance at the rate in effect, with a rate history
+that logs every change; settlements and transfers need post_journal.
+
+### What existed (2026-10-26)
+Clearing accounts (1130 Square, 1131 Paidy, 1132 Stripe, 1140 COD) were debited at capture and never
+cleared; nothing touched 6300 / 4950 / 6800 except hand-entered expenses. Square's processing fee lived only
+inside the webhook payload (11 captured live payments, ¥8,570); Paidy had no fee data; Stripe is not built;
+the courier's COD charge stayed outside the Hub. ₱22.2M of peso payments this FY; the one rate (0.42) unchanged
+since 27 Mar 2026 with no history; no revaluation; no record of SMBC → BDO remittances.
+
+### How it works
+- **Rate history** `php_jpy_rate_history` (effective_from, rate): a trigger on `system_settings` logs and
+  audits every change of `php_jpy_rate` (Settings page unchanged); `set_php_jpy_rate(rate, date)` (admin_settings)
+  sets today's rate or dates a past one (history only; a dated rate must be earlier than the latest row —
+  `date_after_latest`); `gl_rate_at(date)` = latest row on or before the day, before the first row the first row,
+  with no history the live setting; `get_rate_history()`. The migration seeds one row dated at the setting's
+  last update — the owner should date the real history (e.g. 0.42 since 27 Mar 2026) before the ledger start.
+- **Posting passes** the revaluation derives from POSTED peso lines, so `gl_post_now` and the nightly cron now
+  run `gl_post_settled` — up to three passes until a pass changes nothing (a dry run decides whether another
+  pass is needed, so no empty run rows).
+- **Square fees** — event `square_fee` per captured production payment with `processing_fee` in its payload:
+  Dr 6300 / Cr 1130, dated at capture; test rows, sandbox and test orders excluded. The clearing balance now
+  equals Square's net.
+- **Settlements** `provider_settlements` (provider square | paidy | stripe | cod_carrier, received_on, period,
+  amount_received_jpy, fees_jpy, adjustments_jpy, bank_account, reference, note; voided never deleted). RPCs
+  `record_provider_settlement(p)` / `void_provider_settlement(id, reason)` (post_journal, audited). Events:
+  `settlement_payout` Dr bank / Cr clearing; `settlement_fee` Dr 6300 (courier: 5400 Carrier cost) / Cr
+  clearing; `settlement_adjustment` ± → 4900 / 6900. A fee-only statement needs no bank account; money received
+  needs one (bank / cash, never a clearing or receivable account). Closed month refused.
+- **Transfers** `fund_transfers` (from / to account with amounts in each leg's currency, fee, fee account 6300).
+  RPCs `record_fund_transfer(p)` / `void_fund_transfer`. Event `fund_transfer`: Dr to / Cr from (each in yen at
+  the rate in effect ON THE TRANSFER DATE, so the journal is stable), Dr fee, and — only when the legs are in
+  different currencies — the yen difference to **6800** (received less) or **4950** (received more). Same-currency
+  legs must satisfy sent = received + fee, fee in that currency (no FX line, no fake gain); endpoints are bank /
+  cash accounts only (1xxx below 1130 — never a clearing or receivable account).
+- **Peso revaluation** — event `fx_revaluation` per asset / liability account carrying peso lines (PH banks,
+  GCash, PH cash, the peso part of 1200 / 1210 / 2300 …; never revenue or expenses), per month end from the
+  ledger start: increment = (round(native ₱ ÷ rate at month end) − carrying yen) − previous month's cumulative;
+  Dr account / Cr 4950 or Dr 6800 / Cr account. Derived from posted PESO lines only (revaluation lines are yen),
+  as the books stood at that month end — a reversal dated today does not change a past month, exactly like
+  the trial balance. A dated rate change re-derives from that month (reversal + repost); an unchanged rate
+  posts nothing. `get_fx_revaluation(month)` shows per account: ₱ balance, books ¥, at month-end rate ¥,
+  this month's increment.
+- **Fee categories** Square / Paidy / Stripe fees are automatic now: trigger `expenses_refuse_auto_fee_categories`
+  refuses an expense in them (`category_booked_automatically`), the manual picker hides them
+  (`AUTO_BOOKED_SYSTEM_KEYS`), and the email reader no longer offers them (re-stated `expenses_email_context`).
+  "Bank transfer and remittance fees" stays manual for fees not tied to a recorded transfer.
+- **Screen** Finance → Ledger → **Clearing & FX**: provider table (captured / fees / refunds / paid out /
+  still owed / status with the oldest open capture), Record settlement…, settlements list (Void with reason);
+  Transfers card with Record transfer… and the list (FX gain / loss per row); Peso revaluation card by month
+  (preview for the current month) with the rate history. `get_clearing_summary(months)`.
+- Refusals: `invalid_provider`, `invalid_date`, `invalid_amount`, `invalid_account`, `invalid_currency`,
+  `amounts_differ`, `period_closed`, `reason_required`, `already_voided`, `not_found`, `invalid_rate`.
+- Out of scope (named): Stripe konbini itself; automatic payout webhooks; bank-statement reconciliation (Phase 8).
+
+### Verified (2026-10-26)
+- Local PostgreSQL 16: seven migrations applied twice through one `run.sh`; earlier suites (17 / 5 / 11 / 8 /
+  7 / 8) still pass; new `test_clearing.sql` (7 groups): rate history (seed, same-rate no-op, change logged +
+  audited), permissions (staff / finance / anon, table writes revoked), Square fee from the payload with
+  test / sandbox exclusion, settlements clearing 1130 and 1140 to zero, courier charge → 5400, Paidy fee → 6300,
+  negative adjustment → 6900, validation, void → reversal, clearing summary figures, transfers (peso leg at
+  the Hub rate, fee, FX difference, same-currency rule, void + re-record), revaluation (no journal at an
+  unchanged rate; dated rate → increments on 1111 and 1200 only, never 4100; balances as the books stood;
+  idempotent; correcting the rate reverses), manual fee expense refused.
+- Independent review applied before the PR: same-currency transfers can no longer book a fake FX gain (sent must
+  equal received + fee; no FX line when the currencies match); transfers use the rate on the transfer date
+  (stable journals — later rate moves flow through revaluation); the rate fallback before the first history row
+  is the first row, never the newest; a dated rate after the latest row is refused; clearing accounts are not
+  transfer endpoints; `gl_post_settled` removes the one-run lag of the revaluation; the Square-fee header no
+  longer promises a refund mirror (the payload sum carries fee adjustments when refreshed); tests tightened.
+- tsc exit 0; Vitest clearing (5) + full suite (117 files / 1,878) pass; build passes; lint unchanged (881 / 150).
 
 ### Note for later builds
 `vite build` runs the `@lovable.dev/mcp-js` plugin, which rewrites

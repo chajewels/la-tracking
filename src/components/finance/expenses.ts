@@ -414,7 +414,7 @@ export function expenseRefusal(code: string): string {
     case "already_void": return "This expense is already void.";
     case "invalid_receipt_path": return "The receipt could not be attached. Try uploading it again.";
     case "rate_not_set": return "The peso rate is not set in the Hub, so a peso expense can't be approved yet.";
-    case "category_booked_automatically": return "Staff payroll and Sales commission are booked from Timesheet and Commissions, not by hand.";
+    case "category_booked_automatically": return "Payroll, commission and the Square / Paidy / Stripe fees are booked automatically (Timesheet, Commissions, Finance → Ledger → Clearing), not by hand.";
     case "category_required": return "This emailed bill is still in the holding category. Edit it and pick a real category before approving.";
     default: return "Something went wrong. Try again in a moment.";
   }
@@ -424,7 +424,7 @@ export function expenseRefusal(code: string): string {
  * Categories booked automatically (Phase 2: Timesheet / Commissions). upsert_expense refuses
  * them (category_booked_automatically) because a manual row would count the same money twice.
  */
-export const AUTO_BOOKED_SYSTEM_KEYS = ["payroll", "commission"];
+export const AUTO_BOOKED_SYSTEM_KEYS = ["payroll", "commission", "square_fees", "paidy_fees", "stripe_fees"];
 
 /** Phase 4 holding category for emailed bills the reader could not place — never offered in the picker. */
 export const HOLDING_SYSTEM_KEYS = ["uncategorised"];
@@ -439,6 +439,7 @@ export function canEnterManually(c: { active: boolean; system_key: string | null
  */
 export function refusalCode(e: { code?: string; message?: string }): string {
   if (e.message && /category_required/.test(e.message)) return "category_required";
+  if (e.message && /category_booked_automatically/.test(e.message)) return "category_booked_automatically";
   return e.code ?? e.message ?? "";
 }
 
