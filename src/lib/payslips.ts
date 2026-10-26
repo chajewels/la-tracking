@@ -10,8 +10,9 @@
 import * as XLSX from 'xlsx';
 import type { MonthComputation, TemplateType, TimesheetProfile } from '@/lib/timesheetEngine';
 import type { AgentMonthResult, MonthlyComputation } from '@/lib/commissionEngine';
+import { LEGAL_NAME_JA } from '@/lib/companyInfo';
 
-export const COMPANY_NAME = 'Ｃｈａ　Ｊｅｗｅｌｓ株式会社';
+export const COMPANY_NAME = LEGAL_NAME_JA;
 export const PAYSLIP_PROOF_BUCKET = 'payslip-proofs';
 /** finalize_payslip refuses months before this one. */
 export const FIRST_PAY_MONTH = '2026-06';
@@ -75,6 +76,8 @@ export interface Payslip {
   php_per_jpy: number | null;
   paid_on: string | null;
   proof_path: string | null;
+  /** Who finalized it (get_payslip_book returns the whole row). */
+  finalized_by?: string | null;
   finalized_at: string;
   paid_at: string | null;
   voided_at: string | null;
