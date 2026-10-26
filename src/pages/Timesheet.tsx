@@ -27,6 +27,9 @@ import {
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { getPHTToday } from '@/lib/date-utils';
+import { usePermissions } from '@/contexts/PermissionsContext';
+import MarkPaidPanel from '@/components/finance/MarkPaidPanel';
+import type { PayrollLine } from '@/components/finance/mark-paid';
 import PayslipsTab from '@/components/timesheet/PayslipsTab';
 import {
   TemplateType, TimesheetProfile, TimesheetEntry, MonthCostRow,
@@ -591,13 +594,15 @@ function Fragment2({ children }: { children: React.ReactNode }) {
 // ── Tab: Cost Master (admin) ────────────────────────────────────────────────
 
 function CostMasterTab({
-  profiles, entriesByUser, nameByUser, monthKey, onMonthChange,
+  profiles, entriesByUser, nameByUser, monthKey, onMonthChange, canMarkPaid,
 }: {
   profiles: TimesheetProfile[];
   entriesByUser: Map<string, TimesheetEntry[]>;
   nameByUser: Map<string, string>;
   monthKey: string;
   onMonthChange: (k: string) => void;
+  /** approve_expenses — shows the "Mark as paid" block (Expenses Phase 2). */
+  canMarkPaid: boolean;
 }) {
   const active = useMemo(() => profiles.filter(p => p.active), [profiles]);
 
@@ -624,6 +629,14 @@ function CostMasterTab({
   }, [active, entriesByUser, nameByUser, monthKey]);
 
   const grandNet = useMemo(() => groups.reduce((s, g) => s + g.subtotalNet, 0), [groups]);
+
+  // The lines "Mark as paid" records — exactly the rows shown above.
+  const payrollLines = useMemo<PayrollLine[]>(
+    () => groups.flatMap(g => g.rows.map(r => ({
+      user_id: r.user_id, name: r.name, template: g.template, total_hours: r.total_hours, net: r.net,
+    }))),
+    [groups],
+  );
 
   return (
     <div className="space-y-4">
@@ -682,6 +695,9 @@ function CostMasterTab({
             </tbody>
           </table>
         </div>
+      )}
+      {groups.length > 0 && (
+        <MarkPaidPanel source="payroll" monthKey={monthKey} lines={payrollLines} canMarkPaid={canMarkPaid} />
       )}
     </div>
   );
@@ -1216,6 +1232,10 @@ export default function Timesheet() {
   // Single source of truth for the two shared gates.
   const canConsolidate = isAdmin || roles.includes('finance') || canViewAll;
   const canViewCost = isAdmin || canViewAll;
+  // "Mark as paid" on Cost Master books the month's payroll as an expense — approve_expenses
+  // (admin short-circuits inside can()).
+  const { can } = usePermissions();
+  const canMarkPaid = can('approve_expenses');
 
   // Admin lands on Full Summary and has NO "My Timesheet" tab; everyone
   // else (incl. flagged staff) lands on My Timesheet.
@@ -1411,6 +1431,7 @@ export default function Timesheet() {
                   nameByUser={nameByUser}
                   monthKey={monthKey}
                   onMonthChange={setMonthKey}
+                  canMarkPaid={canMarkPaid}
                 />
               </TabsContent>
             )}

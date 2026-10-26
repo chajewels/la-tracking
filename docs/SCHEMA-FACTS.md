@@ -1904,3 +1904,206 @@ looks like an anon write path. `extension_requests.portal_token` stays.
   `upsert_expense` / `attach_expense_receipt` / `approve_expense` / `void_expense`
   (SECURITY DEFINER, `has_permission`, one `audit_logs` row each). Not yet in
   src/integrations/supabase/types.ts — the Hub calls them through a cast `callRpc`.
+
+## Expenses — Mark as paid (Phase 2, 2026-10-25)
+
+- `expenses.details jsonb NULL` (CHECK object) — breakdown behind an automatic booking; locked with
+  the row once approved. `expenses_source_ref_uq` is now `WHERE source_ref IS NOT NULL AND status
+  <> 'void'` — a voided booking can be re-booked.
+- `timesheet_monthly_history.month_key` is the PRIMARY KEY (baseline line 1485, confirmed on live
+  2026-10-25); `book_payroll_month` upserts with `ON CONFLICT (month_key)`. Live months are now
+  WRITTEN to this table on each payroll booking (supersedes "live months come from entries, NOT
+  this table" above for booked months — the Hub's Cost Master still computes live; the table is
+  the snapshot of what was PAID).
+- RPCs: `book_payroll_month(date, date, jsonb)`, `book_commission_month(date, date, jsonb)`
+  (approve_expenses; each books ONE approved PHP expense via internal
+  `expenses_book_auto_month`, advisory-locked per source+month, two audit_logs rows;
+  payroll also upserts the history row), `get_booked_months(text)` (manage or approve). Not in
+  types.ts — called through the cast `callRpc` (coupon precedent).
+
+## General ledger (Expenses Phase 2b, 2026-10-25)
+
+- Migration `20270101100000_general_ledger_core.sql` (applied NOWHERE yet; branch feat/expenses). Full rules in
+  docs/EXPENSES.md "Phase 2b".
+- `gl_accounts` (code text PK `^[1-6][0-9]{3}$`, kind asset | liability | equity | revenue | cogs | expense, contra,
+  currency_hint, active, system_key). ONE Sales account 4100 — there is no 4110 (owner D2). Seed-only plus
+  `upsert_gl_account` (admin_settings); never deleted; system_key accounts cannot be deactivated.
+- `gl_payment_method_map` (spelling PK = lower(btrim(method)), account_code FK, kind bank | cash | clearing | cod |
+  non_cash | suspense). `gl_method_account(method, currency)`: kind cash → 1010 for JPY rows, 1020 for PHP rows;
+  unknown spelling → 1190.
+- `expense_categories.gl_account_code text NULL FK` (seeded for the 28 categories). `expenses.paid_from text NULL FK`
+  — the ONLY column an APPROVED expense may change (`expenses_before_write` re-stated in 2b with that allowance;
+  `set_expense_paid_from`: drafts need manage or approve, approved rows need approve_expenses).
+- `system_settings` keys `fiscal_year_start_month` ("4" — April–March, owner 2026-10-26) and `ledger_start_date` (JSON null until the owner sets it
+  with `set_ledger_start`; first of a month; frozen once any journal exists). `gl_fiscal_year(date)` = the year the
+  April–March year ENDS (June 2026 → 2027; start month 1 → calendar year).
+- `gl_periods` (period_start date PK = first of month, fiscal_year, status open | closed, closed_at/by, note); rows are
+  created lazily by `gl_period_for(date)`. `gl_posting_date(d)` returns d unless d's month ≤ the LAST closed month,
+  then the first day after the last closed month.
+- `gl_journals` (journal_no identity, entry_date, period_start FK, source_date, kind auto | manual | opening |
+  reversal, source_type, source_id, source_version = md5(source_date || lines jsonb), description, status posted |
+  reversed, reverses / reversed_by, reason, posted_by NULL = engine, total_jpy = Σ debit_jpy). Partial unique index
+  `gl_journals_live_source_uq (source_type, source_id) WHERE kind = 'auto' AND status = 'posted'`.
+- `gl_journal_lines` (journal_id FK, line_no, account_code FK, debit / credit numeric(15,2) exactly one > 0,
+  currency, fx_php_per_jpy (PHP only), debit_jpy / credit_jpy numeric(15,0), memo, customer_id, account_id,
+  cash_order_id, expense_id). Deferred constraint trigger `gl_journals_balanced`: ≥ 2 lines and Σ debit_jpy =
+  Σ credit_jpy. Row triggers refuse UPDATE/DELETE on lines and any journal UPDATE except posted → reversed +
+  reversed_by (compared as jsonb minus those two keys); statement triggers refuse TRUNCATE; INSERT/UPDATE/DELETE/
+  TRUNCATE revoked from PUBLIC/anon/authenticated. SELECT policies on all six gl_* tables: view_ledger.
+- `gl_posting_runs` (trigger cron | manual | migration, run_by, posted, reversed, moved, skipped).
+- Engine: `gl_current_events(p_until)` (internal; the event sets are listed in docs/EXPENSES.md) and
+  `gl_post_pending(p_dry, p_trigger, p_user_id)` (SECURITY DEFINER, revoked from authenticated/anon, service_role
+  may execute; `pg_advisory_xact_lock(hashtext('gl_post_pending'))`; temp table `gl_events_tmp` ON COMMIT DROP).
+  Fingerprint = md5(event date (blank for close events) || accounts:sides:amounts:currencies) — memos and
+  descriptions are NOT fingerprinted, so cosmetic edits never repost. Each event is posted in a sub-block;
+  failures are counted in `gl_posting_runs.failed` with the error in `note`. Reversals are dated today (JST) and
+  carry the ORIGINAL yen per line ('jpy' key honoured by `gl_write_journal`).
+- STORE CREDIT IS RECORDED TWICE BY THE HUB: `redeem_store_credit_atomic` writes a `payments` / `cash_payments`
+  row (method `store_credit`) AND a `store_credit_transactions` `redeemed` row with account_id / cash_order_id.
+  The ledger posts Hub-linked redemptions from the PAYMENT row only; `store_credit_use` covers expiries and
+  off-Hub redemptions (no plan / order). `final_forfeited` is set by the auto-forfeit edge function WITHOUT
+  updating `forfeited_at` (close events therefore fall back to `updated_at` and exclude the date from their
+  fingerprint).
+  `gl_write_journal` balances a PHP journal whose lines round apart by adjusting the last credit line's yen when the
+  difference is ≤ the number of lines.
+- pg_cron job `gl-post-pending`, `40 15 * * *` (00:40 JST), `SELECT public.gl_post_pending(false, 'cron', NULL)`;
+  scheduled only where the `cron` schema exists.
+- RPCs (all REVOKE PUBLIC/anon, GRANT authenticated; not in types.ts — cast `callRpc`): `get_ledger_status(boolean)`,
+  `get_chart_of_accounts(date)`, `get_ledger(date, date, text, text, text, text, int, int)`,
+  `get_trial_balance(date, date)`, `get_paid_from_accounts()`, `gl_post_now()`, `post_manual_journal(jsonb)`,
+  `reverse_journal(uuid, text)`, `close_period(date, text)`, `reopen_period(date, text)`, `set_ledger_start(date)`,
+  `set_payment_method_map(text, text, text)`, `upsert_gl_account(jsonb)`, `set_expense_paid_from(uuid, text)`.
+- Permission keys `view_ledger`, `post_journal`, `close_period` (admin true; staff, finance, csr, live_agent false).
+- Live-data facts the engine relies on (read 2026-10-25): `layaway_accounts.total_paid` = Σ non-void payments on every
+  plan (0 differences); 1,750 payments have no `payment_allocations` row (so only penalty allocations are used, the
+  rest reduces the receivable); `payments` has an RLS UPDATE policy for authenticated (voids/edits are direct table
+  writes — hence the derived design); `account_status` includes `final_forfeited`; `store_credit_lot_status`
+  active | consumed | expired | voided; `store_credit_txn_type` issued | redeemed | expired | voided | adjusted;
+  `cash_orders.refund_status` ∈ refund_issued | refund_pending | store_credit_issued | no_refund.
+
+## Recurring bills + prepaid (Expenses Phase 3, 2026-10-25)
+
+- Migration `20270102100000_expenses_recurring_prepaid.sql` (applied NOWHERE; branch feat/expenses). Rules in
+  docs/EXPENSES.md "Phase 3".
+- `expense_recurring_bills` (id, name, category_id FK, vendor_id FK NULL, description, currency JPY|PHP, amount,
+  payment_method (Phase 1 enum), paid_from FK gl_accounts NULL, frequency monthly|quarterly|yearly, due_day 1–28,
+  starts_on, ends_on NULL, spread_months 2–36 NULL, active, notes, next_due_on, last_generated_on, created_by/at,
+  updated_at). RLS SELECT manage|approve; writes revoked; DELETE/TRUNCATE refused by trigger. RPCs:
+  `upsert_recurring_bill(jsonb)`, `set_recurring_bill_active(uuid, boolean)`, `get_recurring_bills()`,
+  `generate_recurring_now(uuid, date)` (manage; approve may read); internal `expenses_generate_recurring(date, uuid)`
+  and `expenses_create_recurring_draft(bill, date, uuid)`; helpers `recurring_first_due(date, smallint)`,
+  `recurring_next_due(date, text)`.
+- Recurring drafts: `expenses.source = 'recurring'`, `source_ref = '<bill id>:<due date>'` (unique among non-void rows
+  via `expenses_source_ref_uq`), `details.kind = 'recurring_bill'`.
+- `expenses.prepaid_months smallint NULL CHECK 2..36` — ADDED BY THE 2b MIGRATION FILE (20270101100000) next to
+  `paid_from`; set by `set_expense_prepaid(uuid, integer)` on drafts only; locked after approval. Ledger events in
+  the 2b file: E6 debits 1400 when prepaid_months is set; `expense_amortisation` (source_id =
+  `md5(expense_id || ':' || 'YYYY-MM')::uuid`, dated at each month end ≤ today) releases 1/N to the category.
+- pg_cron `expenses-recurring`, `20 15 * * *` (00:20 JST) → `expenses_generate_recurring(NULL, NULL)`.
+
+## Emailed bills (Expenses Phase 4, 2026-10-26)
+
+- Migration `20270103100000_expenses_email_bills.sql` (applied NOWHERE; branch feat/expenses) + edge function
+  `expenses-email-bills` (deployed NOWHERE; separate Lovable prompt). Rules in docs/EXPENSES.md "Phase 4".
+- system_settings `expenses_email_enabled` ("false" as JSON string) and `expenses_email_mailbox`
+  ("sales@chajewelsjp.com"). Holding category `expense_categories.system_key = 'uncategorised'` (group office,
+  gl 6900): trigger `expenses_refuse_uncategorised_approval` (BEFORE UPDATE OF status) raises `category_required`.
+- `expense_email_messages` (gmail_message_id PK, thread_id, mailbox, from_email, from_name, subject, received_at,
+  status drafted|matched|needs_review|skipped|dismissed|error, confidence, extracted jsonb, attachments jsonb,
+  expense_id FK, matched_expense_id FK, error, reviewed_by/at, created_at/updated_at) and `expense_email_runs`
+  (id, started_at, finished_at, trigger cron|manual, looked_at, drafted, matched, needs_review, skipped, errors,
+  note). RLS SELECT manage|approve; table writes revoked. Because of the FK, `TRUNCATE public.expenses` now fails
+  with feature_not_supported before the Phase 1 guard fires (harness accepts both).
+- Service-role RPCs (refuse when auth.uid() is set): `expenses_email_record(jsonb)`, `expenses_create_email_draft(jsonb)`,
+  `expenses_email_match_recurring(text, uuid, numeric, text, date)`, `expenses_email_attach_to_draft(uuid, text,
+  numeric, text)`, `expenses_email_run(jsonb)`, `expenses_email_context()`. Owner RPCs: `get_email_bills(int)`,
+  `email_bill_make_expense(text, jsonb)`, `email_bill_dismiss(text)`, `set_email_bills_enabled(boolean)`.
+- Email drafts: `expenses.source = 'email'`, `source_ref = <gmail message id>`; attachments in `expense-receipts`
+  under `<expense id>/…` (drafts) or `email/<message id>/…` (needs review, copied by the client on Make expense).
+- pg_cron `expenses-email-bills`, `7,37 * * * *` → net.http_post functions/v1/expenses-email-bills with the vault
+  `email_queue_service_role_key` (scheduled only when cron + vault schemas exist).
+
+## Cost of goods / inventory (Expenses Phase 5, 2026-10-26)
+
+- Migration `20270104100000_expenses_cost_of_goods.sql` (applied NOWHERE; branch feat/expenses). Rules in docs/EXPENSES.md "Phase 5".
+- `sale_costs` (sale_type 'layaway'|'cash_order', sale_id, cost_jpy numeric(15,0) ≥ 0, note, set_by, set_at, created_at; PK (sale_type,
+  sale_id)). RLS SELECT view_ledger; table writes revoked; RPCs `set_sale_cost(text, uuid, numeric, text)` and `import_sale_costs(jsonb)`
+  (manage_expenses). Audit entity `sale_cost`.
+- `sale_item_costs` (item_table, item_id PK, sale_type, sale_id, variant_id, quantity, cost_jpy numeric(15,0)) — FINANCE-ONLY snapshot of a
+  sale line's unit cost (RLS SELECT view_ledger; writes revoked). The item tables carry NO cost column (customers / CSR read them). Filled by
+  AFTER INSERT/UPDATE trigger `sale_items_snapshot_cost` (SECURITY DEFINER; quantity follows the line, cost never changes), by
+  `variant_cost_snapshot_catchup` on website_product_variants (AFTER INSERT OR UPDATE OF cost_basis) and by the migration backfill.
+  `gl_sale_costs()` (internal) = effective cost; source `trade_in` when the sale's invoice is a trade-in's resold_invoice_number.
+- `trade_ins.resold_at timestamptz` — trigger `trade_ins_track_resold`: INSERT may carry a date; a flip to Sold stamps now(); otherwise kept;
+  cleared (with resold_invoice_number) when not Sold. `trade_ins.resold_invoice_number text` — set in TradeInDialog when Sold.
+- `gl_post_pending` fingerprint (2b file) now blanks the date for `cogs_return` as well as the close events.
+- `expense_categories.gl_account_code`: "Inventory purchases…" → '1300', system_key 'trade_in' → '1310' (were 5100 / 5500 in 2b).
+- gl_accounts added: 1104, 1195, 2700, 2750, 2800, 2900, 6950 (accountant's chart; opening balance F6).
+- `gl_current_events(date)` = `gl_base_events(date)` (the 2b body, renamed once via `ALTER FUNCTION … RENAME` guarded by to_regprocedure)
+  UNION ALL `gl_cogs_events(date)` (cogs_sale, cogs_return, trade_in_received, trade_in_resold; source ids md5-derived uuids).
+- RPCs (authenticated, permission inside): `get_sales_costs(date)`, `get_inventory_valuation()`, `fc_real_profit(date, date)` — view_ledger.
+- Fiscal year: `fiscal_year_start_month` seed is now "4" (April–March, owner 2026-10-26) — changed in the 2b migration file since it is unapplied.
+
+## Clearing / transfers / peso revaluation (Expenses Phase 6, 2026-10-26)
+
+- Migration `20270105100000_expenses_clearing_fx.sql` (applied NOWHERE; branch feat/expenses). Rules in docs/EXPENSES.md "Phase 6".
+- `php_jpy_rate_history` (effective_from PK, rate, set_by, created_at) — RLS SELECT view_ledger; filled by trigger
+  `system_settings_php_jpy_rate_log` (AFTER INSERT OR UPDATE on system_settings; audit entity 'system_setting' / md5('php_jpy_rate')::uuid)
+  and `set_php_jpy_rate(numeric, date)` (admin_settings). `gl_rate_at(date)` internal.
+- `provider_settlements` (provider square|paidy|stripe|cod_carrier, received_on, period_from/to, amount_received_jpy, fees_jpy,
+  adjustments_jpy, bank_account FK gl_accounts, reference, note, created_by, voided_at/by/reason) — RLS SELECT view_ledger; writes via
+  `record_provider_settlement(jsonb)` / `void_provider_settlement(uuid, text)` (post_journal). `gl_clearing_account(provider)` → 1130/1131/1132/1140.
+- `fund_transfers` (transfer_on, from_account/amount/currency, to_account/amount/currency, fee_amount/currency/account, reference, note,
+  voided…) — RLS SELECT view_ledger; `record_fund_transfer(jsonb)` / `void_fund_transfer(uuid, text)` (post_journal).
+- `gl_current_events` = base ∪ cogs ∪ `gl_clearing_events` (square_fee, settlement_payout, settlement_fee, settlement_adjustment,
+  fund_transfer, fx_revaluation). fx_revaluation reads posted PHP lines of asset/liability accounts up to each month end; source id
+  md5('fxrev:<account>:<YYYY-MM>')::uuid.
+- Trigger `expenses_auto_fee_guard` on expenses (BEFORE INSERT OR UPDATE OF category_id): system_keys square_fees / paidy_fees /
+  stripe_fees raise `category_booked_automatically` (check_violation). `expenses_email_context` re-stated to exclude them.
+- Reads: `get_clearing_summary(int)`, `get_fx_revaluation(date)`, `get_rate_history()` — view_ledger.
+- `gl_post_settled(text, uuid)` (internal) = gl_post_pending up to 3 passes; `gl_post_now` re-stated to use it; cron `gl-post-pending` re-scheduled to it.
+- Transfer endpoints: active asset accounts with code < '1130' (bank / cash only).
+
+## Statements / 税理士 pack (Expenses Phase 7, 2026-10-26)
+
+- Migration `20270106100000_expenses_statements.sql` (applied NOWHERE; branch feat/expenses). Rules in docs/EXPENSES.md "Phase 7".
+- `gl_accounts.name_ja text NULL` (CHECK 1–60 chars) seeded for every account; `upsert_gl_account(jsonb)` re-stated: accepts `name_ja`
+  on insert and update (key present → set / clear; absent → unchanged); error `invalid_name_ja`.
+- system_settings `statement_flag_pct` ("15") / `statement_flag_jpy` ("100000"); `gl_statement_flags()` internal; `set_statement_flags(numeric, numeric)`
+  (admin_settings; errors invalid_pct / invalid_amount; audit entity 'gl_setting' action 'set_statement_flags').
+- `get_receivable_ageing(date)` (view_ledger): reads layaway_schedule (status pending / partially_paid / overdue, total_due_amount − paid_amount > 0)
+  joined to live non-test layaway_accounts ordered on/before as_of, pending non-test cash_orders, gl lines of 1200 / 1210; yen at `gl_rate()`;
+  due_date ≥ as_of = not due; as_of clamped to today (`requested_as_of` returned).
+- `get_statements(date, date)` (view_ledger; range ≤ 1100 days): one aggregate over gl_journal_lines per account (current / prior / prior-year
+  movements, PHP-only movements, balances at `to` and `from − 1`, balances before the fiscal-year start, fx_revaluation movements) →
+  income_statement.lines[], balance_sheet.lines[] + totals, cash_flow.lines[] + tie-out, ageing, currency_checks (reads customers.country),
+  outside_hub. Internal helpers `gl_stmt_pick`, `gl_stmt_kind_sum`, `gl_stmt_line` (revoked from authenticated).
+- `get_journal_export(date, date, integer)` (view_ledger): ≤ 20,000 flat lines per call ordered by journal_no, line_no; `tax_flag` export /
+  domestic by line currency on revenue-kind lines except 4400 / 4500 / 4900 / 4950.
+- Client: `/finance/tax-pack` route (PermissionsContext → view_ledger), `src/lib/csv.ts` gained `csvText` / `downloadCsv(…, { bom, exactName })`.
+
+## Controls (Expenses Phase 8, 2026-10-26)
+
+- Migration `20270107100000_expenses_controls.sql` (applied NOWHERE; branch feat/expenses). Rules in docs/EXPENSES.md "Phase 8"; go-live in docs/EXPENSES-GO-LIVE.md.
+- Trigger `expenses_before_period_lock` (BEFORE INSERT OR UPDATE on expenses, before `expenses_before_write`): closed-month dates refused for manual
+  rows (`period_closed` check_violation); void and paid_from-only pass; non-manual inserts moved to `gl_posting_date(expense_date)` with a note.
+- `gl_period_is_closed(date)`, `gl_is_money_account(text)` (active asset, code < '1130'), `gl_account_currency(text)`, `gl_unmapped_methods(date)`,
+  `gl_expenses_without_paid_from(date)`, `gl_unreconciled_accounts(date)`, `gl_close_readiness(date, boolean)`, `gl_auto_match(text, date, uuid)`,
+  `gl_run_completeness_check(text, uuid)` — internal (revoked from authenticated; the check also granted to service_role for cron).
+- View `gl_live_money_lines` (posted, non-reversal lines; signed_amount / signed_jpy; kind; entry_date = SOURCE date, posted_on = ledger date) — revoked from authenticated.
+- `gl_pending_counts(date)` internal: what the engine would post / reverse for events dated ≤ the date (same version formula as gl_post_pending).
+- `get_close_readiness(date)` view_ledger (pending events = warning; errors = failed run / no rate / unbalanced / duplicate); `close_period` re-stated (gl_post_settled, non-ok stops → readiness → `ledger_errors` when errors > 0; note + audit carry the counts).
+- `get_bank_reconciliation` returns `in_transit_native` (unmatched Hub entries dated in the last 5 days of the month); sign-off compares statement closing with ledger − in transit. Import errors: cash_has_no_statement, invalid_file, no_lines, too_many_lines, duplicate_file, invalid_line (nothing written), invalid_profile.
+- `gl_check_runs` (ran_at, trigger cron|manual, run_by, errors, warnings, issues jsonb, bell_rung, duration_ms) — RLS SELECT view_ledger; `run_ledger_check()`
+  post_journal; `get_ledger_checks(int)` view_ledger; cron `gl-completeness-check` '10 16 * * *'. Bell row type `ledger_check` in staff_notifications (counts only).
+- `bank_import_profiles` (account_code PK, delimiter, header_rows, date_col, date_format ymd|dmy|mdy, description_col, in_col, out_col, signed_col, balance_col,
+  encoding utf-8|shift_jis), `bank_statement_imports` (account_code, file_name, file_sha256 — unique per account while not voided, encoding, rows_in_file,
+  inserted, skipped, period_from/to, imported_by/at, voided_at/by/reason), `bank_statement_lines` (import_id, account_code, line_no, booked_on, description,
+  amount signed native ≠ 0, balance_after, raw, matched_journal_line_id unique, match_kind auto|manual|ignored, matched_by/at, ignore_reason),
+  `bank_reconciliations` (PK account_code + month_start; statement_closing, ledger_closing_native/jpy, difference, unmatched_statement/ledger, status open|reconciled,
+  note, reconciled_by/at) — all RLS SELECT view_ledger, writes via RPCs (post_journal): import_bank_statement(jsonb), void_bank_import(uuid, text),
+  auto_match_bank_lines(text, date), match_bank_line(uuid, uuid), unmatch_bank_line(uuid), ignore_bank_line(uuid, text), sign_off_reconciliation(text, date, numeric, text),
+  reopen_reconciliation(text, date, text); read get_bank_reconciliation(text, date) view_ledger.
+- `get_ledger_status` re-stated: + `last_check`; periods carry `reconciled_accounts` / `unreconciled_accounts`.
+- Client: Ledger tabs `bankrec`, `checks` (URL `?tab=ledger&view=…&month=&account=`), readiness dialog on Months, `ledger_check` bell route in StaffNotificationBell.
+

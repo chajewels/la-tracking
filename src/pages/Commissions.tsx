@@ -33,6 +33,9 @@ import {
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { getPHTToday } from '@/lib/date-utils';
+import { usePermissions } from '@/contexts/PermissionsContext';
+import MarkPaidPanel from '@/components/finance/MarkPaidPanel';
+import type { CommissionLine } from '@/components/finance/mark-paid';
 import {
   SaleRow, CommissionAgent, CommissionSplit, MonthlyComputation,
   CanonicalRole, CANONICAL_ROLES, ROLE_LABEL_FULL, ROLE_LABEL_ABBREV,
@@ -989,11 +992,13 @@ function AgentsTab({
 // ── Tab: Monthly ────────────────────────────────────────────────────────────
 
 function MonthlyTab({
-  monthly, selectedMonthKey, onMonthChange,
+  monthly, selectedMonthKey, onMonthChange, canMarkPaid,
 }: {
   monthly: MonthlyComputation[];
   selectedMonthKey: string | null;
   onMonthChange: (k: string) => void;
+  /** approve_expenses — shows the "Mark as paid" block under Payout Breakdown (Expenses Phase 2). */
+  canMarkPaid: boolean;
 }) {
   const activeMonth = useMemo(
     () => monthly.find(m => m.monthKey === selectedMonthKey) ?? monthly[monthly.length - 1] ?? null,
@@ -1144,6 +1149,21 @@ function MonthlyTab({
                   )}
                 </tbody>
               </table>
+            </div>
+            <div className="px-4 pb-4">
+              <MarkPaidPanel
+                source="commission"
+                monthKey={activeMonth.monthKey}
+                lines={activeMonth.agents.filter(a => a.total > 0).map<CommissionLine>(a => ({
+                  name: a.name,
+                  role_won: activeMonth.roles.find(r => r.key === a.wonRole)?.label ?? null,
+                  earn: a.earn,
+                  bonus: a.bonus,
+                  total: a.total,
+                  top_sales: a.isTopSales,
+                }))}
+                canMarkPaid={canMarkPaid}
+              />
             </div>
           </div>
         </>
@@ -1680,6 +1700,10 @@ export default function Commissions() {
   // PermissionsContext reads from (useAuth().roles), so it matches the
   // admin short-circuit in usePermissions().can().
   const { roles } = useAuth();
+  // "Mark as paid" under Payout Breakdown books the month's commission as an expense —
+  // approve_expenses (admin short-circuits inside can()).
+  const { can } = usePermissions();
+  const canMarkPaid = can('approve_expenses');
   const isAdmin = roles.includes('admin');
 
   // Normalize the URL-derived tab against the admin gate: a deep link like
@@ -1801,7 +1825,7 @@ export default function Commissions() {
               <AgentsTab monthly={monthly} agents={agents} selectedMonthKey={selectedMonthKey} onMonthChange={setSelectedMonthKey} />
             </TabsContent>
             <TabsContent value="monthly" className="mt-4">
-              <MonthlyTab monthly={monthly} selectedMonthKey={selectedMonthKey} onMonthChange={setSelectedMonthKey} />
+              <MonthlyTab monthly={monthly} selectedMonthKey={selectedMonthKey} onMonthChange={setSelectedMonthKey} canMarkPaid={canMarkPaid} />
             </TabsContent>
             <TabsContent value="sales-log" className="mt-4">
               <SalesLogTab rows={rows} agents={agents} totalAvailable={rows.length} onRefresh={load} />

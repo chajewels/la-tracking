@@ -107,6 +107,9 @@ export const PERMISSION_MODULES: { module: string; permissions: { key: string; l
       { key: 'generate_invoice', label: 'Generate Invoice' },
       { key: 'manage_expenses', label: 'Manage Expenses', section: 'Expenses', description: 'See Finance → Expenses, add and edit draft expenses, attach receipts' },
       { key: 'approve_expenses', label: 'Approve Expenses', description: 'Approve draft expenses (they then count in totals and are locked) and void expenses with a reason' },
+      { key: 'view_ledger', label: 'View Ledger', section: 'Ledger', description: 'See Finance → Ledger: journals, trial balance, chart of accounts, months' },
+      { key: 'post_journal', label: 'Post Journals', description: 'Run Post now, post manual journals, reverse manual journals, map payment spellings to accounts' },
+      { key: 'close_period', label: 'Close Months', description: 'Set the ledger start date, close and reopen months' },
     ],
   },
   {

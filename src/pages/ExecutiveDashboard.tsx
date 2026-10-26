@@ -15,6 +15,7 @@ import {
   useFinancialAlerts,
 } from '@/hooks/useExecutiveDashboard';
 import { useDashboardSummary } from '@/hooks/use-supabase-data';
+import { costCoverageLabel, coverageFromLedger } from '@/components/finance/cogs';
 
 const PLAN_COLORS: Record<number, string> = { 3: '#888780', 6: '#378ADD', 8: '#1D9E75', 10: '#EF9F27', 12: '#D85A30' };
 const PLAN_KEYS = [3, 6, 8, 10, 12];
@@ -81,10 +82,15 @@ export default function ExecutiveDashboard() {
   const { data: cashSummary } = useDashboardSummary('ALL');
   const [riskOpen, setRiskOpen] = useState(false);
 
-  const coverageColor = d.coverageRatio?.status_label === 'HEALTHY' ? 'border-emerald-500' :
-    d.coverageRatio?.status_label === 'WATCH' ? 'border-amber-500' : 'border-red-500';
-  const coverageLabelColor = d.coverageRatio?.status_label === 'HEALTHY' ? 'text-emerald-500' :
-    d.coverageRatio?.status_label === 'WATCH' ? 'text-amber-500' : 'text-red-500';
+  // Phase 5: profit and inventory come from the ledger (real cost of goods), never from a percentage.
+  const real = d.realProfit;
+  const ledgerLive = !!real && real.ledger_started;
+  const profitSub = !real ? 'Ledger not available yet' : !real.ledger_started ? 'Set the ledger start in Finance → Ledger' : costCoverageLabel(real.sales_with_cost, real.sales_total);
+  const cov = coverageFromLedger(d.coverageRatio?.cash_in ?? 0, ledgerLive ? real.inventory_jpy : null, d.coverageRatio?.projected_inflow_30d ?? 0);
+  const coverageColor = !cov ? 'border-border' : cov.status_label === 'HEALTHY' ? 'border-emerald-500' :
+    cov.status_label === 'WATCH' ? 'border-amber-500' : 'border-red-500';
+  const coverageLabelColor = !cov ? 'text-muted-foreground' : cov.status_label === 'HEALTHY' ? 'text-emerald-500' :
+    cov.status_label === 'WATCH' ? 'text-amber-500' : 'text-red-500';
 
   const recovered = (d.netExposure?.dp_retained ?? 0) + (d.netExposure?.penalties_collected ?? 0) + (d.netExposure?.estimated_resale ?? 0);
 
@@ -142,8 +148,8 @@ export default function ExecutiveDashboard() {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <KPI label="Portfolio Value" value={<AnimatedNumber value={d.portfolioValue} format={fmtM} />} sub="Active accounts only" />
-            <KPI label="Active Gross Profit" value={<AnimatedNumber value={d.grossProfit?.active_gross_profit ?? 0} format={fmtM} />} sub="15% on active portfolio" />
-            <KPI label="Lifetime Gross Profit" value={<AnimatedNumber value={d.grossProfit?.lifetime_gross_profit ?? 0} format={fmtM} />} sub="15% on all-time contracts" />
+            <KPI label="Gross Profit (ledger)" value={<AnimatedNumber value={ledgerLive ? real.gross_profit_jpy : 0} format={fmtM} />} sub={profitSub} />
+            <KPI label="Inventory at Cost" value={<AnimatedNumber value={ledgerLive ? real.inventory_jpy : 0} format={fmtM} />} sub={ledgerLive ? 'Ledger 1300 + 1310 balance' : 'From the ledger once it starts'} />
             <KPI label="Monthly Inflow" value={<AnimatedNumber value={d.monthlyInflow?.total_inflow ?? 0} format={fmtM} />}
               sub={`Installments ${fmtM(d.monthlyInflow?.installment_inflow ?? 0)} · Penalties ${fmtM(d.monthlyInflow?.penalty_inflow ?? 0)}`} />
             <div className="lg:col-span-2">
@@ -171,18 +177,18 @@ export default function ExecutiveDashboard() {
             </div>
             <div className={`relative overflow-hidden rounded-xl border bg-card p-4 sm:p-5 border-l-[3px] lg:col-span-2 ${coverageColor}`}>
               <p className="text-[10px] sm:text-xs font-medium text-muted-foreground uppercase tracking-wider pl-2">Cash Flow Coverage</p>
-              <p className="text-xl sm:text-2xl font-bold font-display tabular-nums pl-2 mt-1"><AnimatedNumber value={d.coverageRatio?.coverage_ratio ?? 0} format={(n) => n.toFixed(2)} />×</p>
-              <p className={`text-[10px] pl-2 font-semibold uppercase tracking-wider ${coverageLabelColor}`}>{d.coverageRatio?.status_label ?? '—'}</p>
+              <p className="text-xl sm:text-2xl font-bold font-display tabular-nums pl-2 mt-1">{cov ? <><AnimatedNumber value={cov.coverage_ratio} format={(n) => n.toFixed(2)} />×</> : '—'}</p>
+              <p className={`text-[10px] pl-2 font-semibold uppercase tracking-wider ${coverageLabelColor}`}>{cov ? cov.status_label : 'Needs the inventory value from the ledger'}</p>
               <div className="mt-2 pl-2 space-y-0.5 text-[10px] tabular-nums">
                 <div className="flex justify-between text-muted-foreground"><span>Cash In</span><span>{fmtM(d.coverageRatio?.cash_in ?? 0)}</span></div>
-                <div className="flex justify-between text-muted-foreground"><span>Inventory Cost</span><span>{fmtM(d.coverageRatio?.inventory_cost ?? 0)}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Funding Gap</span><span className={(d.coverageRatio?.funding_gap ?? 0) >= 0 ? 'text-emerald-500' : 'text-destructive'}>{fmtM(d.coverageRatio?.funding_gap ?? 0)}</span></div>
-                <div className="flex justify-between text-muted-foreground"><span>Days Covered</span><span>{(d.coverageRatio?.days_covered ?? 0).toFixed(1)} days</span></div>
+                <div className="flex justify-between text-muted-foreground"><span>Inventory at Cost</span><span>{cov ? fmtM(cov.inventory_cost) : '—'}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Funding Gap</span><span className={(cov?.funding_gap ?? 0) >= 0 ? 'text-emerald-500' : 'text-destructive'}>{cov ? fmtM(cov.funding_gap) : '—'}</span></div>
+                <div className="flex justify-between text-muted-foreground"><span>Days Covered</span><span>{cov ? `${cov.days_covered.toFixed(1)} days` : '—'}</span></div>
                 <div className="border-t border-border/50 mt-1.5 pt-1.5">
                   <p className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">30-Day Forecast</p>
                   <div className="flex justify-between text-muted-foreground"><span>Projected Inflow</span><span>{fmtM(d.coverageRatio?.projected_inflow_30d ?? 0)}</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">Projected Coverage</span><span className={`font-medium ${(d.coverageRatio?.projected_coverage_30d ?? 0) >= 1.2 ? 'text-emerald-500' : (d.coverageRatio?.projected_coverage_30d ?? 0) >= 1.0 ? 'text-amber-500' : 'text-destructive'}`}>{(d.coverageRatio?.projected_coverage_30d ?? 0).toFixed(2)}×</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">Projected Gap</span><span className={(d.coverageRatio?.projected_funding_gap ?? 0) >= 0 ? 'text-emerald-500' : 'text-destructive'}>{fmtM(d.coverageRatio?.projected_funding_gap ?? 0)}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Projected Coverage</span><span className={`font-medium ${(cov?.projected_coverage_30d ?? 0) >= 1.2 ? 'text-emerald-500' : (cov?.projected_coverage_30d ?? 0) >= 1.0 ? 'text-amber-500' : 'text-destructive'}`}>{cov ? `${cov.projected_coverage_30d.toFixed(2)}×` : '—'}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Projected Gap</span><span className={(cov?.projected_funding_gap ?? 0) >= 0 ? 'text-emerald-500' : 'text-destructive'}>{cov ? fmtM(cov.projected_funding_gap) : '—'}</span></div>
                 </div>
               </div>
             </div>
@@ -396,7 +402,7 @@ export default function ExecutiveDashboard() {
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-border">
-                    {['Plan', 'Accounts', 'Portfolio ¥', 'Avg Ticket', 'Monthly Inflow', 'Gross Profit', 'Contribution %', 'Target Max', 'Excess', 'Penalty Rate', 'At-Risk Rate', 'Quality', 'Risk-Adj. Profit', 'Default Rate', 'Risk Tier'].map(h => (
+                    {['Plan', 'Accounts', 'Portfolio ¥', 'Avg Ticket', 'Monthly Inflow', 'Contribution %', 'Target Max', 'Excess', 'Penalty Rate', 'At-Risk Rate', 'Quality', 'Default Rate', 'Risk Tier'].map(h => (
                       <th key={h} className={`px-5 py-2.5 font-semibold text-muted-foreground uppercase ${h === 'Plan' || h === 'Risk Tier' ? 'text-left' : 'text-right'} ${h === 'Risk Tier' ? 'text-center' : ''}`}>{h}</th>
                     ))}
                   </tr>
@@ -414,7 +420,6 @@ export default function ExecutiveDashboard() {
                           {hasAccounts ? <span className="text-foreground">{fmtFull(row.avg_ticket_jpy ?? 0)}</span> : <span className={muted}>Min {fmtFull(row.min_amount_jpy ?? 0)}</span>}
                         </td>
                         <td className="px-5 py-3 text-right tabular-nums text-foreground">{hasAccounts ? (Number(row.monthly_inflow ?? 0) > 0 ? fmtFull(row.monthly_inflow) : '—') : <span className={muted}>—</span>}</td>
-                        <td className="px-5 py-3 text-right tabular-nums text-foreground">{hasAccounts ? (Number(row.gross_profit ?? 0) > 0 ? fmtFull(row.gross_profit) : '—') : <span className={muted}>—</span>}</td>
                         <td className="px-5 py-3 text-right tabular-nums text-foreground">{hasAccounts ? `${(row.contribution_pct ?? 0).toFixed(1)}%` : <span className={muted}>—</span>}</td>
                         <td className="px-5 py-3 text-right tabular-nums text-muted-foreground">{(row.target_mix_pct ?? 0).toFixed(1)}%</td>
                         <td className="px-5 py-3 text-right tabular-nums">{hasAccounts ? (
@@ -425,7 +430,6 @@ export default function ExecutiveDashboard() {
                         <td className={`px-5 py-3 text-right tabular-nums ${hasAccounts ? ((row.plan_penalty_rate ?? 0) >= 10 ? 'text-destructive' : (row.plan_penalty_rate ?? 0) > 0 ? 'text-amber-500' : 'text-muted-foreground') : ''}`}>{hasAccounts ? `${(row.plan_penalty_rate ?? 0).toFixed(1)}%` : <span className={muted}>—</span>}</td>
                         <td className={`px-5 py-3 text-right tabular-nums ${hasAccounts ? ((row.plan_at_risk_rate ?? 0) >= 10 ? 'text-destructive' : (row.plan_at_risk_rate ?? 0) > 0 ? 'text-amber-500' : 'text-muted-foreground') : ''}`}>{hasAccounts ? `${(row.plan_at_risk_rate ?? 0).toFixed(1)}%` : <span className={muted}>—</span>}</td>
                         <td className={`px-5 py-3 text-right tabular-nums font-medium ${hasAccounts ? ((row.plan_quality_score ?? 0) >= 90 ? 'text-emerald-500' : (row.plan_quality_score ?? 0) >= 75 ? 'text-amber-500' : 'text-destructive') : ''}`}>{hasAccounts ? (row.plan_quality_score ?? 0).toFixed(1) : <span className={muted}>—</span>}</td>
-                        <td className="px-5 py-3 text-right tabular-nums text-foreground">{hasAccounts ? fmtFull(row.risk_adjusted_profit ?? 0) : <span className={muted}>—</span>}</td>
                         <td className="px-5 py-3 text-right tabular-nums text-foreground">{hasAccounts ? `${(row.default_rate ?? 0).toFixed(1)}%` : <span className={muted}>—</span>}</td>
                         <td className="px-5 py-3 text-center">
                           <Badge variant="outline" className={`text-[9px] ${RISK_BADGE[row.risk_tier] || RISK_BADGE.MODERATE}`}>{row.risk_tier}</Badge>
