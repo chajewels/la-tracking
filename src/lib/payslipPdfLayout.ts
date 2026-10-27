@@ -5,7 +5,7 @@
  */
 import { ADDRESS_EN, CORPORATE_NO, EMAIL, LEGAL_NAME_JA, NAME_EN, PHONE, REPRESENTATIVE } from '@/lib/companyInfo';
 import {
-  BOND_HELD_LABEL, STATUS_LABEL, advanceLabel, amountDue, bonusCategoryLabel, bondReleasedLabel, differenceLabel, figuresChanged, formatDate,
+  BOND_HELD_LABEL, PROOF_NOT_ON_FILE, STATUS_LABEL, advanceLabel, amountDue, bonusCategoryLabel, bondReleasedLabel, differenceLabel, figuresChanged, formatDate,
   formatDateDD, formatPeso, formatYen, longMonthLabel, payslipNumber, round2, storedBreakdown,
   type Payslip,
 } from '@/lib/payslips';
@@ -243,7 +243,7 @@ export function deductionRows(p: Payslip): { advances: SummaryRow[]; summary: Su
   ];
   const bond: SummaryRow[] = [];
   if (b.held > 0) bond.push({ label: b.heldLabel ?? BOND_HELD_LABEL, amount: -b.held, amountText: formatPeso(-b.held) });
-  if (b.released > 0) bond.push({ label: bondReleasedLabel(b.releasedFrom), amount: b.released, amountText: formatPeso(b.released) });
+  if (b.released > 0) bond.push({ label: b.releasedLabel ?? bondReleasedLabel(b.releasedFrom), amount: b.released, amountText: formatPeso(b.released) });
   return { advances, summary, bond };
 }
 
@@ -335,7 +335,9 @@ export function paymentNote(
     if (bonusPages && !advancePages) return `Bonus proofs attached (${pagesText(bonusPages)})`;
     return `Proofs attached: ${advances}`;
   }
-  const proof = proofIncluded === false
+  const proof = p.proof_not_on_file
+    ? PROOF_NOT_ON_FILE
+    : proofIncluded === false
     ? 'Proof of payment could not be included'
     : `Proof of payment attached (${proofPages ? pagesText(proofPages) : 'page 2'})`;
   const paid = `${longMonthLabel(p.pay_month)} salary paid on ${formatDateDD(p.paid_on)}: ${formatYen(p.jpy_sent)} → ${formatPeso(p.php_received)}`;
