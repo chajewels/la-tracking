@@ -191,7 +191,7 @@ describe("payslips — forms and files", () => {
       expect(msg).not.toMatch(/_/);
       expect(msg.length).toBeGreaterThan(10);
     }
-    expect(payslipRefusal("details_missing")).toBe("Add address and date of birth first.");
+    expect(payslipRefusal("details_missing")).toBe("Add employee ID, address and date of birth first.");
   });
 
   it("months: titles, and nothing before June 2026", () => {
@@ -215,7 +215,7 @@ describe("payslips — forms and files", () => {
       payslips: [{ ...slip({}), total_php: "16500.50", jpy_sent: null }], details: [{ user_id: "u", address: null, date_of_birth: null }] });
     expect(b.php_jpy_rate).toBe(0.42);
     expect(b.payslips[0].total_php).toBe(16500.5);
-    expect(b.details[0]).toEqual({ user_id: "u", address: null, date_of_birth: null });
+    expect(b.details[0]).toMatchObject({ user_id: "u", address: null, date_of_birth: null });
   });
 });
 

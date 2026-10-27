@@ -9,3 +9,7 @@ and who reads which corrections.
 
 Run `PGURL=postgres://... supabase/tests/timesheet-corrections/run.sh` against a scratch PostgreSQL 16. It creates
 and drops its own database and applies the migration twice. NOT a Supabase test; never touches a Lovable database.
+
+**Phase 2** (added 2026-10-27): `stubs.sql` + `stubs_payslips.sql` (system_settings, storage), then 20270201,
+20270202 and 20270204 (applied twice), then `test_corrections_april.sql` (T11): the correction floor is 2026-04-01;
+March and tomorrow are still refused, and the order rule is unchanged. Last run 2026-10-27 on PostgreSQL 16.14: passed.
