@@ -80,6 +80,8 @@ export interface Payslip {
   proof_path: string | null;
   /** The 2nd proof-of-payment file (migration 20270205100000; absent before it). */
   proof_path_2?: string | null;
+  /** Paid outside the Hub — proof not on file (migration 20270209100000; months before June 2026 only). */
+  proof_not_on_file?: boolean;
   /** Who finalized it (get_payslip_book returns the whole row). */
   finalized_by?: string | null;
   // Migration 20270204100000 (absent on payslips read before it is applied):
@@ -193,11 +195,15 @@ export interface PayslipFeatures {
   bonuses: boolean;
   /** Migration 20270207100000: Edit figures (manual correction) and the cash bond on the timesheet pay only. */
   edit_figures: boolean;
+  /** Migration 20270209100000: "Proof not on file" (April–May 2026) shown on Paid payslips. */
+  proof_not_on_file: boolean;
+  /** Migration 20270209100000: a cash bond held before the Hub, returned on Final pay (Edit figures). */
+  bond_returned: boolean;
 }
 
 export const NO_FEATURES: PayslipFeatures = {
   cash_advances: false, employee_id: false, cash_bond: false, pay_history: false, from_april: false,
-  second_proof: false, bonuses: false, edit_figures: false,
+  second_proof: false, bonuses: false, edit_figures: false, proof_not_on_file: false, bond_returned: false,
 };
 
 export interface PayslipBook {
@@ -363,6 +369,8 @@ export interface FigureInputs {
   top_sales_bonus: string;
   /** Cash bond held, '' = as calculated. */
   cash_bond: string;
+  /** Cash bond returned on Final pay (held before the Hub), '' = none. */
+  cash_bond_returned: string;
 }
 
 const str = (v: unknown): string => (v == null ? '' : String(round2(num(v))));
@@ -370,6 +378,7 @@ const str = (v: unknown): string => (v == null ? '' : String(round2(num(v))));
 /** The form, filled from stored figures (issued payslip) or the live draft. */
 export function figureInputs(
   template: TemplateType, t: Record<string, unknown>, c: Record<string, unknown>, bond: number | null = null,
+  returned: number | null = null,
 ): FigureInputs {
   const csr = template === 'csr';
   return {
@@ -384,6 +393,7 @@ export function figureInputs(
     earnings: str(c.earnings),
     top_sales_bonus: str(c.top_sales_bonus),
     cash_bond: bond == null ? '' : str(bond),
+    cash_bond_returned: returned == null ? '' : str(returned),
   };
 }
 
@@ -413,6 +423,10 @@ export function validateFigureInputs(template: TemplateType, f: FigureInputs, re
   if (template !== 'csr' && Number(f.days_at_500) + Number(f.days_at_300) > 31) return 'Days at ₱500 and ₱300: at most 31 together.';
   if (f.cash_bond.trim() !== '') {
     const e = check(f.cash_bond, 'Cash bond', false);
+    if (e) return e;
+  }
+  if ((f.cash_bond_returned ?? '').trim() !== '') {
+    const e = check(f.cash_bond_returned, 'Cash bond returned', false);
     if (e) return e;
   }
   const r = reason.trim();
@@ -449,10 +463,14 @@ export function figuresFromInputs(template: TemplateType, f: FigureInputs, base:
   return buildFigures(timesheet, { role_won: role, earnings, top_sales_tier: tier, top_sales_bonus: bonus, total: round2(earnings + bonus) });
 }
 
-/** The payload of finalize_payslip (5 arguments) / correct_payslip: the figures and an optional typed bond. */
-export function editPayload(f: PayslipFigures, bond: string): Record<string, unknown> {
+/**
+ * The payload of finalize_payslip (5 arguments) / correct_payslip: the figures, an optional typed bond held
+ * and, on Final pay, an optional cash bond returned (held before the Hub; migration 20270209100000).
+ */
+export function editPayload(f: PayslipFigures, bond: string, returned = ''): Record<string, unknown> {
   const out = finalizePayload(f);
   if (bond.trim() !== '') out.cash_bond_held_php = round2(Number(bond.trim()));
+  if (returned.trim() !== '' && Number(returned.trim()) > 0) out.cash_bond_returned_php = round2(Number(returned.trim()));
   return out;
 }
 
@@ -708,6 +726,7 @@ export function payslipRefusal(code: string | undefined): string {
     case 'bonus_proofs_full': return 'This bonus already has 2 proofs.';
     case 'bonus_already_void': return 'This bonus is already void.';
     case 'bond_exceeds_pay': return 'The cash bond is more than what is left to pay this month. Lower it with Edit figures.';
+    case 'bond_pending_in_hub': return 'A cash bond held in the Hub is waiting: it is added by itself on Final pay. Leave "Cash bond returned" empty.';
     case 'bond_already_released': return 'This payslip\'s cash bond was already released on a later payslip. Correct that later payslip first.';
     default: return 'Something went wrong. Try again in a moment.';
   }
@@ -727,6 +746,8 @@ export function bookFeatures(raw: Record<string, unknown>): PayslipFeatures {
     second_proof: f.second_proof === true,
     bonuses: f.bonuses === true,
     edit_figures: f.edit_figures === true,
+    proof_not_on_file: f.proof_not_on_file === true,
+    bond_returned: f.bond_returned === true,
   };
 }
 
@@ -890,6 +911,8 @@ export interface PayBreakdown {
   releasedFrom: string | null;
   /** The held line's label: a typed bond (Edit figures) is not "50% held". */
   heldLabel?: string;
+  /** The released line's label when it is a bond held before the Hub (no source payslip). */
+  releasedLabel?: string;
   due: number;
 }
 
@@ -909,6 +932,7 @@ export function storedBreakdown(p: Payslip, sourceMonth: string | null = p.cash_
     released: p.cash_bond_released_php ?? 0,
     releasedFrom: sourceMonth,
     ...(p.correction_reason ? { heldLabel: BOND_HELD_TYPED_LABEL } : {}),
+    ...((p.cash_bond_released_php ?? 0) > 0 && !p.cash_bond_source_payslip_id ? { releasedLabel: BOND_RETURNED_LABEL } : {}),
     due: amountDue(p),
   };
 }
@@ -951,6 +975,10 @@ export function draftBreakdown(totalPhp: number, advances: CashAdvance[], bond: 
 export const BOND_HELD_LABEL = 'Less: Cash bond — first-month pay (50% held)';
 /** On a payslip with figures typed by hand the bond may be any amount (Edit figures). */
 export const BOND_HELD_TYPED_LABEL = 'Less: Cash bond held';
+/** A Paid payslip of April–May 2026 whose proof could not be located (migration 20270209100000). */
+export const PROOF_NOT_ON_FILE = 'Paid outside the Hub — proof not on file';
+/** A cash bond held before the Hub, returned on the staff member's last payslip (owner 2026-10-28). */
+export const BOND_RETURNED_LABEL = 'Add: Cash bond returned (held before the Hub)';
 export function bondReleasedLabel(fromMonth: string | null): string {
   return fromMonth ? `Cash bond released — ${longMonthLabel(fromMonth)}` : 'Cash bond released';
 }
@@ -971,7 +999,7 @@ export function breakdownLines(b: PayBreakdown, paid: boolean): Line[] {
     { label: 'Net pay', value: formatPeso(b.net) },
   );
   if (b.held > 0) lines.push({ label: b.heldLabel ?? BOND_HELD_LABEL, value: formatPeso(-b.held) });
-  if (b.released > 0) lines.push({ label: bondReleasedLabel(b.releasedFrom), value: formatPeso(b.released) });
+  if (b.released > 0) lines.push({ label: b.releasedLabel ?? bondReleasedLabel(b.releasedFrom), value: formatPeso(b.released) });
   lines.push({ label: paid ? 'Amount paid' : 'Amount due', value: formatPeso(b.due) });
   return lines;
 }
@@ -1102,7 +1130,7 @@ export function payslipRows(p: Payslip, generatedOn: string = todayTokyo(), sour
       ['Pesos received', formatPeso(p.php_received)],
       ['Rate used (₱ per ¥1)', p.php_per_jpy != null ? String(p.php_per_jpy) : '—'],
       ['Paid on', formatDate(p.paid_on)],
-      ['Proof of payment', proofFileName(p.proof_path) || '—'],
+      ['Proof of payment', p.proof_not_on_file ? PROOF_NOT_ON_FILE : (proofFileName(p.proof_path) || '—')],
       ...(p.proof_path_2 ? [['Proof of payment (2nd file)', proofFileName(p.proof_path_2)]] : []),
     );
     if (figuresChanged(amountDue(p), p.php_received)) {

@@ -34,7 +34,7 @@ import {
   correctionLabel, currentPayslip, defaultYenSent, detailsComplete, differenceLabel, downloadPayslipXlsx, draftBreakdown, editPayload,
   figureInputs, figuresChanged, figuresFromInputs, validateFigureInputs, type FigureInputs,
   finalizePayload, findAgentResult, formatDate, formatDateDD, formatPeso, formatYen, longMonthLabel, normaliseBook,
-  payslipProofPaths, payslipRefusal, payslipTitle, proofContentType, proofFileName, proofPath, proofProblem, storedBreakdown, timesheetLines,
+  PROOF_NOT_ON_FILE, payslipProofPaths, payslipRefusal, payslipTitle, proofContentType, proofFileName, proofPath, proofProblem, storedBreakdown, timesheetLines,
   todayTokyo, validateAdvance, validateDetails, validateEmployeeDetails, validatePayment,
 } from '@/lib/payslips';
 import type { ProofFile } from '@/lib/payslipPdf';
@@ -749,6 +749,9 @@ function PayslipView({
           <p className="text-xs text-muted-foreground">
             Rate used ₱{issued.php_per_jpy} per ¥1 · Paid on {formatDate(issued.paid_on)}
           </p>
+          {issued.proof_not_on_file && (
+            <p className="text-xs text-muted-foreground" data-testid="payslip-proof-not-on-file">{PROOF_NOT_ON_FILE}</p>
+          )}
           {due != null && figuresChanged(due, issued.php_received) && (
             <p className="text-xs">{differenceLabel(issued)}: {formatPeso(issued.php_received - due)}</p>
           )}
@@ -845,6 +848,7 @@ function EditFiguresDialog({ row, monthKey, features, onClose, onSaved }: {
   );
   const [form, setForm] = useState<FigureInputs>(() => figureInputs(
     template, baseTs, baseCm, issued && (issued.cash_bond_held_php ?? 0) > 0 ? issued.cash_bond_held_php ?? 0 : null,
+    issued && (issued.cash_bond_released_php ?? 0) > 0 && !issued.cash_bond_source_payslip_id ? issued.cash_bond_released_php ?? 0 : null,
   ));
   const [reason, setReason] = useState('');
   const [isFinalPay, setIsFinalPay] = useState(issued?.is_final_pay === true);
@@ -868,14 +872,19 @@ function EditFiguresDialog({ row, monthKey, features, onClose, onSaved }: {
   const held = isFinalPay ? 0 : (typedBond ?? (calc.kind === 'held' ? calc.held : 0));
   const left = Math.round((earnings - advances) * 100) / 100;
   const bondTooBig = held > left;
-  const released = issued ? (issued.cash_bond_released_php ?? 0) : draftBond(row, monthKey, features, isFinalPay).released;
+  // A cash bond held before the Hub, typed on Final pay (migration 20270209100000), replaces the Hub release.
+  const canReturn = isFinalPay && features.bond_returned;
+  const typedReturn = canReturn && form.cash_bond_returned.trim() !== '' ? Number(form.cash_bond_returned.trim()) || 0 : 0;
+  const hubReleased = issued ? (issued.cash_bond_source_payslip_id ? (issued.cash_bond_released_php ?? 0) : 0)
+    : draftBond(row, monthKey, features, isFinalPay).released;
+  const released = typedReturn > 0 ? typedReturn : hubReleased;
   const due = Math.round((left - held + released) * 100) / 100;
 
   const save = async () => {
     if (problem || bondTooBig) return;
     setSaving(true);
     try {
-      const payload = editPayload(figures, isFinalPay ? '' : form.cash_bond);
+      const payload = editPayload(figures, isFinalPay ? '' : form.cash_bond, canReturn ? form.cash_bond_returned : '');
       if (issued) {
         await callRpc('correct_payslip', { p_id: issued.id, p_payload: payload, p_is_final_pay: isFinalPay, p_reason: reason.trim() });
         toast.success(issued.status === 'paid' ? 'Payslip corrected — the payment was kept' : 'Payslip corrected');
@@ -968,6 +977,11 @@ function EditFiguresDialog({ row, monthKey, features, onClose, onSaved }: {
                 </div>
               </div>
             )}
+            {canReturn && (
+              <div className="grid grid-cols-2 gap-3" data-testid="ef-bond-returned-field">
+                {field('cash_bond_returned', 'Cash bond returned (₱)', 'A bond held before the Hub, added to this last pay. Empty = none.')}
+              </div>
+            )}
           </section>
 
           <section className="space-y-1 rounded-md border border-border p-3 text-sm" data-testid="ef-totals">
@@ -977,7 +991,7 @@ function EditFiguresDialog({ row, monthKey, features, onClose, onSaved }: {
             <Row label="Total earnings" value={formatPeso(earnings)} />
             {advances > 0 && <Row label="Cash advances" value={`− ${formatPeso(advances)}`} />}
             {held > 0 && <Row label="Cash bond held" value={`− ${formatPeso(held)}`} />}
-            {released > 0 && <Row label="Cash bond released" value={`+ ${formatPeso(released)}`} />}
+            {released > 0 && <Row label={typedReturn > 0 ? 'Cash bond returned' : 'Cash bond released'} value={`+ ${formatPeso(released)}`} />}
             <Row label="Amount due" value={formatPeso(due)} strong />
           </section>
 
