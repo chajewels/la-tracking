@@ -63,12 +63,13 @@ describe("cash bond preview (mirrors finalize_payslip)", () => {
     expect(bondPreview({ ...base, isFinalPay: true }).kind).toBe("none");
   });
 
-  it("released on the next month only, or earlier on Final pay", () => {
+  it("released ONLY on Final pay — never automatically the next month (owner 2026-10-27 17:54)", () => {
     const pending = { source_payslip_id: "s", pay_month: "2026-08-01", amount: 4500.01 };
-    const sep = bondPreview({ ...base, monthKey: "2026-09", firstMonthIssued: true, pending });
-    expect(sep).toMatchObject({ kind: "released", released: 4500.01, releasedFrom: "2026-08" });
+    expect(bondPreview({ ...base, monthKey: "2026-09", firstMonthIssued: true, pending }).kind).toBe("none");
     expect(bondPreview({ ...base, monthKey: "2026-10", firstMonthIssued: true, pending }).kind).toBe("none");
-    expect(bondPreview({ ...base, monthKey: "2026-10", firstMonthIssued: true, pending, isFinalPay: true }).released).toBe(4500.01);
+    expect(bondPreview({ ...base, monthKey: "2026-09", firstMonthIssued: true, pending, isFinalPay: true }))
+      .toMatchObject({ kind: "released", released: 4500.01, releasedFrom: "2026-08" });
+    expect(bondPreview({ ...base, monthKey: "2026-12", firstMonthIssued: true, pending, isFinalPay: true }).released).toBe(4500.01);
   });
 
   it("a later month before the first-month payslip is blocked (cash_bond_order); before April 2026 there is no bond", () => {

@@ -517,7 +517,8 @@ Three tables back the staff Timesheet feature (pure-TS engine in `src/lib/timesh
     row still never changes — `correct_payslip` voids it ("Corrected: …") and issues the corrected one in one
     transaction, copying a Paid payslip's payment and proofs.
   - Cash bond (hire month) = floor(timesheet net / 2); commission and bonuses excluded; typed bond allowed
-    with a reason; never above pay after advances.
+    with a reason; never above pay after advances. Released ONLY on a "Final pay" payslip (migration
+    20270208100000, owner 2026-10-27 17:54) — never automatically the next month.
   - Proof paths are CHECKed by shape (`<uuid>/<file>`); a copied proof keeps its original folder.
   - `payslip_issue` is internal; `finalize_payslip` has 3-, 4- and 5-argument versions.
   - Full text: docs/PAYSLIPS.md "Edit figures and the cash bond".

@@ -842,7 +842,8 @@ export interface BondPreview {
  *     centavo stays in the paid half), unless ticked "Final pay". Once migration 20270207100000 is
  *     applied (`salaryOnly`) it is floor(timesheet net / 2) instead — the salary only: commission and
  *     bonuses excluded, advances not taken off first (owner 2026-10-27 15:31);
- *   - a pending bond is released on its month + 1, or earlier on a "Final pay" payslip;
+ *   - a pending bond is released ONLY on a "Final pay" payslip (staff leaving) — never automatically the
+ *     next month (owner 2026-10-27 17:54; migration 20270208100000);
  *   - a later month before the hire-month payslip exists is refused (cash_bond_order).
  * The hire month counts only from April 2026 (the first month a payslip can exist).
  */
@@ -869,7 +870,7 @@ export function bondPreview(o: {
     return { ...none, kind: 'held', held: Math.floor(Math.max(0, base) / 2) / 100 };
   }
   const p = o.pending;
-  if (p && p.pay_month.slice(0, 7) < o.monthKey && (o.monthKey === addMonths(p.pay_month.slice(0, 7), 1) || o.isFinalPay)) {
+  if (p && p.pay_month.slice(0, 7) < o.monthKey && o.isFinalPay) {
     return { ...none, kind: 'released', released: round2(p.amount), releasedFrom: p.pay_month.slice(0, 7) };
   }
   return none;
