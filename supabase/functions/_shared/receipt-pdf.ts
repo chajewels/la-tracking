@@ -11,9 +11,8 @@
  * Follow-up if Supabase is too slow: a pre-cut font (JIS level 1+2 kanji,
  * kana, Latin) in the same place.
  *
- * SEAL: receipt-assets/RECEIPT_SEAL_PATH (PNG), read server-side, drawn next
- * to the issuer block with the receipt number printed faintly across it. A
- * missing seal renders the receipt without it and logs a warning.
+ * NO SEAL / STAMP (owner 2026-10-27): the receipt carries no company seal
+ * image and no stamp mark. Authenticity is the QR + verify code.
  *
  * TOTALS BLOCK (owner 2026-10-27, like the Hub invoice): 小計（税抜）,
  * 消費税（10%）, 割引 (always, as a minus), 送料 (always), 代引手数料 and
@@ -23,7 +22,7 @@
  * exchange rate on a peso receipt. No layaway wording.
  * No form fields. Every render logs one timing line.
  */
-import { PDFDocument, rgb, degrees, type PDFFont, type PDFImage, type PDFPage } from "npm:pdf-lib@1.17.1";
+import { PDFDocument, rgb, type PDFFont, type PDFPage } from "npm:pdf-lib@1.17.1";
 import fontkit from "npm:@pdf-lib/fontkit@1.1.1";
 import QRCode from "npm:qrcode@1.5.4";
 import {
@@ -33,7 +32,6 @@ import {
 
 export const RECEIPT_ASSETS_BUCKET = "receipt-assets";
 export const RECEIPT_FONT_PATH = "fonts/NotoSansJP-Regular.ttf";
-export const RECEIPT_SEAL_PATH = "seal/seal.png";
 export const RECEIPT_VERIFY_URL = "https://chajewelsjp.com/receipts/verify";
 
 export const ISSUER = {
@@ -192,8 +190,8 @@ function drawQr(page: PDFPage, text: string, x: number, y: number, size: number)
   }
 }
 
-/** The PDF bytes. Pure apart from the libraries: font and seal are passed in. */
-export async function renderReceiptPdf(input: RenderInput, fontBytes: Uint8Array, sealBytes: Uint8Array | null): Promise<Uint8Array> {
+/** The PDF bytes. Pure apart from the libraries: the font is passed in. */
+export async function renderReceiptPdf(input: RenderInput, fontBytes: Uint8Array): Promise<Uint8Array> {
   const { receipt: r, lang } = input;
   const w = W[lang];
   const doc = await PDFDocument.create();
@@ -208,12 +206,6 @@ export async function renderReceiptPdf(input: RenderInput, fontBytes: Uint8Array
   // that pdf.js / Acrobat space wide ("K1 8", "TEL 0 3"). The font's default
   // glyphs are already the Japanese forms (checked 2026-10-27).
   const font = await doc.embedFont(fontBytes, { subset: false, features: { locl: false } });
-  let seal: PDFImage | null = null;
-  if (sealBytes) {
-    try { seal = await doc.embedPng(sealBytes); } catch (e) {
-      console.warn(JSON.stringify({ website_receipt_pdf: "seal_unreadable", detail: (e as Error)?.message ?? String(e) }));
-    }
-  }
 
   const page = doc.addPage(PAGE);
   const [pw, ph] = PAGE;
@@ -333,7 +325,7 @@ export async function renderReceiptPdf(input: RenderInput, fontBytes: Uint8Array
   }
 
 
-  // Footer: QR + verify code (left), issuer + seal (right), stamp note.
+  // Footer: QR + verify code (left), issuer (right), revenue-stamp note.
   const fy = M + 40;
   const qrSize = 74;
   drawQr(page, verifyUrl(r.verify_code), M, fy, qrSize);
@@ -356,17 +348,6 @@ export async function renderReceiptPdf(input: RenderInput, fontBytes: Uint8Array
     page.drawText(fit(font, l.t, l.s, xr - ix - 4), { x: ix, y: iy, size: l.s, font, color: l.c });
     iy -= l.s + 5;
   }
-  if (seal) {
-    const sz = 54;
-    const sx = xr - sz;
-    const sy = fy + qrSize - 22;
-    page.drawImage(seal, { x: sx, y: sy, width: sz, height: sz });
-    const stamp = r.receipt_number;
-    const ss = 7;
-    page.drawText(stamp, {
-      x: sx + 2, y: sy + sz / 2 - 8, size: ss, font, color: RED, opacity: 0.35, rotate: degrees(20),
-    });
-  }
 
   page.drawText(w.stamp, { x: M, y: M + 10, size: 8, font, color: MUTED });
   page.drawRectangle({ x: M, y: M - 6, width: pw - 2 * M, height: 1.5, color: GOLD });
@@ -380,8 +361,6 @@ export async function renderReceiptPdf(input: RenderInput, fontBytes: Uint8Array
 type Db = any;
 
 let fontCache: Uint8Array | null = null;
-let sealCache: { bytes: Uint8Array | null; at: number } | null = null;
-const SEAL_TTL_MS = 10 * 60 * 1000;
 
 async function download(db: Db, path: string): Promise<Uint8Array | null> {
   const { data, error } = await db.storage.from(RECEIPT_ASSETS_BUCKET).download(path);
@@ -391,21 +370,15 @@ async function download(db: Db, path: string): Promise<Uint8Array | null> {
 
 export interface ReceiptAssets {
   font: Uint8Array | null;
-  seal: Uint8Array | null;
   fontMs: number;
-  sealMs: number;
   fontCached: boolean;
 }
 
-/** The font (cached for the instance's life) and the seal (cached 10 minutes, so a newly uploaded seal appears). */
+/** The font, cached for the instance's life. */
 export async function loadReceiptAssets(db: Db): Promise<ReceiptAssets> {
   const t0 = performance.now();
   const fontCached = fontCache !== null;
   if (!fontCache) fontCache = await download(db, RECEIPT_FONT_PATH);
   const t1 = performance.now();
-  if (!sealCache || Date.now() - sealCache.at > SEAL_TTL_MS) {
-    sealCache = { bytes: await download(db, RECEIPT_SEAL_PATH), at: Date.now() };
-  }
-  const t2 = performance.now();
-  return { font: fontCache, seal: sealCache.bytes, fontMs: Math.round(t1 - t0), sealMs: Math.round(t2 - t1), fontCached };
+  return { font: fontCache, fontMs: Math.round(t1 - t0), fontCached };
 }

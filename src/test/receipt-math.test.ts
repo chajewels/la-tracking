@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   cancelReason, cleanReceiptDetails, includedTax, isReissue, methodLabel, normaliseVerifyCode, purposeFor,
-  readReceiptSwitch, receiptDate, receiptMinus, receiptMoney, receiptNumber, receiptTotals, switchAllowsIssue, unitPriceExTax,
+  pesoLines, readReceiptSwitch, receiptDate, receiptMinus, receiptMoney, receiptNumber, receiptTotals, switchAllowsIssue, unitPriceExTax,
   DEFAULT_PURPOSE,
 } from "../../supabase/functions/_shared/receipt-math.ts";
 
@@ -65,10 +65,38 @@ describe("item rows excl. tax and the totals block (owner 2026-10-27, generate-i
     expect([t.subtotal, t.tax, t.penalties, t.total, t.addsUp]).toEqual([90909, 9091, 1000, 101000, true]);
   });
 
-  it("peso multi-item: HELD — item lines are yen only and checkout never derived per-line pesos (owner decision pending)", () => {
-    const t = receiptTotals({ currency: "PHP", items: [item(60000), item(40000)], ...none, received: 42000 });
-    expect(t.addsUp).toBe(false);
-    expect(t.problem).toBe("peso_pending_owner_decision");
+  it("peso multi-item (option a): each line converted at the order's rate; rows add up to the peso product amount", () => {
+    const p = pesoLines([{ unitPriceJpy: 60000, quantity: 1 }, { unitPriceJpy: 40000, quantity: 1 }], 0.42, 42000);
+    if ("error" in p) throw new Error(p.error);
+    expect(p.items.map((i) => i.lineTotal)).toEqual([25200, 16800]);
+    expect(p.remainder).toBe(0);
+    const t = receiptTotals({ currency: "PHP", items: p.items, ...none, received: 42000 });
+    // 25,200 ÷ 1.1 = 22,909.09 → 22,909; 16,800 ÷ 1.1 = 15,272.7 → 15,273
+    expect(t.lines).toEqual([{ unitPriceEx: 22909, lineEx: 22909 }, { unitPriceEx: 15273, lineEx: 15273 }]);
+    expect([t.subtotal, t.tax, t.total, t.addsUp]).toEqual([38182, 3818, 42000, true]);
+  });
+
+  it("peso rounding remainder goes on the largest quantity-1 line (qty 2 on another line)", () => {
+    // rate 0.308345: ¥19,000 → ₱5,858.555 → 5,859; ¥30,000 → ₱9,250.35 → 9,250
+    // checkout: ¥68,000 × 0.308345 = ₱20,967.46 → 20,967; Σ lines 20,968 → remainder −1 on the ¥30,000 line
+    const p = pesoLines([{ unitPriceJpy: 19000, quantity: 2 }, { unitPriceJpy: 30000, quantity: 1 }], 0.308345, 20967);
+    if ("error" in p) throw new Error(p.error);
+    expect([p.remainder, p.fixedIndex]).toEqual([-1, 1]);
+    expect(p.items.map((i) => [i.unitPrice, i.lineTotal])).toEqual([[5859, 11718], [9249, 9249]]);
+    const t = receiptTotals({ currency: "PHP", items: p.items, ...none, received: 20967 });
+    expect([t.total, t.addsUp]).toEqual([20967, true]);
+  });
+
+  it("peso with discount and shipping", () => {
+    const p = pesoLines([{ unitPriceJpy: 60000, quantity: 1 }], 0.42, 25200);
+    if ("error" in p) throw new Error(p.error);
+    const t = receiptTotals({ currency: "PHP", items: p.items, discount: 2100, points: 0, shipping: 1470, codFee: 0, penalties: 0, received: 24570 });
+    expect([t.subtotal, t.tax, t.discount, t.shipping, t.total, t.addsUp]).toEqual([22909, 2291, 2100, 1470, 24570, true]);
+  });
+
+  it("peso: no rate, or a remainder with no quantity-1 line → flagged, never forced", () => {
+    expect(pesoLines([{ unitPriceJpy: 60000, quantity: 1 }], null, 25200)).toEqual({ error: "peso_no_rate" });
+    expect(pesoLines([{ unitPriceJpy: 19000, quantity: 2 }], 0.308345, 11717)).toEqual({ error: "peso_lines_mismatch" });
   });
 
   it("does not add up → flagged, never forced", () => {

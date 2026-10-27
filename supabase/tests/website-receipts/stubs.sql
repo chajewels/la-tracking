@@ -116,6 +116,13 @@ CREATE TABLE public.payments (
   currency public.account_currency NOT NULL, payment_method text DEFAULT 'cash', reference_number text,
   voided_at timestamptz, created_at timestamptz DEFAULT now() NOT NULL
 );
+CREATE TABLE public.staff_notifications (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  type text NOT NULL, title text NOT NULL, body text,
+  account_id uuid, customer_id uuid, invoice_number text,
+  metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+  created_at timestamptz DEFAULT now() NOT NULL
+);
 CREATE TABLE public.penalty_fees (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
   account_id uuid NOT NULL, currency public.account_currency NOT NULL,

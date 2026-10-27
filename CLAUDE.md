@@ -55,7 +55,7 @@ Reference docs (read the relevant one when a task touches that area):
 - docs/WEBSITE-WORKSPACE.md — the /website workspace: six tabs, the manage_website_catalog / manage_website_content split, the /website-catalog redirect, where each website table's editor lives. Payment details, Payment reminders, Paidy, Card payments (Square) and Shipping fees live on Website → Settings, ADMIN ONLY (/settings?tab=payment-details redirects)
 - docs/WEBSITE-COUPONS.md — website checkout coupon codes: pieces only, coupon before points, held/used/released, website_coupon_quote is the only maths, the draft stores reduced figures and the review screen adds the coupon back
 - docs/PAYSLIPS.md — Timesheet → Payslips (admin + can_view_all only)
-- docs/RECEIPTS.md — website receipts (領収書): web orders only, tax rule, cancel-never-edit, switch, font/seal
+- docs/RECEIPTS.md — website receipts (領収書): web orders only, tax rule, cancel-never-edit, switch, font
 - Every doc named in a "Rules moved from CLAUDE.md" pointer below holds the
   full text moved out verbatim on 2026-09-24 / 2026-10-02 / 2026-10-18 under that heading;
   CLAUDE.md keeps the one-line rules and the pointer.
@@ -239,9 +239,9 @@ Reference docs (read the relevant one when a task touches that area):
 ## WEBSITE RECEIPTS (領収書) — NON-NEGOTIABLE (owner 2026-10-27; docs/RECEIPTS.md)
   - source_channel 'web' only; written ONLY by web_receipt_sync (deferred triggers) + the receipt RPCs.
   - generate-invoice rule: items excl. tax (round(unit ÷ 1.1) × qty) = 小計; 消費税 = incl. − 小計;
-    − 割引 + 送料 (+代引手数料, +延滞金) = 合計 = money received, exactly, or no receipt. Peso: held.
+    − 割引 + 送料 (+代引手数料, +延滞金) = 合計 = money received, exactly, or no receipt (+1 bell). Peso: per line at fx_rate_used.
   - Never edit or delete a receipt: cancel (reason kept) and issue a NEW number. Switch
-    web_receipts_mode off|test|on ONLY via set_web_receipts_mode. Font/seal: private receipt-assets.
+    web_receipts_mode off|test|on ONLY via set_web_receipts_mode. Font: private receipt-assets; no seal.
 
 ## PRODUCT REVIEWS (PR-R1, 2026-09-30): order-linked invites, owner approval before anything is public — docs/SCHEMA-FACTS.md "Product reviews".
 

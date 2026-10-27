@@ -22,9 +22,13 @@
  *   合計（税込）  total    = subtotal + tax − discount + shipping + COD + late fee
  *                          = the money received
  * The block must add up EXACTLY; when the stored data does not, no receipt is
- * issued (never a balancing line). PESO orders are held: their item lines are
- * stored in yen only and checkout never derived per-line pesos (owner decision
- * pending; docs/RECEIPTS.md "Peso orders").
+ * issued (never a balancing line).
+ *
+ * PESO ORDERS (owner 2026-10-27, option a): item lines are stored in yen only
+ * and checkout converts only the total and shipping. pesoLines() converts each
+ * line once with the order's fx_rate_used (pesos per ¥1, half-up), puts the
+ * rounding remainder on the largest quantity-1 line so the rows add up exactly
+ * to the stored peso product amount, then the same block runs in PHP.
  */
 
 export type ReceiptCurrency = "JPY" | "PHP";
@@ -91,7 +95,7 @@ export interface ReceiptTotals {
   total: number;
   /** subtotal + tax − discount + shipping + COD fee + late fee === received (yen only). */
   addsUp: boolean;
-  /** Why it does not: lines_mismatch | block_mismatch | no_items | peso_pending_owner_decision. */
+  /** Why it does not: no_items | lines_mismatch | block_mismatch. */
   problem: string | null;
 }
 
@@ -108,8 +112,7 @@ export function receiptTotals(i: ReceiptTotalsInput): ReceiptTotals {
   const discountC = cents(i.discount) + cents(i.points);
   const blockC = subtotal * 100 + taxC - discountC + cents(i.shipping) + cents(i.codFee) + cents(i.penalties);
   let problem: string | null = null;
-  if (i.currency !== "JPY") problem = "peso_pending_owner_decision";
-  else if (inclC <= 0) problem = "no_items";
+  if (inclC <= 0) problem = "no_items";
   else if (inclC !== storedC) problem = "lines_mismatch";
   else if (blockC !== cents(i.received)) problem = "block_mismatch";
   return {
@@ -124,6 +127,45 @@ export function receiptTotals(i: ReceiptTotalsInput): ReceiptTotals {
     addsUp: problem === null,
     problem,
   };
+}
+
+export interface PesoLineInput {
+  unitPriceJpy: number;
+  quantity: number;
+}
+
+export type PesoLines =
+  | { items: ReceiptItemInput[]; remainder: number; fixedIndex: number | null }
+  | { error: "peso_no_rate" | "peso_lines_mismatch" };
+
+/**
+ * Mirror of web_receipt_snapshot's peso step. unit_php = round(unit_jpy × rate)
+ * half-up (Postgres round of an exact numeric); the remainder
+ * (goodsPhp − Σ unit_php × qty) goes on the largest quantity-1 line (first on a
+ * tie). A remainder with no quantity-1 line → peso_lines_mismatch.
+ */
+export function pesoLines(items: PesoLineInput[], rate: number | null, goodsPhp: number): PesoLines {
+  if (rate === null || !Number.isFinite(rate) || rate <= 0) return { error: "peso_no_rate" };
+  const micros = BigInt(Math.round(rate * 1_000_000));
+  const unitPhp = items.map((it) => {
+    const yenC = BigInt(cents(it.unitPriceJpy));          // yen in cents
+    const v = yenC * micros;                               // pesos × 1e8
+    return Number((v + 50_000_000n) / 100_000_000n);       // half-up to whole pesos (non-negative)
+  });
+  const sum = unitPhp.reduce((s, u, k) => s + u * Math.trunc(items[k].quantity), 0);
+  const remainder = Math.round(cents(goodsPhp) - sum * 100) / 100;
+  let fixedIndex: number | null = null;
+  items.forEach((it, k) => {
+    if (Math.trunc(it.quantity) !== 1) return;
+    if (fixedIndex === null || unitPhp[k] > unitPhp[fixedIndex]) fixedIndex = k;
+  });
+  if (remainder !== 0 && fixedIndex === null) return { error: "peso_lines_mismatch" };
+  const out = items.map((it, k) => {
+    const unit = unitPhp[k] + (k === fixedIndex ? remainder : 0);
+    const q = Math.trunc(it.quantity);
+    return { unitPrice: unit, quantity: q, lineTotal: unit * q };
+  });
+  return { items: out, remainder, fixedIndex };
 }
 
 /** CJR-YYYY-NNNNNN — YYYY is the JST year of issue, NNNNNN the receipt sequence. */
