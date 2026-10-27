@@ -7141,6 +7141,13 @@ export type Database = {
             referencedRelation: "product_reviews"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "product_review_products_website_product_id_fkey"
+            columns: ["website_product_id"]
+            isOneToOne: false
+            referencedRelation: "website_products"
+            referencedColumns: ["id"]
+          },
         ]
       }
       product_reviews: {
