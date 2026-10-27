@@ -474,6 +474,33 @@ Three tables back the staff Timesheet feature (pure-TS engine in `src/lib/timesh
 - **`payslips`**: one live payslip per (user, month) (partial unique, void excluded). Figures and staff details frozen at `finalize_payslip`; only `finalized → paid` (payment fields) and `→ void` (void fields) are allowed, enforced by a row trigger; DELETE/TRUNCATE refused. `php_per_jpy` = `php_received / jpy_sent` (the actual remittance rate, not `php_jpy_rate`).
 - Read RLS on both tables = `public.can_manage_payslips(auth.uid())` (admin or `timesheet_can_view_all`, answers for the caller only); no write policies. Proofs live in the private bucket `payslip-proofs`, `<payslip_id>/<file>`. Full text: docs/PAYSLIPS.md.
 
+### Payslip cash advances, cash bond and pay settings (added 2026-10-27, migration 20270204100000 — NOT yet applied live)
+
+- **`payslip_cash_advances`:**
+  - Columns: date, amount, note, optional proof `payslip-proofs/advances/<id>/<file>`, `active | void`,
+    `payslip_id`.
+  - Written only by `add_cash_advance`, `attach_cash_advance_proof`, `void_cash_advance` and
+    `finalize_payslip`.
+  - Locked once the staff month has a non-void payslip.
+  - Never deleted: the row trigger refuses DELETE and TRUNCATE.
+  - Read RLS = `can_manage_payslips`.
+- **`payslips` new columns:**
+  - `employee_id`, `hire_date`, `cash_advances` (jsonb), `cash_advance_php`, `is_final_pay`,
+    `cash_bond_held_php`, `cash_bond_released_php`, `cash_bond_source_payslip_id`.
+  - GENERATED `net_pay_php` (= total − advances) and `amount_due_php` (= net − held + released).
+  - `payslips_before_write` leaves the two GENERATED columns out of its frozen-row comparison, because
+    they read NULL in a BEFORE UPDATE trigger.
+- **`staff_payroll_details.employee_id`:** unique on `upper()`, pattern `^[A-Za-z0-9-]{1,30}$`. **`hire_date`:**
+  the pay month containing it is the first pay month (cash bond).
+- **`finalize_payslip`:** now 4 arguments `(…, p_is_final_pay boolean)` with NO default. The 3-argument
+  version is a thin wrapper, because a default would make 3-argument calls ambiguous.
+- **`timesheet_pay_settings`:** CSR basic/allowance per month (latest `effective_from ≤` the 1st;
+  fallback to the profile). Written only by `set_timesheet_pay_setting` (admin, audited without amounts);
+  never deleted.
+- **Floor:** payslip months, cash advances and `correct_timesheet_day` start at 2026-04-01.
+- Full text: docs/PAYSLIPS.md "Cash advances, employee ID, cash bond and April–May";
+  docs/TIMESHEET-SPEC.md "Pay settings history".
+
 ### staff_notifications — additional types (added 2026-06-14)
 
 `submission_confirmed` is produced by the existing Postgres trigger `notify_submission_reviewed` (on `payment_submissions` UPDATE), which writes the "Payment confirmed" `staff_notifications` row on confirm. It is NOT emitted by an edge function — earlier duplicate inserts in `review-payment-submission` were removed (2026-06-14) so the bell row + chime/speech ride solely on the trigger.

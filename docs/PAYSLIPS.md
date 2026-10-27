@@ -251,3 +251,223 @@ payslip view and the Excel file are unchanged. Frontend only: no migration, no e
   - direct writes refused
   - audit rows (one per write, real uuids, no figures or personal details)
 - Not applied to any live database. The owner applies it through the Lovable DB connection after release.
+
+## Cash advances, employee ID, cash bond and April–May (owner 2026-10-27)
+
+Owner-confirmed 2026-10-27 12:05–12:20. Migration `supabase/migrations/20270204100000_payslip_bond_payhistory.sql`
+(**NOT applied** — the owner applies it through the Lovable DB connection after the frontend release). No edge
+function. Pay settings history and the timesheet side: docs/TIMESHEET-SPEC.md "Pay settings history" and
+"Inactive staff in past months".
+
+### Owner decisions (locked)
+
+- **A. Cash advances are DEDUCTED:** total earnings (`total_php`) − total cash advances = **net pay**.
+- **B.** Several advances per staff member per month, each with its own date and note.
+- **C.** Each advance may carry its OWN optional proof (photo or PDF).
+- **D. Employee ID:** typed in Edit details; REQUIRED before Finalize; unique ignoring case; 1–30 letters,
+  digits and hyphens.
+- **E.** Advances can be added and voided any time BEFORE the month's payslip is finalized. They are locked
+  once a non-void payslip exists for staff + month (void the payslip and re-issue to change them). Mistakes
+  are voided with a reason, never deleted.
+- **F.** Gate = `public.can_manage_payslips` (admin, or Brenda's `can_view_all`). Timesheet corrections keep
+  `can_correct_timesheet`.
+- **G. Hire date:** in Edit details, OPTIONAL (existing staff need none). The pay month containing it is
+  the staff member's FIRST pay month.
+- **H. Cash bond:** the first-month payslip holds HALF OF NET PAY (after advances):
+  `cash_bond_held_php = floor((net_pay_php / 2) to the centavo)`, so an odd centavo stays in the paid half.
+  Nothing is held when the payslip is ticked **"Final pay (staff leaving)"**.
+- **I. Release:** on the SECOND month's payslip (first month + 1), or earlier on a payslip ticked
+  "Final pay (staff leaving)".
+- **J. Paying in arrears:** a month's work is paid the following month (September's work → the September
+  payslip → paid on in October). Already supported (`paid_on ≥ pay_month`).
+- **K. Pay settings history:** each month uses the CSR basic salary and allowance IN FORCE for that month
+  (docs/TIMESHEET-SPEC.md). Owner fact, loaded separately after apply (not seeded): Brenda's and Kaila's
+  allowance was ₱4,000 in April–May 2026 and ₱6,000 from 1 June 2026.
+- **L. April–May 2026 are part of the Hub:** payslips, cash advances and timesheet corrections are allowed
+  from 2026-04-01 (was 2026-06-01).
+- **M. Inactive staff** with timesheet entries in a month (e.g. Cris, who left) appear for that month in
+  Consolidation, Cost Master, Full Summary and Payslips, labelled "(inactive)". They are read-only for
+  punching and corrections, and a payslip can still be issued for them.
+
+### Release order and feature detection
+
+The frontend ships BEFORE the migration. After the migration `get_payslip_book` returns
+`"features": {"cash_advances": true, "employee_id": true, "cash_bond": true, "pay_history": true, "from_april": true}`.
+Until then the key is absent, every new control is hidden, and the tab behaves exactly as before:
+- finalize uses the 3-argument call;
+- details are saved with the 3-argument call;
+- payslips start in June 2026.
+
+The timesheet engine falls back to the profile's basic/allowance whenever `timesheet_pay_settings` cannot
+be read.
+
+### Tables and columns
+
+- `staff_payroll_details`:
+  - `employee_id`: CHECK `^[A-Za-z0-9-]{1,30}$`, plus a UNIQUE index on `upper(employee_id)`.
+  - `hire_date`: CHECK `≥ 2020-01-01`.
+- `payslips` (existing rows are not updated; `ADD COLUMN` fires no row trigger):
+  - Snapshot: `employee_id`, `hire_date`.
+  - Advances: `cash_advances` (jsonb array of `{id, advance_date, amount_php, note, proof_path}`) and
+    `cash_advance_php` (0 ≤ x ≤ `total_php`).
+  - `net_pay_php`, GENERATED as `total_php − cash_advance_php`.
+  - `is_final_pay`.
+  - Cash bond: `cash_bond_held_php` (0 ≤ x ≤ net pay), `cash_bond_released_php` and
+    `cash_bond_source_payslip_id` (FK; set exactly when something is released).
+  - `amount_due_php`, GENERATED as `total_php − cash_advance_php − cash_bond_held_php + cash_bond_released_php`.
+  - `total_php` still means gross earnings.
+  - A partial UNIQUE index allows one live (non-void) release per source payslip.
+  - Existing rows read: advances `[]` and 0, bond 0, `net_pay_php = amount_due_php = total_php`.
+- **`payslips_before_write` freezes every new column.** It compares the whole row minus the payment
+  (or void) fields. It now also leaves out the two GENERATED columns, because in a BEFORE UPDATE trigger
+  they read as NULL in `NEW` and every payment and void would otherwise be refused. Both are computed
+  only from frozen columns. (Verified on PG 16; harness Q1b and Q1c.)
+- `payslip_cash_advances` (new):
+  - Columns: `id`, `user_id`, `pay_month` (1st of month), `advance_date`, `amount_php > 0`, `note`
+    (1–200, trimmed), `proof_path`, `status` (`active | void`), `void_reason`, `created_by/at`,
+    `voided_by/at`, `payslip_id`.
+  - `proof_path` is NULL or `advances/<id>/…`.
+  - Index on `(user_id, pay_month)`.
+  - Read RLS is the payslip gate. There are no write policies, and writes are revoked from PUBLIC, anon
+    and authenticated.
+  - Row trigger:
+    - DELETE is refused.
+    - INSERT only as active with no payslip.
+    - UPDATE only on an active row, and only one of: proof `NULL → set`, `active → void` (void fields
+      only), or `payslip_id` set (by finalize).
+  - TRUNCATE is refused.
+
+### RPCs (gate first; jsonb `{ok}` / `{error}`; audit rows carry no amounts, notes or personal values)
+
+| RPC | does | refusals |
+|---|---|---|
+| `save_staff_payroll_details(p_user_id, p_address, p_date_of_birth, p_employee_id, p_hire_date)` (new 5-argument overload; the 3-argument one is unchanged and never touches the new columns) | upsert incl. employee ID (trimmed, empty → null) and hire date; audit lists changed field names | the 3-argument ones + `invalid_employee_id`, `employee_id_taken`, `invalid_hire_date` (before 2020 or more than a year after today, Japan time) |
+| `add_cash_advance(p_user_id, p_pay_month, p_advance_date, p_amount_php, p_note)` | one active advance (staff with a timesheet profile, active or not) | `staff_not_found`, `invalid_month` (2026-04 .. this month, Japan time), `invalid_date` (before the 1st of LAST month or after today, Japan time — both bounds are relative to today), `invalid_amount` (≤ 0, > 2 decimals), `note_required`, `note_too_long`, `month_finalized` (same advisory lock as finalize) |
+| `attach_cash_advance_proof(p_id, p_path)` | sets the proof once | `not_found`, `advance_void`, `proof_already_attached`, `month_finalized`, `proof_required`, `invalid_proof_path` (must be `advances/<p_id>/<file>`, no sub-folder, no `..`), `proof_missing` (not in the bucket) |
+| `void_cash_advance(p_id, p_reason)` | active → void (reason 3–500) | `reason_required`, `not_found`, `already_void`, `month_finalized` |
+| `get_payslip_book(p_pay_month)` | every existing key, plus `features`, `cash_advances` (month, all statuses, newest first), `pay_settings` (all rows for the staff listed), `details` also for INACTIVE profiles with entries in the 31-row window, and per details entry `employee_id`, `hire_date`, `active`, `first_month_issued`, `cash_bond_pending {source_payslip_id, pay_month, amount}`; each payslip carries `cash_bond_source_month` | unchanged |
+| `finalize_payslip(p_user_id, p_pay_month, p_payload, p_is_final_pay)` (new 4-argument) | see below | the old ones + `details_missing` now also when the employee ID is missing, `pay_settings_mismatch`, `cash_bond_order`, `advance_exceeds_pay` |
+| `finalize_payslip(p_user_id, p_pay_month, p_payload)` | thin wrapper: the 4-argument call with `false` (the frontend released before the migration keeps working) | same |
+
+**Deviation from the prompt:** the 4th argument has **no `DEFAULT false`**. In PostgreSQL a 3-argument
+call matching both `f(a,b,c)` and `f(a,b,c,d DEFAULT …)` fails with "function … is not unique", for
+positional and named calls alike (PostgREST included). That would break the old frontend. Verified on
+PG 16. The new frontend always passes all four.
+
+**finalize_payslip (4 arguments), in order:**
+1. The month floor is 2026-04-01. An inactive profile is accepted.
+2. A per-staff bond lock, then the month lock.
+3. The employee ID is required (`details_missing`).
+4. `cash_bond_order` when the hire month is from 2026-04, this month is later, and no non-void hire-month
+   payslip exists.
+5. For a CSR, the payload's `basic_salary` / `monthly_allowance` must equal the settings in force for the
+   month: the latest `timesheet_pay_settings` row with `effective_from ≤ the 1st`, each field falling back
+   to the profile (`pay_settings_mismatch`).
+6. The ACTIVE advances are read SERVER-SIDE, ordered by date, into `cash_advances`, and
+   `cash_advance_php` is their sum (`advance_exceeds_pay` when it is above `total_php`).
+7. The bond is decided:
+   - In the hire month and not final pay: `held = floor((total − advances) × 50) / 100`.
+   - Otherwise: the latest non-void payslip with `held > 0` and no non-void payslip releasing it is
+     released when this month is its month + 1, or when final pay is ticked.
+8. `employee_id`, `hire_date` and `is_final_pay` are snapshotted, and `payslip_id` is set on the advances.
+   One audit row records `is_final_pay`, the number of advances and the bond kind (no amounts).
+
+Voiding the first-month payslip removes its bond (nothing pending). Voiding the releasing payslip makes
+the bond pending again, and a re-issue releases it again. Voiding a first-month payslip AFTER its bond was
+released leaves the release on the second-month payslip, so void that one too and re-issue both.
+
+### Storage
+
+New INSERT policy "Payslip managers can upload cash advance proofs". It allows `payslip-proofs` objects
+at `advances/<id>/<file>` only when all of these hold:
+- the caller passes the gate;
+- `<id>` is an ACTIVE advance with no proof;
+- that advance's month has no non-void payslip;
+- there is a file name, no sub-folder and no `..`.
+
+There is no update or delete policy. The existing read policy (the gate) covers the folder, and the Hub
+opens proofs with 10-minute signed URLs.
+
+### Screens
+
+- **Edit details:** "Employee ID (required to finalize)" and "Hire date (optional)". The finalize
+  block reads "Add employee ID, address and date of birth first".
+- **Row button "Cash advances"**, with the active count. It opens "Cash advances — <Name>, <Month YYYY>":
+  - The list shows date, amount, note, the proof link, Active/Void plus reason, Void (asks for a reason)
+    and Attach proof.
+  - "Add advance": date (default today in Japan time; from the 1st of last month), amount ₱, note, and
+    an optional proof (JPG/PNG/WebP/HEIC/PDF, ≤ 10 MB). It saves the advance, then uploads, then
+    attaches. If the upload or attach fails, the advance stays and the toast says to use Attach proof.
+  - Read-only once the month is finalized: "This month's payslip is finalized — void it to change
+    advances".
+- **Payslip view:**
+  - Staff box: adds Employee ID.
+  - After commission: one row per advance, "Less: Cash advance — <DD Mon YYYY> · <note>"; then "Total
+    earnings", "Total cash advances", "Net pay"; then "Less: Cash bond — first-month pay (50% held)" or
+    "Cash bond released — <Month YYYY>"; then "Amount due" (finalized) or "Amount paid" (paid), which is
+    `amount_due_php`.
+  - The draft computes the same from live data. When the hire date falls in the month it adds the note
+    "First pay month — 50% held as cash bond".
+  - Older payslips keep "Total".
+- **Finalize dialog:** "Final pay (staff leaving)" with "Releases any cash bond on this payslip; no bond
+  is held." and the bond held or released.
+- **Record payment:**
+  - Pesos are pre-filled with `amount_due_php` (falling back to `net_pay_php`, then `total_php`).
+  - Yen = that ÷ today's market rate.
+  - The difference line compares the pesos with the amount due ("Difference vs amount due"; older
+    payslips keep "Difference vs payslip total").
+- **Excel:** an "Employee ID" row; the advance rows, "Total earnings", "Total cash advances", "Net pay",
+  the cash bond row and "Amount due" / "Amount paid" (older payslips keep "Total").
+
+### PDF (page order and labels)
+
+- **PAID TO:** adds "Employee ID: …", omitted when null (older payslips).
+- **After the earnings table:**
+  - one row per advance: "Less: Cash advance — <DD Mon YYYY> · <note>" (negative);
+  - "Total earnings / Total cash advances / Net pay";
+  - the cash bond row;
+  - the dark band: **AMOUNT DUE** (finalized) or **AMOUNT PAID** (paid), equal to `amount_due_php`.
+    Older payslips keep **NET PAY** = `total_php`.
+- **Checks:** the earnings rows must still add up to `total_php`, and earnings − advances − held +
+  released must equal `amount_due_php` (`assertDeductionsMatch`). Otherwise the page is not drawn.
+- **Pages:** 1, the payslip; then the payday proof (paid only); then each advance proof that exists, in
+  advance-date order:
+  - a PDF proof's pages are copied in;
+  - an image gets one page with the caption "Cha Jewels Co., Ltd. — Cash advance — <DD Mon YYYY> —
+    <file name>";
+  - an unreadable proof gets the page "Cash advance proof could not be included — open it from the Hub:
+    <file>", plus a toast.
+- **Paid line:** "<Month YYYY> salary paid on <DD Mon YYYY>: ¥x → ₱y · Proof of payment attached (page 2)",
+  plus ", cash advance proofs pages a–b" when there are any. An unpaid payslip with advance proofs reads
+  "Cash advance proofs attached (pages a–b)".
+- **Footer:** "Page 1 of N". There is no "Generated by" line.
+
+### Tests
+
+- **SQL** (local PostgreSQL 16, stand-ins only; never a Lovable database):
+  - `supabase/tests/payslips/run.sh` phase 2: 20270201, 20270202, a seed of payslips issued the old
+    way, then 20270204 applied twice. The groups are Q1–Q8:
+    - shape, and existing rows unchanged;
+    - payment and void through the patched trigger; the new columns frozen;
+    - the pay settings RPC: admin only, month rules, `not_csr`, amounts, `payslips_issued`, profile sync,
+      audit without amounts, never deleted, read audience;
+    - employee ID and hire date, and the old 3-argument save keeping them;
+    - the April floor, inactive staff, `pay_settings_mismatch`, `details_missing`, the old 3-argument
+      finalize, book features and inactive listing;
+    - advances: every refusal, proof path and storage rules, void, month lock, snapshot, relink after
+      void + re-issue, `advance_exceeds_pay`, row locks, direct writes, read gate;
+    - cash bond: held with the odd centavo, release on month + 1, void + re-issue, first-and-final,
+      `cash_bond_order`, no release at month + 2, an early release on final pay;
+    - corrections from April;
+    - audit.
+  - `supabase/tests/timesheet-corrections/run.sh` phase 2 (T11): March refused, 1 April and 31 May
+    allowed, the other rules unchanged.
+- **Vitest:**
+  - `src/test/payslip-advances-bond.test.ts`: the bond preview, breakdown and amount-due logic, Excel,
+    feature detection, forms and refusals, PDF rows, the paid line, and page counts with 0/1/2 advance
+    proofs plus the fallback;
+  - `src/test/payslips-tab-advances.test.tsx`: the screens;
+  - `src/test/timesheet-pay-history.test.tsx`: the engine, the fixtures, inactive staff, month options
+    and the Assignments flow;
+  - fixtures: `src/test/fixtures/april-2026-cholita.json` and `may-2026-cris-midnight.json` (synthetic;
+    no live data).

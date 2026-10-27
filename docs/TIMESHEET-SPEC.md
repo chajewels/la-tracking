@@ -189,8 +189,8 @@ Owner-confirmed 2026-10-26 21:13. Migration `supabase/migrations/20270202100000_
   column is never touched), appends one `timesheet_corrections` row and writes one `audit_logs` row. After a
   save the page reloads its entries and corrections, so Consolidation, Cost Master, Full Summary and Payslips
   all recompute. A finalized payslip whose figures moved shows its existing "Figures changed" warning.
-- **Refusals:** `permission_denied`, `staff_not_found`, `comment_required`, `invalid_date` (2026-06-01 up to
-  today, Manila), `invalid_punch` (each time must be on the work date in the profile timezone; PM out may also
+- **Refusals:** `permission_denied`, `staff_not_found`, `comment_required`, `invalid_date` (2026-04-01 up to
+  today, Manila; 2026-06-01 before migration 20270204100000), `invalid_punch` (each time must be on the work date in the profile timezone; PM out may also
   be the next day 00:00–06:00), `invalid_order` (AM in ≤ AM out ≤ PM in ≤ PM out, blanks skipped, a 00:00
   PM out counts as midnight), `save_failed`. The UI shows each in plain English.
 - **The lock:** trigger `trg_timesheet_entries_lock_corrected` (BEFORE INSERT/UPDATE on
@@ -198,6 +198,75 @@ Owner-confirmed 2026-10-26 21:13. Migration `supabase/migrations/20270202100000_
   `day_locked`. Service paths (`auth.uid()` IS NULL) and days without a correction behave exactly as before.
 - **Before the migration is applied**, `get_timesheet_corrections` does not exist. Corrections stay off, the
   Consolidation cells stay read-only and nothing is locked.
+
+## Pay settings history
+
+Owner-confirmed 2026-10-27 (decision K). Migration `supabase/migrations/20270204100000_payslip_bond_payhistory.sql`
+(NOT applied yet; no edge function). Rules: `paySettingFor` / `payProfileForMonth` in `src/lib/timesheetEngine.ts`;
+reads and the RPC call: `src/lib/timesheetPaySettings.ts`. Tests: `src/test/timesheet-pay-history.test.tsx`,
+SQL harness `supabase/tests/payslips/` phase 2.
+
+- **Table `timesheet_pay_settings`:**
+  - Columns: `id`, `user_id`, `effective_from` (first of month), `basic_salary` and `allowance`
+    (numeric(12,2) ≥ 0, either may be null), `note` (≤ 200), `created_by/at`, `updated_by/at`.
+  - UNIQUE `(user_id, effective_from)`.
+  - Never deleted: a trigger refuses DELETE and TRUNCATE.
+  - Read RLS mirrors `timesheet_profiles` (baseline policies): admin OR finance OR
+    `timesheet_can_view_all(auth.uid())` OR `user_id = auth.uid()`.
+  - No write policies. Writes go only through the RPC.
+- **The month in force:** a CSR's basic salary / allowance for a month = the latest row with
+  `effective_from ≤ the 1st of that month`. A null field in that row, or no row at all, falls back to
+  `timesheet_profiles`. The same rule holds server-side, where `finalize_payslip` refuses a mismatch with
+  `pay_settings_mismatch`.
+  - Every calculation resolves per month: Consolidation, Cost Master, Full Summary (each month at its own
+    settings), Payslips and My Timesheet (the staff member's own rows).
+  - Full Summary keeps "live wins when punches exist" over `timesheet_monthly_history`.
+- **`set_timesheet_pay_setting(p_user_id, p_effective_from, p_basic_salary, p_allowance, p_note)`:**
+  - Admin only (`has_role admin`).
+  - Upserts on `(user_id, effective_from)`.
+  - Refuses:
+    - `permission_denied`, `staff_not_found`;
+    - `not_csr` (Live Admin has no basic or allowance);
+    - `invalid_month`: not the first of a month, before 2026-04, or more than 12 months after this month
+      (Manila);
+    - `invalid_amount`: both null, negative, or more than 2 decimals;
+    - `invalid_note`;
+    - `payslips_issued`: a non-void payslip already exists for that user in that month or later. Void it
+      first.
+  - When the row is the latest one in force THIS month, it also writes the profile's basic/allowance. A
+    future-month row leaves the profile alone until then.
+  - One `audit_logs` row (`entity_type` `timesheet_pay_setting`), without amounts.
+- **Assignments (admin):**
+  - Editing an existing CSR's basic or allowance asks for "Effective from (month)" (default this month)
+    and an optional note, then calls the RPC. The profile update then leaves basic and allowance alone,
+    because the RPC keeps them in step.
+  - The dialog lists the "Pay history" (effective month, basic, allowance, note).
+  - The refusal `payslips_issued` reads "A payslip for <Month> or later is already issued — void it first."
+  - The form shows the settings in force this month.
+  - Before the migration the table is unreadable: no effective month, no history, and the old profile
+    update.
+- **Owner fact** (loaded separately after apply, never seeded): Brenda's and Kaila's allowance was ₱4,000
+  in April–May 2026 and ₱6,000 from 1 June 2026.
+
+## Inactive staff in past months, and the April 2026 floor
+
+- **Inactive staff (decision M):** an INACTIVE profile with entries in a month's 31-row window appears
+  for that month in Consolidation, Cost Master, Full Summary and Payslips (`profilesForMonth`), labelled
+  "(inactive)".
+  - It is read-only: no punching, and its Consolidation cells are not correction buttons.
+  - A payslip can still be issued for it (`finalize_payslip` accepts inactive profiles).
+  - Months without entries do not show it. Active-only lists elsewhere are unchanged.
+  - `get_payslip_book` lists the same people.
+- **Floor 2026-04-01 (decision L):** payslips, cash advances and corrections (`correct_timesheet_day`,
+  whose body changed ONLY in its date floor) are allowed from 2026-04-01.
+  - The Timesheet and Payslips month pickers keep 12 months back and always reach back to April 2026.
+  - April/May punches are loaded separately after apply.
+- **Engine fidelity:** `src/test/fixtures/april-2026-cholita.json` and `may-2026-cris-midnight.json`
+  (synthetic, no live data):
+  - Cholita's April pattern (11:00–17:00, Sundays off, window 1 Apr–1 May) gives ₱16,800 basic, ₱4,000
+    allowance, ₱20,800 net and 162 hours.
+  - The Cris-style May (00:00 PM out read as midnight, 6.00 / 8.00 hours, two forfeited weeks) gives a
+    ₱2,000 allowance.
 
 ## Repo audit (RESOLVED 2026-06-13)
 

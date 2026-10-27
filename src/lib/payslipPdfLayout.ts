@@ -5,7 +5,8 @@
  */
 import { ADDRESS_EN, CORPORATE_NO, EMAIL, LEGAL_NAME_JA, NAME_EN, PHONE, REPRESENTATIVE } from '@/lib/companyInfo';
 import {
-  STATUS_LABEL, figuresChanged, formatDate, formatPeso, formatYen, longMonthLabel, paymentLine, round2,
+  BOND_HELD_LABEL, STATUS_LABEL, advanceLabel, amountDue, bondReleasedLabel, differenceLabel, figuresChanged, formatDate,
+  formatDateDD, formatPeso, formatYen, longMonthLabel, round2, storedBreakdown,
   type Payslip,
 } from '@/lib/payslips';
 
@@ -215,6 +216,70 @@ export function assertEarningsMatch(rows: EarningsRow[], totalPhp: number): void
   }
 }
 
+// ── Cash advances, cash bond, amount due (owner 2026-10-27) ─────────────────
+
+/** "Employee ID: …" for the PAID TO box; null on payslips without one (issued before the migration). */
+export function employeeIdLine(p: Pick<Payslip, 'employee_id'>): string | null {
+  const id = (p.employee_id ?? '').trim();
+  return id ? `Employee ID: ${id}` : null;
+}
+
+export interface SummaryRow { label: string; amountText: string; amount: number; emphasis?: boolean }
+
+/**
+ * The rows after the earnings table, from the STORED columns: one negative row per cash advance,
+ * then Total earnings / Total cash advances / Net pay, then the cash bond (held − or released +).
+ * Empty for payslips issued before the migration (they go straight to NET PAY).
+ */
+export function deductionRows(p: Payslip): { advances: SummaryRow[]; summary: SummaryRow[]; bond: SummaryRow[] } {
+  const b = storedBreakdown(p);
+  if (!b) return { advances: [], summary: [], bond: [] };
+  const advances = b.advances.map(a => ({ label: advanceLabel(a), amount: -round2(a.amount_php), amountText: formatPeso(-a.amount_php) }));
+  const summary: SummaryRow[] = [
+    { label: 'Total earnings', amount: b.earnings, amountText: formatPeso(b.earnings) },
+    { label: 'Total cash advances', amount: b.advancesTotal, amountText: formatPeso(b.advancesTotal) },
+    { label: 'Net pay', amount: b.net, amountText: formatPeso(b.net), emphasis: true },
+  ];
+  const bond: SummaryRow[] = [];
+  if (b.held > 0) bond.push({ label: BOND_HELD_LABEL, amount: -b.held, amountText: formatPeso(-b.held) });
+  if (b.released > 0) bond.push({ label: bondReleasedLabel(b.releasedFrom), amount: b.released, amountText: formatPeso(b.released) });
+  return { advances, summary, bond };
+}
+
+/** The dark band: AMOUNT DUE / AMOUNT PAID = amount_due_php; older payslips keep NET PAY = total_php. */
+export function payBand(p: Payslip): { label: string; amount: number } {
+  if (p.amount_due_php == null) return { label: 'NET PAY', amount: p.total_php };
+  return { label: p.status === 'paid' ? 'AMOUNT PAID' : 'AMOUNT DUE', amount: p.amount_due_php };
+}
+
+/** earnings − advances − bond held + bond released must equal amount_due_php to the centavo. */
+export function assertDeductionsMatch(p: Payslip): void {
+  const b = storedBreakdown(p);
+  if (!b) return;
+  const c = (n: number) => Math.round(round2(n) * 100);
+  const advances = (p.cash_advances ?? []).reduce((s, a) => s + c(a.amount_php), 0);
+  if (advances !== c(b.advancesTotal)
+      || c(b.earnings) - advances - c(b.held) + c(b.released) !== c(amountDue(p))) {
+    throw new Error('deductions_mismatch');
+  }
+}
+
+/** Pages a–b holding the cash advance proofs; null when there are none. */
+export interface PageRange { first: number; last: number }
+
+function pagesText(r: PageRange): string {
+  return r.first === r.last ? `page ${r.first}` : `pages ${r.first}–${r.last}`;
+}
+
+/** Caption under an image advance proof (drawn with a standard font: callers pass it through winAnsiSafe). */
+export function advanceProofCaption(advanceDate: string, fileName: string): string {
+  return `Cha Jewels Co., Ltd. — Cash advance — ${formatDateDD(advanceDate)} — ${fileName}`;
+}
+
+export function advanceProofFallback(fileName: string): string {
+  return `Cash advance proof could not be included — open it from the Hub: ${fileName}`;
+}
+
 // ── Payment, signatures, footer ─────────────────────────────────────────────
 
 export type PaymentBlock =
@@ -231,19 +296,27 @@ export function paymentBlock(p: Payslip): PaymentBlock {
     { label: 'Pesos received', value: formatPeso(p.php_received) },
     { label: 'Rate used (₱ per ¥1)', value: p.php_per_jpy != null ? String(p.php_per_jpy) : '—' },
   ];
-  if (figuresChanged(p.total_php, p.php_received)) {
-    rows.push({ label: 'Difference vs payslip total', value: formatPeso(p.php_received - p.total_php) });
+  if (figuresChanged(amountDue(p), p.php_received)) {
+    rows.push({ label: differenceLabel(p), value: formatPeso(p.php_received - amountDue(p)) });
   }
   return { paid: true, rows };
 }
 
-/** The one line under Net pay on a paid payslip; null when unpaid. */
-export function paymentNote(p: Payslip, proofIncluded: boolean | null): string | null {
-  if (p.status !== 'paid' || p.jpy_sent == null || p.php_received == null) return null;
+/**
+ * The line under the amount band. Paid: "<Month YYYY> salary paid on <DD Mon YYYY>: ¥x → ₱y · Proof of
+ * payment attached (page 2)" plus ", cash advance proofs pages a–b". Unpaid: only the advance-proof pages,
+ * or null.
+ */
+export function paymentNote(p: Payslip, proofIncluded: boolean | null, advancePages: PageRange | null = null): string | null {
+  const advances = advancePages ? `cash advance proofs ${pagesText(advancePages)}` : null;
+  if (p.status !== 'paid' || p.jpy_sent == null || p.php_received == null) {
+    return advances ? `Cash advance proofs attached (${pagesText(advancePages as PageRange)})` : null;
+  }
   const proof = proofIncluded === false
     ? 'Proof of payment could not be included'
     : 'Proof of payment attached (page 2)';
-  return `${paymentLine(p)} · ${proof}`;
+  const paid = `${longMonthLabel(p.pay_month)} salary paid on ${formatDateDD(p.paid_on)}: ${formatYen(p.jpy_sent)} → ${formatPeso(p.php_received)}`;
+  return `${paid} · ${proof}${advances ? `, ${advances}` : ''}`;
 }
 
 export interface SignatureColumn { label: string; name: string }

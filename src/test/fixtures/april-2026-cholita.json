@@ -1,0 +1,241 @@
+{
+ "_note": "Synthetic engine-fidelity fixture (no live data): the April 2026 pattern of Cholita's sheet - 11:00 in, 17:00 out, blank AM out / PM in, Sundays off, over the 31-row window 1 Apr - 1 May. Pay settings: allowance 4,000 April-May, 6,000 from June (owner 2026-10-27). days_worked counts in-month rows only (26); the 162 hours include the 1 May spillover row.",
+ "monthKey": "2026-04",
+ "profile": {
+  "id": "p-cholita",
+  "user_id": "u-cholita",
+  "template_type": "csr",
+  "job_title": "CSR",
+  "timezone": "Asia/Manila",
+  "work_days": [
+   1,
+   2,
+   3,
+   4,
+   5,
+   6
+  ],
+  "shift_start": null,
+  "shift_end": null,
+  "basic_salary": 16800,
+  "allowance": 6000,
+  "half_day_rate": null,
+  "full_day_rate": null,
+  "full_day_threshold_hours": null,
+  "dayoff_divisor": 4,
+  "active": true
+ },
+ "settings": [
+  {
+   "user_id": "u-cholita",
+   "effective_from": "2026-04-01",
+   "basic_salary": null,
+   "allowance": 4000
+  },
+  {
+   "user_id": "u-cholita",
+   "effective_from": "2026-06-01",
+   "basic_salary": null,
+   "allowance": 6000
+  }
+ ],
+ "entries": [
+  {
+   "work_date": "2026-04-01",
+   "am_in": "2026-04-01T11:00:00+08:00",
+   "am_out": null,
+   "pm_in": null,
+   "pm_out": "2026-04-01T17:00:00+08:00"
+  },
+  {
+   "work_date": "2026-04-02",
+   "am_in": "2026-04-02T11:00:00+08:00",
+   "am_out": null,
+   "pm_in": null,
+   "pm_out": "2026-04-02T17:00:00+08:00"
+  },
+  {
+   "work_date": "2026-04-03",
+   "am_in": "2026-04-03T11:00:00+08:00",
+   "am_out": null,
+   "pm_in": null,
+   "pm_out": "2026-04-03T17:00:00+08:00"
+  },
+  {
+   "work_date": "2026-04-04",
+   "am_in": "2026-04-04T11:00:00+08:00",
+   "am_out": null,
+   "pm_in": null,
+   "pm_out": "2026-04-04T17:00:00+08:00"
+  },
+  {
+   "work_date": "2026-04-06",
+   "am_in": "2026-04-06T11:00:00+08:00",
+   "am_out": null,
+   "pm_in": null,
+   "pm_out": "2026-04-06T17:00:00+08:00"
+  },
+  {
+   "work_date": "2026-04-07",
+   "am_in": "2026-04-07T11:00:00+08:00",
+   "am_out": null,
+   "pm_in": null,
+   "pm_out": "2026-04-07T17:00:00+08:00"
+  },
+  {
+   "work_date": "2026-04-08",
+   "am_in": "2026-04-08T11:00:00+08:00",
+   "am_out": null,
+   "pm_in": null,
+   "pm_out": "2026-04-08T17:00:00+08:00"
+  },
+  {
+   "work_date": "2026-04-09",
+   "am_in": "2026-04-09T11:00:00+08:00",
+   "am_out": null,
+   "pm_in": null,
+   "pm_out": "2026-04-09T17:00:00+08:00"
+  },
+  {
+   "work_date": "2026-04-10",
+   "am_in": "2026-04-10T11:00:00+08:00",
+   "am_out": null,
+   "pm_in": null,
+   "pm_out": "2026-04-10T17:00:00+08:00"
+  },
+  {
+   "work_date": "2026-04-11",
+   "am_in": "2026-04-11T11:00:00+08:00",
+   "am_out": null,
+   "pm_in": null,
+   "pm_out": "2026-04-11T17:00:00+08:00"
+  },
+  {
+   "work_date": "2026-04-13",
+   "am_in": "2026-04-13T11:00:00+08:00",
+   "am_out": null,
+   "pm_in": null,
+   "pm_out": "2026-04-13T17:00:00+08:00"
+  },
+  {
+   "work_date": "2026-04-14",
+   "am_in": "2026-04-14T11:00:00+08:00",
+   "am_out": null,
+   "pm_in": null,
+   "pm_out": "2026-04-14T17:00:00+08:00"
+  },
+  {
+   "work_date": "2026-04-15",
+   "am_in": "2026-04-15T11:00:00+08:00",
+   "am_out": null,
+   "pm_in": null,
+   "pm_out": "2026-04-15T17:00:00+08:00"
+  },
+  {
+   "work_date": "2026-04-16",
+   "am_in": "2026-04-16T11:00:00+08:00",
+   "am_out": null,
+   "pm_in": null,
+   "pm_out": "2026-04-16T17:00:00+08:00"
+  },
+  {
+   "work_date": "2026-04-17",
+   "am_in": "2026-04-17T11:00:00+08:00",
+   "am_out": null,
+   "pm_in": null,
+   "pm_out": "2026-04-17T17:00:00+08:00"
+  },
+  {
+   "work_date": "2026-04-18",
+   "am_in": "2026-04-18T11:00:00+08:00",
+   "am_out": null,
+   "pm_in": null,
+   "pm_out": "2026-04-18T17:00:00+08:00"
+  },
+  {
+   "work_date": "2026-04-20",
+   "am_in": "2026-04-20T11:00:00+08:00",
+   "am_out": null,
+   "pm_in": null,
+   "pm_out": "2026-04-20T17:00:00+08:00"
+  },
+  {
+   "work_date": "2026-04-21",
+   "am_in": "2026-04-21T11:00:00+08:00",
+   "am_out": null,
+   "pm_in": null,
+   "pm_out": "2026-04-21T17:00:00+08:00"
+  },
+  {
+   "work_date": "2026-04-22",
+   "am_in": "2026-04-22T11:00:00+08:00",
+   "am_out": null,
+   "pm_in": null,
+   "pm_out": "2026-04-22T17:00:00+08:00"
+  },
+  {
+   "work_date": "2026-04-23",
+   "am_in": "2026-04-23T11:00:00+08:00",
+   "am_out": null,
+   "pm_in": null,
+   "pm_out": "2026-04-23T17:00:00+08:00"
+  },
+  {
+   "work_date": "2026-04-24",
+   "am_in": "2026-04-24T11:00:00+08:00",
+   "am_out": null,
+   "pm_in": null,
+   "pm_out": "2026-04-24T17:00:00+08:00"
+  },
+  {
+   "work_date": "2026-04-25",
+   "am_in": "2026-04-25T11:00:00+08:00",
+   "am_out": null,
+   "pm_in": null,
+   "pm_out": "2026-04-25T17:00:00+08:00"
+  },
+  {
+   "work_date": "2026-04-27",
+   "am_in": "2026-04-27T11:00:00+08:00",
+   "am_out": null,
+   "pm_in": null,
+   "pm_out": "2026-04-27T17:00:00+08:00"
+  },
+  {
+   "work_date": "2026-04-28",
+   "am_in": "2026-04-28T11:00:00+08:00",
+   "am_out": null,
+   "pm_in": null,
+   "pm_out": "2026-04-28T17:00:00+08:00"
+  },
+  {
+   "work_date": "2026-04-29",
+   "am_in": "2026-04-29T11:00:00+08:00",
+   "am_out": null,
+   "pm_in": null,
+   "pm_out": "2026-04-29T17:00:00+08:00"
+  },
+  {
+   "work_date": "2026-04-30",
+   "am_in": "2026-04-30T11:00:00+08:00",
+   "am_out": null,
+   "pm_in": null,
+   "pm_out": "2026-04-30T17:00:00+08:00"
+  },
+  {
+   "work_date": "2026-05-01",
+   "am_in": "2026-05-01T11:00:00+08:00",
+   "am_out": null,
+   "pm_in": null,
+   "pm_out": "2026-05-01T17:00:00+08:00"
+  }
+ ],
+ "expected": {
+  "basic_salary": 16800,
+  "allowance": 4000,
+  "capped_gross": 16800,
+  "net": 20800,
+  "total_hours": 162,
+  "days_worked": 26
+ }
+}

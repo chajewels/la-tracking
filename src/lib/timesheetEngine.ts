@@ -61,6 +61,71 @@ export interface MonthComputation {
   forfeitedWeeks: number;
 }
 
+/** One row of timesheet_pay_settings (migration 20270204100000; owner 2026-10-27). */
+export interface PaySetting {
+  user_id: string;
+  effective_from: string;        // 'YYYY-MM-01'
+  basic_salary: number | null;
+  allowance: number | null;
+  note?: string | null;
+}
+
+// ── Pay settings in force (owner 2026-10-27; docs/TIMESHEET-SPEC.md "Pay settings history") ──
+//
+// A CSR's basic salary and allowance can change over time. A month uses the
+// latest pay-settings row with effective_from <= its 1st; a null field in that
+// row, or no row at all, falls back to the profile's own value. Before the
+// migration is applied the table is unreadable and callers pass no settings, so
+// every month uses the profile values exactly as before. finalize_payslip
+// resolves the same way server-side (pay_settings_mismatch).
+
+/** The pay-settings row in force for `monthKey` ('YYYY-MM'), or null. */
+export function paySettingFor(
+  userId: string, monthKey: string, settings: PaySetting[] | null | undefined,
+): PaySetting | null {
+  if (!settings || settings.length === 0) return null;
+  const first = `${monthKey}-01`;
+  let best: PaySetting | null = null;
+  for (const s of settings) {
+    if (s.user_id !== userId || s.effective_from.slice(0, 10) > first) continue;
+    if (!best || s.effective_from > best.effective_from) best = s;
+  }
+  return best;
+}
+
+/** The profile with the basic salary / allowance in force for `monthKey`. */
+export function payProfileForMonth(
+  profile: TimesheetProfile, monthKey: string, settings: PaySetting[] | null | undefined,
+): TimesheetProfile {
+  const s = paySettingFor(profile.user_id, monthKey, settings);
+  if (!s) return profile;
+  return {
+    ...profile,
+    basic_salary: s.basic_salary != null ? Number(s.basic_salary) : profile.basic_salary,
+    allowance: s.allowance != null ? Number(s.allowance) : profile.allowance,
+  };
+}
+
+/** True when the user has at least one entry row in `monthKey`'s 31-row window. */
+export function hasEntriesInWindow(entries: { work_date: string }[] | undefined, monthKey: string): boolean {
+  if (!entries || entries.length === 0) return false;
+  const window = new Set(timesheetDatesOf(monthKey));
+  return entries.some(e => window.has(e.work_date));
+}
+
+/**
+ * The profiles a month shows: every active one, plus inactive ones with entries in that
+ * month's 31-row window (owner 2026-10-27, decision M — e.g. a staff member who left).
+ * Inactive staff are read-only (no punching) wherever they appear.
+ */
+export function profilesForMonth(
+  profiles: TimesheetProfile[],
+  entriesByUser: Map<string, { work_date: string }[]>,
+  monthKey: string,
+): TimesheetProfile[] {
+  return profiles.filter(p => p.active || hasEntriesInWindow(entriesByUser.get(p.user_id), monthKey));
+}
+
 // ── Fixed pay constants (LOCKED — not configurable per profile) ─────────────
 //
 // Per-day rates are CODE CONSTANTS. The four override columns on
@@ -269,8 +334,11 @@ export function weekBuckets(monthKey: string): string[][] {
 export function computeMonth(
   monthKey: string,
   entries: TimesheetEntry[],
-  profile: TimesheetProfile,
+  baseProfile: TimesheetProfile,
+  settings?: PaySetting[] | null,
 ): MonthComputation {
+  // Basic salary / allowance IN FORCE for this month (profile values when no settings apply).
+  const profile = payProfileForMonth(baseProfile, monthKey, settings);
   // The sheet ALWAYS has 31 day rows starting at monthKey/01. EVERY row in
   // that window — including spillover rows dated in the NEXT calendar month
   // (e.g. 7/1 for June) — counts toward THIS month's totals. Each month's
@@ -385,6 +453,7 @@ export function computeConsolidation(
   profiles: TimesheetProfile[],
   entriesByUser: Map<string, TimesheetEntry[]>,
   nameByUser: Map<string, string>,
+  settings?: PaySetting[] | null,
 ): ConsolidationResult {
   // Fixed 31-row span (matches computeMonth). `daysInMonth` in the
   // returned shape is the sheet row count, NOT the calendar month
@@ -399,7 +468,7 @@ export function computeConsolidation(
 
   for (const profile of profiles) {
     const userEntries = entriesByUser.get(profile.user_id) ?? [];
-    const month = computeMonth(monthKey, userEntries, profile);
+    const month = computeMonth(monthKey, userEntries, profile, settings);
     users.push({
       user_id: profile.user_id,
       name: nameByUser.get(profile.user_id) ?? profile.user_id,
@@ -456,7 +525,9 @@ function monthsWindowingDate(dateStr: string): string[] {
   return result;
 }
 
-/** Aggregate net payroll cost per month across every ACTIVE profile.
+/** Aggregate net payroll cost per month across every ACTIVE profile, plus every INACTIVE
+ *  profile that has entries in that month's window (owner 2026-10-27, decision M), each at the
+ *  pay settings in force for the month.
  *  Net is the cost basis (same value Cost Master shows). A month SURFACES
  *  and SUMS on its 31-row window: a month appears if any entry falls in its
  *  window, and its net is computed from every window entry — in-month AND
@@ -466,8 +537,8 @@ function monthsWindowingDate(dateStr: string): string[] {
 export function computeAllMonthsSummary(
   profiles: TimesheetProfile[],
   allEntries: (TimesheetEntry & { user_id: string })[],
+  settings?: PaySetting[] | null,
 ): AllMonthsSummary {
-  const active = profiles.filter(p => p.active);
 
   // Months whose 31-row window contains at least one entry, ascending. A
   // boundary-day entry surfaces both the date's month and the preceding one.
@@ -492,10 +563,11 @@ export function computeAllMonthsSummary(
     const windowSet = new Set(timesheetDatesOf(monthKey));
     let csr = 0;
     let liveAdmin = 0;
-    for (const profile of active) {
+    for (const profile of profiles) {
       const userEntries = (entriesByUser.get(profile.user_id) ?? [])
         .filter(e => windowSet.has(e.work_date));
-      const month = computeMonth(monthKey, userEntries, profile);
+      if (!profile.active && userEntries.length === 0) continue;
+      const month = computeMonth(monthKey, userEntries, profile, settings);
       if (profile.template_type === 'csr') csr += month.net;
       else liveAdmin += month.net;
     }

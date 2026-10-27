@@ -42,8 +42,11 @@ import {
   TemplateType, TimesheetProfile, TimesheetEntry, MonthCostRow,
   TEMPLATE_LABEL,
   computeMonth, computeConsolidation, computeAllMonthsSummary, monthLabelFromKey, monthKeyFromDate, addDays, TIMESHEET_ROWS,
-  isoDowOf, formatPHP, formatPHP2, formatHours,
+  isoDowOf, formatPHP, formatPHP2, formatHours, profilesForMonth, paySettingFor, type PaySetting,
 } from '@/lib/timesheetEngine';
+import {
+  fetchPaySettings, payHistoryFor, paySettingRefusal, setPaySetting, timesheetMonthOptions,
+} from '@/lib/timesheetPaySettings';
 
 const DOW_LABELS = ['', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const ALL_DOW = [1, 2, 3, 4, 5, 6, 7];
@@ -59,16 +62,14 @@ function currentMonthKey(): string {
   return getPHTToday().slice(0, 7);
 }
 
-/** List of selectable month keys: 12 months back through current. */
+/** Selectable month keys: 12 months back through current, and always back to April 2026
+ *  (owner 2026-10-27: April–May 2026 are part of the Hub). */
 function monthOptions(): string[] {
-  const out: string[] = [];
-  const [y, m] = currentMonthKey().split('-').map(Number);
-  for (let i = 0; i < 12; i++) {
-    const d = new Date(y, m - 1 - i, 1);
-    out.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
-  }
-  return out;
+  return timesheetMonthOptions(currentMonthKey());
 }
+
+/** One stable empty list: a fresh `[]` default would change every render and re-run effects. */
+const NO_PAY_SETTINGS: PaySetting[] = [];
 
 type PunchField = 'am_in' | 'am_out' | 'pm_in' | 'pm_out';
 const PUNCH_FIELDS: PunchField[] = ['am_in', 'am_out', 'pm_in', 'pm_out'];
@@ -129,7 +130,7 @@ function TimeSelect({ value, onChange, disabled }: { value: string; onChange: (v
 }
 
 export function MyTimesheetTab({
-  profile, entries, monthKey, onMonthChange, onEntrySaved, userId, corrections,
+  profile, entries, monthKey, onMonthChange, onEntrySaved, userId, corrections, paySettings = NO_PAY_SETTINGS,
 }: {
   profile: TimesheetProfile | null;
   entries: TimesheetEntry[];
@@ -138,6 +139,8 @@ export function MyTimesheetTab({
   onEntrySaved: (entry: TimesheetEntry) => void;
   userId: string;
   corrections: TimesheetCorrection[];
+  /** Own pay settings rows (basic / allowance in force per month); empty → profile values. */
+  paySettings?: PaySetting[];
 }) {
   const [busy, setBusy] = useState(false);
 
@@ -152,8 +155,8 @@ export function MyTimesheetTab({
   }, [corrections, userId]);
 
   const month = useMemo(
-    () => (profile ? computeMonth(monthKey, entries, profile) : null),
-    [profile, entries, monthKey],
+    () => (profile ? computeMonth(monthKey, entries, profile, paySettings) : null),
+    [profile, entries, monthKey, paySettings],
   );
 
   const tz = profile?.timezone || 'Asia/Manila';
@@ -486,7 +489,7 @@ export function MyTimesheetTab({
 // ── Tab: Consolidation (admin/finance) ──────────────────────────────────────
 
 export function ConsolidationTab({
-  profiles, entriesByUser, nameByUser, monthKey, onMonthChange, canCorrect = false, corrections = [], onCorrected,
+  profiles, entriesByUser, nameByUser, monthKey, onMonthChange, canCorrect = false, corrections = [], onCorrected, paySettings = NO_PAY_SETTINGS,
 }: {
   profiles: TimesheetProfile[];
   entriesByUser: Map<string, TimesheetEntry[]>;
@@ -497,14 +500,17 @@ export function ConsolidationTab({
   canCorrect?: boolean;
   corrections?: TimesheetCorrection[];
   onCorrected?: () => void;
+  paySettings?: PaySetting[];
 }) {
-  const active = useMemo(() => profiles.filter(p => p.active), [profiles]);
+  // Active staff, plus inactive staff with entries this month (owner 2026-10-27) — read-only.
+  const shown = useMemo(() => profilesForMonth(profiles, entriesByUser, monthKey), [profiles, entriesByUser, monthKey]);
+  const inactiveIds = useMemo(() => new Set(shown.filter(p => !p.active).map(p => p.user_id)), [shown]);
   const byDay = useMemo(() => correctionsByDay(corrections), [corrections]);
   const [correcting, setCorrecting] = useState<{ userId: string; date: string } | null>(null);
-  const correctingProfile = correcting ? active.find(p => p.user_id === correcting.userId) ?? null : null;
+  const correctingProfile = correcting ? shown.find(p => p.user_id === correcting.userId && p.active) ?? null : null;
   const result = useMemo(
-    () => computeConsolidation(monthKey, active, entriesByUser, nameByUser),
-    [active, entriesByUser, nameByUser, monthKey],
+    () => computeConsolidation(monthKey, shown, entriesByUser, nameByUser, paySettings),
+    [shown, entriesByUser, nameByUser, monthKey, paySettings],
   );
 
   return (
@@ -532,6 +538,7 @@ export function ConsolidationTab({
                   {result.users.map(u => (
                     <th key={u.user_id} colSpan={2} className="px-2 py-2 text-center font-medium border-l border-border">
                       {u.name}
+                      {inactiveIds.has(u.user_id) && <span className="ml-1 normal-case text-muted-foreground">(inactive)</span>}
                     </th>
                   ))}
                 </tr>
@@ -561,7 +568,7 @@ export function ConsolidationTab({
                       const marker = corrected
                         ? <ShieldCheck className="mr-1 inline h-3 w-3 text-primary" aria-label="Corrected" data-testid="corrected-marker" />
                         : null;
-                      if (!canCorrect) {
+                      if (!canCorrect || inactiveIds.has(u.user_id)) {
                         return (
                           <Fragment2 key={u.user_id}>
                             <td className="px-2 py-1 text-right tabular-nums border-l border-border">{marker}{hrsText}</td>
@@ -638,8 +645,8 @@ function Fragment2({ children }: { children: React.ReactNode }) {
 
 // ── Tab: Cost Master (admin) ────────────────────────────────────────────────
 
-function CostMasterTab({
-  profiles, entriesByUser, nameByUser, monthKey, onMonthChange, canMarkPaid,
+export function CostMasterTab({
+  profiles, entriesByUser, nameByUser, monthKey, onMonthChange, canMarkPaid, paySettings = NO_PAY_SETTINGS,
 }: {
   profiles: TimesheetProfile[];
   entriesByUser: Map<string, TimesheetEntry[]>;
@@ -648,8 +655,10 @@ function CostMasterTab({
   onMonthChange: (k: string) => void;
   /** approve_expenses — shows the "Mark as paid" block (Expenses Phase 2). */
   canMarkPaid: boolean;
+  paySettings?: PaySetting[];
 }) {
-  const active = useMemo(() => profiles.filter(p => p.active), [profiles]);
+  // Active staff, plus inactive staff with entries this month (owner 2026-10-27).
+  const active = useMemo(() => profilesForMonth(profiles, entriesByUser, monthKey), [profiles, entriesByUser, monthKey]);
 
   const groups = useMemo(() => {
     const order: TemplateType[] = ['live_admin', 'csr'];
@@ -657,10 +666,11 @@ function CostMasterTab({
       const rows = active
         .filter(p => p.template_type === template)
         .map(p => {
-          const m = computeMonth(monthKey, entriesByUser.get(p.user_id) ?? [], p);
+          const m = computeMonth(monthKey, entriesByUser.get(p.user_id) ?? [], p, paySettings);
           return {
             user_id: p.user_id,
             name: nameByUser.get(p.user_id) ?? p.user_id,
+            inactive: !p.active,
             total_hours: m.total_hours,
             dailySum: m.gross === m.net ? m.gross : (m.net - m.allowance_paid), // gross (capped) for CSR
             net: m.net,
@@ -671,7 +681,7 @@ function CostMasterTab({
       const subtotalNet = rows.reduce((s, r) => s + r.net, 0);
       return { template, rows, subtotalHours, subtotalNet };
     }).filter(g => g.rows.length > 0);
-  }, [active, entriesByUser, nameByUser, monthKey]);
+  }, [active, entriesByUser, nameByUser, monthKey, paySettings]);
 
   const grandNet = useMemo(() => groups.reduce((s, g) => s + g.subtotalNet, 0), [groups]);
 
@@ -719,7 +729,10 @@ function CostMasterTab({
                   </tr>
                   {g.rows.map(r => (
                     <tr key={r.user_id} className="border-t border-border">
-                      <td className="px-3 py-2">{r.name}</td>
+                      <td className="px-3 py-2">
+                        {r.name}
+                        {r.inactive && <span className="ml-1 text-xs text-muted-foreground">(inactive)</span>}
+                      </td>
                       <td className="px-3 py-2 text-right tabular-nums">{formatHours(r.total_hours)}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{formatPHP(r.dailySum)}</td>
                       <td className="px-3 py-2 text-right tabular-nums font-semibold text-primary">{formatPHP(r.net)}</td>
@@ -792,21 +805,62 @@ function profileToForm(p: TimesheetProfile | null): ProfileFormState {
   };
 }
 
-function AssignmentDialog({
-  open, onOpenChange, staff, existing, onSaved,
+/** Effective-month choices for a pay change: April 2026 .. 12 months ahead, newest first. */
+function effectiveMonthOptions(): string[] {
+  const [y, m] = currentMonthKey().split('-').map(Number);
+  const ahead: string[] = [];
+  for (let i = 12; i >= 1; i--) {
+    const d = new Date(y, m - 1 + i, 1);
+    ahead.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+  }
+  return [...ahead, ...monthOptions()];
+}
+
+export function AssignmentDialog({
+  open, onOpenChange, staff, existing, onSaved, paySettings = NO_PAY_SETTINGS, payHistoryAvailable = false,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   staff: StaffRow | null;
   existing: TimesheetProfile | null;
   onSaved: () => void;
+  /** timesheet_pay_settings rows (all staff). */
+  paySettings?: PaySetting[];
+  /** The pay settings table exists (migration 20270204100000 applied). */
+  payHistoryAvailable?: boolean;
 }) {
   const [form, setForm] = useState<ProfileFormState>(profileToForm(null));
   const [saving, setSaving] = useState(false);
+  // Owner 2026-10-27: a change of basic / allowance takes effect from a month (default this month).
+  const [effectiveMonth, setEffectiveMonth] = useState(currentMonthKey());
+  const [payNote, setPayNote] = useState('');
 
   useEffect(() => {
-    if (open) setForm(profileToForm(existing));
-  }, [open, existing]);
+    if (open) {
+      // The form shows the settings in force THIS month (the profile values when none apply).
+      const base = profileToForm(existing);
+      const inForce = existing ? paySettingFor(existing.user_id, currentMonthKey(), paySettings) : null;
+      if (inForce?.basic_salary != null) base.basic_salary = String(inForce.basic_salary);
+      if (inForce?.allowance != null) base.allowance = String(inForce.allowance);
+      setForm(base);
+      setEffectiveMonth(currentMonthKey());
+      setPayNote('');
+    }
+  }, [open, existing, paySettings]);
+
+  const history = existing ? payHistoryFor(existing.user_id, paySettings) : [];
+  const original = existing ? (() => {
+    const base = profileToForm(existing);
+    const inForce = paySettingFor(existing.user_id, currentMonthKey(), paySettings);
+    return {
+      basic: inForce?.basic_salary != null ? String(inForce.basic_salary) : base.basic_salary,
+      allowance: inForce?.allowance != null ? String(inForce.allowance) : base.allowance,
+    };
+  })() : null;
+  // Through the history only for an existing CSR whose pay actually changed, once the table exists.
+  const payChanged = !!existing && !!original && existing.template_type === 'csr' && form.template_type === 'csr'
+    && (form.basic_salary.trim() !== original.basic.trim() || form.allowance.trim() !== original.allowance.trim());
+  const viaHistory = payHistoryAvailable && payChanged;
 
   function upd<K extends keyof ProfileFormState>(key: K, value: ProfileFormState[K]) {
     setForm(prev => ({ ...prev, [key]: value }));
@@ -826,6 +880,15 @@ function AssignmentDialog({
     const numOrNull = (s: string) => (s.trim() === '' ? null : Number(s));
     setSaving(true);
     try {
+      if (viaHistory) {
+        // set_timesheet_pay_setting writes the history row and, when it is the setting in force this
+        // month, the profile's basic / allowance too. A refusal saves nothing.
+        const res = await setPaySetting({
+          userId: staff.user_id, effectiveFrom: `${effectiveMonth}-01`,
+          basicSalary: numOrNull(form.basic_salary), allowance: numOrNull(form.allowance), note: payNote.trim() || null,
+        });
+        if (!res.ok) { toast.error(paySettingRefusal(res.code, effectiveMonth)); return; }
+      }
       const payload = {
         user_id: staff.user_id,
         template_type: form.template_type,
@@ -848,8 +911,12 @@ function AssignmentDialog({
         can_view_all: form.can_view_all,
       };
       const client = supabase;
+      // Through the history the RPC keeps the profile's basic / allowance in step (only when the new
+      // setting is in force this month), so the profile update must not write them.
+      const { basic_salary: _b, allowance: _a, ...withoutPay } = payload;
+      void _b; void _a;
       const { error } = existing
-        ? await client.from('timesheet_profiles').update(payload).eq('id', existing.id)
+        ? await client.from('timesheet_profiles').update(viaHistory ? withoutPay : payload).eq('id', existing.id)
         : await client.from('timesheet_profiles').upsert(payload, { onConflict: 'user_id' });
       if (error) throw error;
       toast.success(existing ? 'Assignment updated' : 'Assignment created');
@@ -951,6 +1018,52 @@ function AssignmentDialog({
                 <Label className="text-xs">Allowance (₱)</Label>
                 <Input type="number" value={form.allowance} onChange={e => upd('allowance', e.target.value)} className="h-9" min={0} />
               </div>
+              {viaHistory && (
+                <>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Effective from (month)</Label>
+                    <Select value={effectiveMonth} onValueChange={setEffectiveMonth}>
+                      <SelectTrigger className="h-9" aria-label="Effective from (month)"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {effectiveMonthOptions().map(k => <SelectItem key={k} value={k}>{monthLabelFromKey(k)}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Note (optional)</Label>
+                    <Input value={payNote} maxLength={200} onChange={e => setPayNote(e.target.value)} className="h-9" />
+                  </div>
+                </>
+              )}
+              {payHistoryAvailable && existing && (
+                <div className="col-span-2 space-y-1" data-testid="pay-history">
+                  <p className="text-xs font-medium text-muted-foreground">Pay history</p>
+                  {history.length === 0 ? (
+                    <p className="text-[11px] text-muted-foreground">No changes recorded — every month uses the values above.</p>
+                  ) : (
+                    <table className="w-full text-xs">
+                      <thead className="text-muted-foreground">
+                        <tr>
+                          <th className="py-1 text-left font-medium">Effective</th>
+                          <th className="py-1 text-right font-medium">Basic</th>
+                          <th className="py-1 text-right font-medium">Allowance</th>
+                          <th className="py-1 pl-2 text-left font-medium">Note</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {history.map(h => (
+                          <tr key={h.effective_from} className="border-t border-border">
+                            <td className="py-1">{monthLabelFromKey(h.effective_from.slice(0, 7))}</td>
+                            <td className="py-1 text-right tabular-nums">{h.basic_salary != null ? formatPHP(h.basic_salary) : '—'}</td>
+                            <td className="py-1 text-right tabular-nums">{h.allowance != null ? formatPHP(h.allowance) : '—'}</td>
+                            <td className="py-1 pl-2 text-muted-foreground">{h.note ?? ''}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              )}
             </div>
           ) : (
             <p className="text-[11px] text-muted-foreground">
@@ -972,11 +1085,13 @@ function AssignmentDialog({
 }
 
 function AssignmentsTab({
-  staff, profiles, onRefresh,
+  staff, profiles, onRefresh, paySettings = NO_PAY_SETTINGS, payHistoryAvailable = false,
 }: {
   staff: StaffRow[];
   profiles: TimesheetProfile[];
   onRefresh: () => void;
+  paySettings?: PaySetting[];
+  payHistoryAvailable?: boolean;
 }) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedStaff, setSelectedStaff] = useState<StaffRow | null>(null);
@@ -1048,6 +1163,8 @@ function AssignmentsTab({
         staff={selectedStaff}
         existing={selectedStaff ? profileByUser.get(selectedStaff.user_id) ?? null : null}
         onSaved={onRefresh}
+        paySettings={paySettings}
+        payHistoryAvailable={payHistoryAvailable}
       />
     </div>
   );
@@ -1071,15 +1188,17 @@ const CSR_BAR = chartColors.primary;
 const LIVE_ADMIN_BAR = '#1756A8';
 
 function FullSummaryTab({
-  profiles, allEntries,
+  profiles, allEntries, paySettings = NO_PAY_SETTINGS,
 }: {
   profiles: TimesheetProfile[];
   allEntries: (TimesheetEntry & { user_id: string })[];
+  paySettings?: PaySetting[];
 }) {
   const chartAnim = useChartAnimation();
+  // Each month at the pay settings in force; inactive staff count in the months they have entries.
   const summary = useMemo(
-    () => computeAllMonthsSummary(profiles, allEntries),
-    [profiles, allEntries],
+    () => computeAllMonthsSummary(profiles, allEntries, paySettings),
+    [profiles, allEntries, paySettings],
   );
 
   // Historical months persisted before the live data existed. Live computed
@@ -1320,6 +1439,9 @@ export default function Timesheet() {
   const [nameByUser, setNameByUser] = useState<Map<string, string>>(new Map());
   // All-time entries for the admin Full Summary (every month, no date range).
   const [summaryEntries, setSummaryEntries] = useState<(TimesheetEntry & { user_id: string })[]>([]);
+  // Pay settings history (migration 20270204100000). Unavailable before it is applied → profile values.
+  const [paySettings, setPaySettings] = useState<PaySetting[]>([]);
+  const [payHistoryAvailable, setPayHistoryAvailable] = useState(false);
 
   const monthRange = useMemo(() => {
     // Load the FULL 31-row window, not just the calendar month: the grid's
@@ -1348,6 +1470,10 @@ export default function Timesheet() {
       ]);
       setMyProfile((myProfRes.data as TimesheetProfile) ?? null);
       setMyEntries((myEntRes.data as TimesheetEntry[]) ?? []);
+
+      const pay = await fetchPaySettings();
+      setPaySettings(pay.settings);
+      setPayHistoryAvailable(pay.available);
 
       // Corrections (all for the gate, own for everyone else — the RPC decides).
       try {
@@ -1456,7 +1582,7 @@ export default function Timesheet() {
 
             {isAdmin && (
               <TabsContent value="fullsummary" className="mt-4">
-                <FullSummaryTab profiles={allProfiles} allEntries={summaryEntries} />
+                <FullSummaryTab profiles={allProfiles} allEntries={summaryEntries} paySettings={paySettings} />
               </TabsContent>
             )}
 
@@ -1470,6 +1596,7 @@ export default function Timesheet() {
                   onEntrySaved={applyMyEntryUpsert}
                   userId={userId}
                   corrections={correctionsState.available ? correctionsState.corrections : []}
+                  paySettings={paySettings}
                 />
               </TabsContent>
             )}
@@ -1485,6 +1612,7 @@ export default function Timesheet() {
                   canCorrect={canViewCost && correctionsState.available}
                   corrections={correctionsState.available ? correctionsState.corrections : []}
                   onCorrected={load}
+                  paySettings={paySettings}
                 />
               </TabsContent>
             )}
@@ -1498,6 +1626,7 @@ export default function Timesheet() {
                   monthKey={monthKey}
                   onMonthChange={setMonthKey}
                   canMarkPaid={canMarkPaid}
+                  paySettings={paySettings}
                 />
               </TabsContent>
             )}
@@ -1511,13 +1640,15 @@ export default function Timesheet() {
                   monthKey={monthKey}
                   onMonthChange={setMonthKey}
                   monthOptions={monthOptions()}
+                  paySettings={paySettings}
                 />
               </TabsContent>
             )}
 
             {isAdmin && (
               <TabsContent value="assignments" className="mt-4">
-                <AssignmentsTab staff={staff} profiles={allProfiles} onRefresh={load} />
+                <AssignmentsTab staff={staff} profiles={allProfiles} onRefresh={load}
+                  paySettings={paySettings} payHistoryAvailable={payHistoryAvailable} />
               </TabsContent>
             )}
           </Tabs>

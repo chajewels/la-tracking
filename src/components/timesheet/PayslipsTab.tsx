@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Ban, Download, FileDown, FileText, Loader2, Paperclip, Pencil, UserCog, Wallet } from 'lucide-react';
+import { AlertTriangle, Ban, Coins, Download, FileDown, FileText, Loader2, Paperclip, Pencil, UserCog, Wallet } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { Badge } from '@/components/ui/badge';
@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
@@ -18,19 +19,22 @@ import {
 } from '@/components/ui/alert-dialog';
 import { isMissingFunction } from '@/components/website/shipping-fees';
 import {
-  TEMPLATE_LABEL, computeMonth as computeTimesheetMonth, monthLabelFromKey,
-  type TemplateType, type TimesheetEntry, type TimesheetProfile,
+  TEMPLATE_LABEL, computeMonth as computeTimesheetMonth, monthLabelFromKey, payProfileForMonth, profilesForMonth,
+  type PaySetting, type TemplateType, type TimesheetEntry, type TimesheetProfile,
 } from '@/lib/timesheetEngine';
 import {
   computeMonth as computeCommissionMonth, type CommissionSplit, type SaleRow,
 } from '@/lib/commissionEngine';
 import {
-  COMPANY_NAME, PAYSLIP_BOOK_KEY, PAYSLIP_PROOF_BUCKET, STATUS_LABEL,
-  type Payslip, type PayslipBookState, type PayslipFigures, type PayrollDetails, type RowStatus,
-  actualRate, buildCommissionFigures, buildFigures, buildTimesheetFigures, canIssueForMonth, commissionLines,
-  currentPayslip, defaultYenSent, detailsComplete, downloadPayslipXlsx, figuresChanged, finalizePayload,
-  findAgentResult, formatDate, formatPeso, formatYen, normaliseBook, payslipRefusal, payslipTitle, proofContentType, proofFileName,
-  proofPath, proofProblem, timesheetLines, todayTokyo, validateDetails, validatePayment,
+  COMPANY_NAME, NO_FEATURES, PAYSLIP_BOOK_KEY, PAYSLIP_PROOF_BUCKET, STATUS_LABEL,
+  type BondPreview, type CashAdvance, type Payslip, type PayslipBookState, type PayslipFeatures, type PayslipFigures,
+  type PayrollDetails, type RowStatus,
+  actualRate, advanceDateMin, advanceProofFileName, advanceProofPath, amountDue, bondPreview, breakdownLines,
+  buildCommissionFigures, buildFigures, buildTimesheetFigures, canIssueForMonth, commissionLines,
+  currentPayslip, defaultYenSent, detailsComplete, differenceLabel, downloadPayslipXlsx, draftBreakdown, figuresChanged,
+  finalizePayload, findAgentResult, formatDate, formatDateDD, formatPeso, formatYen, longMonthLabel, normaliseBook,
+  payslipRefusal, payslipTitle, proofContentType, proofFileName, proofPath, proofProblem, storedBreakdown, timesheetLines,
+  todayTokyo, validateAdvance, validateDetails, validateEmployeeDetails, validatePayment,
 } from '@/lib/payslips';
 import type { ProofFile } from '@/lib/payslipPdf';
 import {
@@ -58,16 +62,33 @@ async function callRpc(name: string, args?: Record<string, unknown>) {
 const refusal = (e: unknown) => payslipRefusal((e as { code?: string })?.code);
 
 const DETAILS_MISSING = 'Add address and date of birth first';
+const DETAILS_MISSING_WITH_ID = 'Add employee ID, address and date of birth first';
+const NO_PAY_SETTINGS: PaySetting[] = [];
+const NO_BOND: BondPreview = { kind: 'none', held: 0, released: 0, releasedFrom: null, firstMonth: null };
 
 interface AgentLink { name: string; user_id: string | null }
 
 interface StaffRow {
   profile: TimesheetProfile;
   name: string;
+  /** Inactive profile shown because it has entries in this month (owner 2026-10-27, decision M). */
+  inactive: boolean;
   figures: PayslipFigures | null;
   payslip: Payslip | null;
   status: RowStatus;
   details: PayrollDetails | null;
+  /** This staff member's cash advances for the month (all statuses, newest first). */
+  advances: CashAdvance[];
+}
+
+/** The cash bond the draft would get, mirroring finalize_payslip (none before the migration). */
+function draftBond(r: StaffRow, monthKey: string, features: PayslipFeatures, isFinalPay: boolean): BondPreview {
+  if (!features.cash_bond || !r.figures) return NO_BOND;
+  const advancesPhp = r.advances.filter(a => a.status === 'active').reduce((s, a) => s + a.amount_php, 0);
+  return bondPreview({
+    monthKey, totalPhp: r.figures.total_php, advancesPhp, hireDate: r.details?.hire_date,
+    firstMonthIssued: r.details?.first_month_issued, pending: r.details?.cash_bond_pending, isFinalPay,
+  });
 }
 
 function statusVariant(s: RowStatus): 'default' | 'secondary' | 'outline' | 'destructive' {
@@ -102,7 +123,7 @@ async function fetchMonthSales(monthKey: string): Promise<SaleRow[]> {
 }
 
 export default function PayslipsTab({
-  profiles, entriesByUser, nameByUser, monthKey, onMonthChange, monthOptions,
+  profiles, entriesByUser, nameByUser, monthKey, onMonthChange, monthOptions, paySettings = NO_PAY_SETTINGS,
 }: {
   profiles: TimesheetProfile[];
   entriesByUser: Map<string, TimesheetEntry[]>;
@@ -110,6 +131,8 @@ export default function PayslipsTab({
   monthKey: string;
   onMonthChange: (k: string) => void;
   monthOptions: string[];
+  /** timesheet_pay_settings rows (empty before migration 20270204100000 — profile values apply). */
+  paySettings?: PaySetting[];
 }) {
   const qc = useQueryClient();
   const [viewing, setViewing] = useState<string | null>(null); // user_id
@@ -120,6 +143,8 @@ export default function PayslipsTab({
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [editingDetails, setEditingDetails] = useState<string | null>(null); // user_id
   const [pdfBusy, setPdfBusy] = useState(false);
+  const [advancesFor, setAdvancesFor] = useState<string | null>(null); // user_id
+  const [finalPay, setFinalPay] = useState(false);
 
   const book = useQuery<PayslipBookState>({
     queryKey: [...PAYSLIP_BOOK_KEY, monthKey],
@@ -152,10 +177,17 @@ export default function PayslipsTab({
   });
 
   const data = book.data?.available ? book.data.book : null;
+  const features = data?.features ?? NO_FEATURES;
+  // Pay settings in force: the page's rows, else the book's (same table; either is empty before the migration).
+  const settings = useMemo(
+    () => (paySettings.length > 0 ? paySettings : (data?.pay_settings ?? [])), [paySettings, data],
+  );
 
   const rows: StaffRow[] = useMemo(() => {
-    const active = profiles.filter(p => p.active);
-    return active.map((p): StaffRow => {
+    // Active staff, plus inactive staff with entries in this month (decision M).
+    const shown = profilesForMonth(profiles, entriesByUser, monthKey);
+    return shown.map((base): StaffRow => {
+      const p = payProfileForMonth(base, monthKey, settings);
       const name = nameByUser.get(p.user_id) ?? p.user_id;
       let figures: PayslipFigures | null = null;
       if (commission.data) {
@@ -167,15 +199,20 @@ export default function PayslipsTab({
       }
       const payslip = data ? currentPayslip(data.payslips, p.user_id) : null;
       const details = data?.details.find(d => d.user_id === p.user_id) ?? null;
-      return { profile: p, name, figures, payslip, status: payslip?.status ?? 'not_issued', details };
+      const advances = data?.cash_advances.filter(a => a.user_id === p.user_id) ?? [];
+      return {
+        profile: p, name, inactive: !base.active, figures, payslip, status: payslip?.status ?? 'not_issued', details, advances,
+      };
     }).sort((a, b) => a.name.localeCompare(b.name));
-  }, [profiles, nameByUser, entriesByUser, monthKey, commission.data, data]);
+  }, [profiles, nameByUser, entriesByUser, monthKey, commission.data, data, settings]);
 
   const refresh = () => qc.invalidateQueries({ queryKey: PAYSLIP_BOOK_KEY });
 
   const finalize = useMutation({
-    mutationFn: (r: StaffRow) => callRpc('finalize_payslip', {
-      p_user_id: r.profile.user_id, p_pay_month: `${monthKey}-01`, p_payload: finalizePayload(r.figures as PayslipFigures),
+    mutationFn: (v: { row: StaffRow; finalPay: boolean }) => callRpc('finalize_payslip', {
+      p_user_id: v.row.profile.user_id, p_pay_month: `${monthKey}-01`, p_payload: finalizePayload(v.row.figures as PayslipFigures),
+      // The 4-argument finalize exists only once the cash-bond migration is applied.
+      ...(features.cash_bond ? { p_is_final_pay: v.finalPay } : {}),
     }),
     onSuccess: () => { toast.success('Payslip finalized'); setConfirmFinalize(null); },
     onError: (e) => toast.error(refusal(e)),
@@ -207,12 +244,12 @@ export default function PayslipsTab({
     a.remove();
   };
 
-  const loadProof = async (path: string): Promise<ProofFile | null> => {
+  const loadProof = async (path: string, name?: string): Promise<ProofFile | null> => {
     const { data: signed, error } = await supabase.storage.from(PAYSLIP_PROOF_BUCKET).createSignedUrl(path, 600);
     if (error || !signed?.signedUrl) return null;
     const res = await fetch(signed.signedUrl);
     if (!res.ok) return null;
-    const fileName = proofFileName(path);
+    const fileName = name ?? proofFileName(path);
     const header = (res.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
     const contentType = header === 'application/pdf' || header.startsWith('image/') ? header : '';
     return { bytes: new Uint8Array(await res.arrayBuffer()), contentType, fileName };
@@ -226,6 +263,7 @@ export default function PayslipsTab({
       const finalizerName = p.finalized_by ? nameByUser.get(p.finalized_by) ?? null : null;
       const { proofNote } = await downloadPayslipPdf(
         p, () => (p.proof_path ? loadProof(p.proof_path) : Promise.resolve(null)), finalizerName,
+        (path) => loadProof(path, advanceProofFileName(path)),
       );
       if (proofNote) toast.warning(proofNote);
     } catch {
@@ -237,12 +275,25 @@ export default function PayslipsTab({
 
   const viewingRow = viewing ? rows.find(r => r.profile.user_id === viewing) ?? null : null;
   const editingRow = editingDetails ? rows.find(r => r.profile.user_id === editingDetails) ?? null : null;
+  const advancesRow = advancesFor ? rows.find(r => r.profile.user_id === advancesFor) ?? null : null;
+  const detailsMissing = features.employee_id ? DETAILS_MISSING_WITH_ID : DETAILS_MISSING;
   const finalizeBlock = (r: StaffRow): string | null => {
-    if (!canIssueForMonth(monthKey)) return 'Payslips start from June 2026.';
-    if (!detailsComplete(r.details)) return DETAILS_MISSING;
+    if (!canIssueForMonth(monthKey, features.from_april)) {
+      return features.from_april ? 'Payslips start from April 2026.' : 'Payslips start from June 2026.';
+    }
+    if (!detailsComplete(r.details, features.employee_id)) return detailsMissing;
     if (!r.figures) return commission.isError ? 'Commission figures could not be loaded.' : 'Loading the figures…';
+    const bond = draftBond(r, monthKey, features, false);
+    if (bond.kind === 'blocked' && bond.firstMonth) {
+      return `Finalize the ${longMonthLabel(bond.firstMonth)} payslip first — it holds the cash bond.`;
+    }
+    const adv = r.advances.filter(a => a.status === 'active').reduce((s, a) => s + a.amount_php, 0);
+    if (adv > r.figures.total_php) return 'The cash advances are more than this month\'s earnings.';
     return null;
   };
+  const confirmBond = confirmFinalize ? draftBond(confirmFinalize, monthKey, features, finalPay) : NO_BOND;
+  const confirmBreakdown = confirmFinalize?.figures && (features.cash_advances || features.cash_bond)
+    ? draftBreakdown(confirmFinalize.figures.total_php, confirmFinalize.advances, confirmBond) : null;
 
   return (
     <div className="space-y-4" data-testid="payslips-tab">
@@ -305,7 +356,10 @@ export default function PayslipsTab({
                   const changed = shown && r.figures ? figuresChanged(shown.total_php, r.figures.total_php) : false;
                   return (
                     <tr key={r.profile.user_id} className="border-t border-border">
-                      <td className="px-3 py-2">{r.name}</td>
+                      <td className="px-3 py-2">
+                        {r.name}
+                        {r.inactive && <span className="ml-1 text-xs text-muted-foreground">(inactive)</span>}
+                      </td>
                       <td className="px-3 py-2 text-muted-foreground">{TEMPLATE_LABEL[r.profile.template_type]}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{ts == null ? '—' : formatPeso(ts)}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{cm == null ? '—' : formatPeso(cm)}</td>
@@ -315,6 +369,17 @@ export default function PayslipsTab({
                       </td>
                       <td className="px-3 py-2"><Badge variant={statusVariant(r.status)}>{STATUS_LABEL[r.status]}</Badge></td>
                       <td className="px-3 py-2 text-right">
+                        {features.cash_advances && (
+                          <Button size="sm" variant="ghost" onClick={() => setAdvancesFor(r.profile.user_id)}
+                            data-testid="payslip-advances-open">
+                            <Coins className="mr-1 h-4 w-4" /> Cash advances
+                            {r.advances.some(a => a.status === 'active') && (
+                              <Badge variant="secondary" className="ml-1 px-1.5 py-0 text-[10px]">
+                                {r.advances.filter(a => a.status === 'active').length}
+                              </Badge>
+                            )}
+                          </Button>
+                        )}
                         <Button size="sm" variant="ghost" onClick={() => setEditingDetails(r.profile.user_id)}>
                           <Pencil className="mr-1 h-4 w-4" /> Edit details
                         </Button>
@@ -338,8 +403,10 @@ export default function PayslipsTab({
             <PayslipView
               row={viewingRow}
               monthKey={monthKey}
+              features={features}
+              detailsMissing={detailsMissing}
               finalizeBlock={finalizeBlock(viewingRow)}
-              onFinalize={() => setConfirmFinalize(viewingRow)}
+              onFinalize={() => { setFinalPay(false); setConfirmFinalize(viewingRow); }}
               onPay={(p) => setPaying(p)}
               onVoid={(p) => { setVoiding(p); setVoidReason(''); }}
               onProof={openProof}
@@ -358,15 +425,32 @@ export default function PayslipsTab({
           <AlertDialogHeader>
             <AlertDialogTitle>Finalize payslip?</AlertDialogTitle>
             <AlertDialogDescription>
-              {confirmFinalize?.name}, {longLabel(monthKey)}: total {confirmFinalize?.figures ? formatPeso(confirmFinalize.figures.total_php) : '—'}.
+              {confirmFinalize?.name}, {longLabel(monthKey)}: total {confirmFinalize?.figures ? formatPeso(confirmFinalize.figures.total_php) : '—'}
+              {confirmBreakdown ? `, amount due ${formatPeso(confirmBreakdown.due)}` : ''}.
               The figures and staff details freeze. To change them later, void the payslip and issue a new one.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {features.cash_bond && (
+            <label className="flex items-start gap-2 rounded-md border border-border p-2 text-sm">
+              <Checkbox checked={finalPay} onCheckedChange={v => setFinalPay(v === true)} data-testid="payslip-final-pay"
+                aria-label="Final pay (staff leaving)" />
+              <span>
+                Final pay (staff leaving)
+                <span className="block text-xs text-muted-foreground">Releases any cash bond on this payslip; no bond is held.</span>
+                {confirmBond.kind === 'held' && (
+                  <span className="block text-xs" data-testid="payslip-final-bond">Cash bond held: {formatPeso(confirmBond.held)}</span>
+                )}
+                {confirmBond.kind === 'released' && (
+                  <span className="block text-xs" data-testid="payslip-final-bond">Cash bond released: {formatPeso(confirmBond.released)}</span>
+                )}
+              </span>
+            </label>
+          )}
           <AlertDialogFooter>
             <AlertDialogCancel disabled={finalize.isPending}>Cancel</AlertDialogCancel>
             <AlertDialogAction
               disabled={finalize.isPending}
-              onClick={(e) => { e.preventDefault(); if (confirmFinalize) finalize.mutate(confirmFinalize); }}
+              onClick={(e) => { e.preventDefault(); if (confirmFinalize) finalize.mutate({ row: confirmFinalize, finalPay }); }}
             >
               {finalize.isPending && <Loader2 className="mr-1 h-4 w-4 animate-spin" />} Finalize
             </AlertDialogAction>
@@ -410,7 +494,18 @@ export default function PayslipsTab({
       </Dialog>
 
       {detailsOpen && data && (
-        <StaffDetailsDialog rows={rows} onClose={() => setDetailsOpen(false)} onSaved={refresh} />
+        <StaffDetailsDialog rows={rows} features={features} onClose={() => setDetailsOpen(false)} onSaved={refresh} />
+      )}
+
+      {advancesRow && data && (
+        <CashAdvancesDialog
+          row={advancesRow}
+          monthKey={monthKey}
+          locked={!!advancesRow.payslip && advancesRow.payslip.status !== 'void'}
+          onOpenProof={openProof}
+          onClose={() => setAdvancesFor(null)}
+          onChanged={refresh}
+        />
       )}
 
       {/* One person's details (row action, or from a payslip blocked on missing details) */}
@@ -419,13 +514,15 @@ export default function PayslipsTab({
           <DialogHeader>
             <DialogTitle>Edit details</DialogTitle>
             <DialogDescription>
-              Address and date of birth print on the payslip. A finalized payslip keeps the details it was issued with.
+              {features.employee_id ? 'Employee ID, address and date of birth' : 'Address and date of birth'} print on the payslip.
+              A finalized payslip keeps the details it was issued with.
             </DialogDescription>
           </DialogHeader>
           {editingRow && (
             <StaffDetailsRow
               key={editingRow.profile.user_id}
               row={editingRow}
+              features={features}
               onSaved={() => { refresh(); setEditingDetails(null); }}
             />
           )}
@@ -458,10 +555,13 @@ function Section({ title, lines }: { title: string; lines: { label: string; valu
 }
 
 function PayslipView({
-  row, monthKey, finalizeBlock, onFinalize, onPay, onVoid, onProof, onDownloadProof, onDownloadPdf, pdfBusy, onEditDetails,
+  row, monthKey, features, detailsMissing, finalizeBlock, onFinalize, onPay, onVoid, onProof, onDownloadProof, onDownloadPdf,
+  pdfBusy, onEditDetails,
 }: {
   row: StaffRow;
   monthKey: string;
+  features: PayslipFeatures;
+  detailsMissing: string;
   finalizeBlock: string | null;
   onFinalize: () => void;
   onPay: (p: Payslip) => void;
@@ -479,6 +579,15 @@ function PayslipView({
   const cmSource = issued ? issued.commission : (row.figures?.commission as unknown as Record<string, unknown> | undefined);
   const total = issued ? issued.total_php : row.figures?.total_php;
   const changed = issued && row.figures ? figuresChanged(issued.total_php, row.figures.total_php) : false;
+  // Advances, net pay, cash bond and amount due: from the snapshot when issued (payslips issued before the
+  // migration have none), from live data for a draft once the database has the feature.
+  const draftBondPreview = !issued ? draftBond(row, monthKey, features, false) : NO_BOND;
+  const breakdown = issued
+    ? storedBreakdown(issued)
+    : (row.figures && (features.cash_advances || features.cash_bond)
+      ? draftBreakdown(row.figures.total_php, row.advances, draftBondPreview) : null);
+  const employeeId = issued ? issued.employee_id : row.details?.employee_id;
+  const due = issued ? amountDue(issued) : null;
 
   return (
     <div className="space-y-4" data-testid="payslip-view">
@@ -504,6 +613,8 @@ function PayslipView({
 
       <Section title="Staff" lines={[
         { label: 'Name', value: issued ? issued.staff_name : row.name },
+        ...((issued ? issued.employee_id : features.employee_id)
+          ? [{ label: 'Employee ID', value: employeeId || '—' }] : []),
         { label: 'Address', value: (issued ? issued.address : row.details?.address) || '—' },
         { label: 'Date of birth', value: formatDate(issued ? issued.date_of_birth : row.details?.date_of_birth) },
         { label: 'Job title', value: (issued ? issued.job_title : row.profile.job_title) || '—' },
@@ -513,10 +624,32 @@ function PayslipView({
         <>
           <Section title={`Timesheet — ${TEMPLATE_LABEL[template]}`} lines={timesheetLines(template, tsSource)} />
           <Section title="Commission" lines={commissionLines(cmSource)} />
-          <div className="flex items-baseline justify-between rounded-md bg-primary/5 px-3 py-2 font-semibold">
-            <span>Total</span>
-            <span className="tabular-nums text-primary">{total == null ? '—' : formatPeso(total)}</span>
-          </div>
+          {breakdown ? (
+            <>
+              {(() => {
+                const lines = breakdownLines(breakdown, issued?.status === 'paid');
+                const last = lines[lines.length - 1];
+                return (
+                  <>
+                    <Section title="Deductions and cash bond" lines={lines.slice(0, -1)} />
+                    <div className="flex items-baseline justify-between rounded-md bg-primary/5 px-3 py-2 font-semibold"
+                      data-testid="payslip-amount-due">
+                      <span>{last.label}</span>
+                      <span className="tabular-nums text-primary">{last.value}</span>
+                    </div>
+                  </>
+                );
+              })()}
+              {!issued && draftBondPreview.kind === 'held' && (
+                <p className="text-xs text-muted-foreground" data-testid="payslip-bond-note">First pay month — 50% held as cash bond</p>
+              )}
+            </>
+          ) : (
+            <div className="flex items-baseline justify-between rounded-md bg-primary/5 px-3 py-2 font-semibold">
+              <span>Total</span>
+              <span className="tabular-nums text-primary">{total == null ? '—' : formatPeso(total)}</span>
+            </div>
+          )}
         </>
       ) : (
         <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading the figures…</p>
@@ -530,8 +663,8 @@ function PayslipView({
           <p className="text-xs text-muted-foreground">
             Rate used ₱{issued.php_per_jpy} per ¥1 · Paid on {formatDate(issued.paid_on)}
           </p>
-          {figuresChanged(issued.total_php, issued.php_received) && (
-            <p className="text-xs">Difference vs payslip total: {formatPeso(issued.php_received - issued.total_php)}</p>
+          {due != null && figuresChanged(due, issued.php_received) && (
+            <p className="text-xs">{differenceLabel(issued)}: {formatPeso(issued.php_received - due)}</p>
           )}
           {issued.proof_path && (
             <Button size="sm" variant="link" className="h-auto p-0" onClick={() => onProof(issued.proof_path as string)}>
@@ -553,7 +686,7 @@ function PayslipView({
             {finalizeBlock && (
               <span className="flex items-center gap-2 text-xs text-muted-foreground">
                 <span data-testid="payslip-finalize-block">{finalizeBlock}</span>
-                {finalizeBlock === DETAILS_MISSING && (
+                {finalizeBlock === detailsMissing && (
                   <Button size="sm" variant="outline" onClick={onEditDetails} data-testid="payslip-edit-details">
                     <Pencil className="mr-1 h-3.5 w-3.5" /> Edit details
                   </Button>
@@ -599,13 +732,15 @@ function PaymentDialog({
     staleTime: MARKET_RATE_STALE_MS,
     retry: false,
   });
+  // What the staff member receives: amount due (after advances and cash bond), else net pay, else total.
+  const due = amountDue(payslip);
   const [jpySent, setJpySent] = useState('');
   const [jpyTyped, setJpyTyped] = useState(false);
   useEffect(() => {
     const r = market.data?.php_per_jpy;
-    if (r && !jpyTyped) setJpySent(String(defaultYenSent(payslip.total_php, r) ?? ''));
-  }, [market.data, jpyTyped, payslip.total_php]);
-  const [phpReceived, setPhpReceived] = useState(() => String(payslip.total_php));
+    if (r && !jpyTyped) setJpySent(String(defaultYenSent(due, r) ?? ''));
+  }, [market.data, jpyTyped, due]);
+  const [phpReceived, setPhpReceived] = useState(() => String(due));
   const [paidOn, setPaidOn] = useState(() => todayTokyo());
   const [file, setFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
@@ -644,7 +779,8 @@ function PaymentDialog({
         <DialogHeader>
           <DialogTitle>Record payment</DialogTitle>
           <DialogDescription>
-            {payslip.staff_name}, {longLabel(payslip.pay_month)}. Payslip total {formatPeso(payslip.total_php)}.
+            {payslip.staff_name}, {longLabel(payslip.pay_month)}. {payslip.amount_due_php != null
+              ? `Amount due ${formatPeso(due)}` : `Payslip total ${formatPeso(payslip.total_php)}`}.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-3 sm:grid-cols-2">
@@ -678,8 +814,8 @@ function PaymentDialog({
             <p data-testid="market-rate">Market rate unavailable — enter the yen sent from the proof.</p>
           )}
           {rateUsed != null && <p>Rate used: ₱{rateUsed} per ¥1</p>}
-          {Number(phpReceived) > 0 && Math.abs(Number(phpReceived) - payslip.total_php) >= 0.005 && (
-            <p>Difference vs payslip total: {formatPeso(Number(phpReceived) - payslip.total_php)}</p>
+          {Number(phpReceived) > 0 && Math.abs(Number(phpReceived) - due) >= 0.005 && (
+            <p>{differenceLabel(payslip)}: {formatPeso(Number(phpReceived) - due)}</p>
           )}
           {(formError || (file && fileError)) && <p className="text-destructive">{formError ?? fileError}</p>}
         </div>
@@ -696,7 +832,9 @@ function PaymentDialog({
 
 // ── Staff details ───────────────────────────────────────────────────────────
 
-function StaffDetailsDialog({ rows, onClose, onSaved }: { rows: StaffRow[]; onClose: () => void; onSaved: () => void }) {
+function StaffDetailsDialog({ rows, features, onClose, onSaved }: {
+  rows: StaffRow[]; features: PayslipFeatures; onClose: () => void; onSaved: () => void;
+}) {
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
       <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
@@ -707,22 +845,28 @@ function StaffDetailsDialog({ rows, onClose, onSaved }: { rows: StaffRow[]; onCl
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
-          {rows.map(r => <StaffDetailsRow key={r.profile.user_id} row={r} onSaved={onSaved} />)}
+          {rows.map(r => <StaffDetailsRow key={r.profile.user_id} row={r} features={features} onSaved={onSaved} />)}
         </div>
       </DialogContent>
     </Dialog>
   );
 }
 
-function StaffDetailsRow({ row, onSaved }: { row: StaffRow; onSaved: () => void }) {
+function StaffDetailsRow({ row, features, onSaved }: { row: StaffRow; features: PayslipFeatures; onSaved: () => void }) {
   const [address, setAddress] = useState(row.details?.address ?? '');
   const [dob, setDob] = useState(row.details?.date_of_birth ?? '');
-  const error = validateDetails(address, dob);
-  const dirty = address.trim() !== (row.details?.address ?? '') || dob !== (row.details?.date_of_birth ?? '');
+  const [employeeId, setEmployeeId] = useState(row.details?.employee_id ?? '');
+  const [hireDate, setHireDate] = useState(row.details?.hire_date ?? '');
+  const withId = features.employee_id;
+  const error = validateDetails(address, dob) ?? (withId ? validateEmployeeDetails(employeeId, hireDate) : null);
+  const dirty = address.trim() !== (row.details?.address ?? '') || dob !== (row.details?.date_of_birth ?? '')
+    || (withId && (employeeId.trim() !== (row.details?.employee_id ?? '') || hireDate !== (row.details?.hire_date ?? '')));
 
   const save = useMutation({
+    // The 5-argument save (employee ID + hire date) exists only once the database has the feature.
     mutationFn: () => callRpc('save_staff_payroll_details', {
       p_user_id: row.profile.user_id, p_address: address.trim(), p_date_of_birth: dob || null,
+      ...(withId ? { p_employee_id: employeeId.trim(), p_hire_date: hireDate || null } : {}),
     }),
     onSuccess: () => { toast.success(`Saved details for ${row.name}`); onSaved(); },
     onError: (e) => toast.error(refusal(e)),
@@ -733,7 +877,7 @@ function StaffDetailsRow({ row, onSaved }: { row: StaffRow; onSaved: () => void 
     <div className="space-y-2 rounded-md border border-border p-3" data-testid="payslip-details-row">
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm font-medium">{row.name}</p>
-        {!detailsComplete(row.details) && <Badge variant="outline">Missing</Badge>}
+        {!detailsComplete(row.details, withId) && <Badge variant="outline">Missing</Badge>}
       </div>
       <div className="grid gap-2 sm:grid-cols-[1fr_11rem]">
         <div className="space-y-1">
@@ -745,6 +889,18 @@ function StaffDetailsRow({ row, onSaved }: { row: StaffRow; onSaved: () => void 
           <Input id={`dob-${id}`} type="date" value={dob} min="1900-01-01" max={todayTokyo()} onChange={(e) => setDob(e.target.value)} />
         </div>
       </div>
+      {withId && (
+        <div className="grid gap-2 sm:grid-cols-2">
+          <div className="space-y-1">
+            <Label htmlFor={`emp-${id}`} className="text-xs">Employee ID (required to finalize)</Label>
+            <Input id={`emp-${id}`} value={employeeId} maxLength={30} onChange={(e) => setEmployeeId(e.target.value)} />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor={`hire-${id}`} className="text-xs">Hire date (optional)</Label>
+            <Input id={`hire-${id}`} type="date" value={hireDate} min="2020-01-01" onChange={(e) => setHireDate(e.target.value)} />
+          </div>
+        </div>
+      )}
       <div className="flex items-center justify-end gap-2">
         {error && <span className="text-xs text-destructive">{error}</span>}
         <Button size="sm" disabled={!dirty || !!error || save.isPending} onClick={() => save.mutate()}>
@@ -752,5 +908,212 @@ function StaffDetailsRow({ row, onSaved }: { row: StaffRow; onSaved: () => void 
         </Button>
       </div>
     </div>
+  );
+}
+
+// ── Cash advances (owner 2026-10-27; migration 20270204100000) ─────────────
+
+function CashAdvancesDialog({
+  row, monthKey, locked, onOpenProof, onClose, onChanged,
+}: {
+  row: StaffRow;
+  monthKey: string;
+  /** A non-void payslip exists for the month: advances are read-only. */
+  locked: boolean;
+  onOpenProof: (path: string) => void;
+  onClose: () => void;
+  onChanged: () => void;
+}) {
+  const today = todayTokyo();
+  const [advanceDate, setAdvanceDate] = useState(today);
+  const [amount, setAmount] = useState('');
+  const [note, setNote] = useState('');
+  const [file, setFile] = useState<File | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [voidingId, setVoidingId] = useState<string | null>(null);
+  const [voidReason, setVoidReason] = useState('');
+
+  const formError = validateAdvance({ advanceDate, amount, note }, today);
+  const fileError = file ? proofProblem(file) : null;
+  const activeTotal = row.advances.filter(a => a.status === 'active').reduce((s, a) => s + a.amount_php, 0);
+
+  /** Upload, then attach; false (with a toast) when either step fails — the advance itself stays. */
+  const attach = async (advanceId: string, f: File): Promise<boolean> => {
+    const path = advanceProofPath(advanceId, f.name);
+    const { error: upErr } = await supabase.storage.from(PAYSLIP_PROOF_BUCKET)
+      .upload(path, f, { cacheControl: '3600', upsert: false, contentType: proofContentType(f) || undefined });
+    if (!upErr) {
+      try {
+        await callRpc('attach_cash_advance_proof', { p_id: advanceId, p_path: path });
+        return true;
+      } catch { /* falls through to the message below */ }
+    }
+    toast.error('The advance is saved, but its proof did not upload. Use Attach proof to try again.');
+    return false;
+  };
+
+  const add = async () => {
+    if (formError || fileError) return;
+    setSaving(true);
+    try {
+      let id: string;
+      try {
+        const out = await callRpc('add_cash_advance', {
+          p_user_id: row.profile.user_id, p_pay_month: `${monthKey}-01`, p_advance_date: advanceDate,
+          p_amount_php: Number(amount), p_note: note.trim(),
+        });
+        id = String((out.advance as { id?: string } | undefined)?.id ?? '');
+      } catch (e) {
+        toast.error(refusal(e));
+        return;
+      }
+      if (file && id) {
+        if (await attach(id, file)) toast.success('Cash advance added with its proof');
+      } else {
+        toast.success('Cash advance added');
+      }
+      setAmount(''); setNote(''); setFile(null); setAdvanceDate(today);
+      onChanged();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const attachLater = async (advanceId: string, f: File | null) => {
+    if (!f) return;
+    const problem = proofProblem(f);
+    if (problem) { toast.error(problem); return; }
+    setSaving(true);
+    try {
+      if (await attach(advanceId, f)) toast.success('Proof attached');
+      onChanged();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const voidAdvance = async () => {
+    if (!voidingId || voidReason.trim().length < 3) return;
+    setSaving(true);
+    try {
+      await callRpc('void_cash_advance', { p_id: voidingId, p_reason: voidReason.trim() });
+      toast.success('Cash advance voided');
+      setVoidingId(null); setVoidReason('');
+      onChanged();
+    } catch (e) {
+      toast.error(refusal(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o && !saving) onClose(); }}>
+      <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto" data-testid="cash-advances-dialog">
+        <DialogHeader>
+          <DialogTitle>Cash advances — {row.name}, {longLabel(monthKey)}</DialogTitle>
+          <DialogDescription>
+            Each active advance is deducted on this month's payslip (total earnings − cash advances = net pay).
+            A mistake is voided with a reason, never deleted.
+          </DialogDescription>
+        </DialogHeader>
+
+        {locked && (
+          <p className="rounded-md border border-dashed p-2 text-xs text-muted-foreground" data-testid="cash-advances-locked">
+            This month's payslip is finalized — void it to change advances
+          </p>
+        )}
+
+        {row.advances.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No cash advances this month.</p>
+        ) : (
+          <div className="space-y-2">
+            {row.advances.map(a => (
+              <div key={a.id} className="space-y-1 rounded-md border border-border p-2 text-sm" data-testid="cash-advance-row">
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <span className="tabular-nums">{formatDateDD(a.advance_date)}</span>
+                  <span className={a.status === 'void' ? 'tabular-nums text-muted-foreground line-through' : 'tabular-nums font-medium'}>
+                    {formatPeso(a.amount_php)}
+                  </span>
+                </div>
+                <p className="text-muted-foreground">{a.note}</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant={a.status === 'void' ? 'outline' : 'secondary'}>{a.status === 'void' ? 'Void' : 'Active'}</Badge>
+                  {a.status === 'void' && a.void_reason && <span className="text-xs text-muted-foreground">{a.void_reason}</span>}
+                  {a.proof_path && (
+                    <Button size="sm" variant="link" className="h-auto p-0" onClick={() => onOpenProof(a.proof_path as string)}>
+                      <Paperclip className="mr-1 h-3.5 w-3.5" /> Open proof
+                    </Button>
+                  )}
+                  {!locked && a.status === 'active' && !a.proof_path && (
+                    <label className="cursor-pointer text-xs text-primary underline-offset-2 hover:underline">
+                      Attach proof
+                      <input type="file" className="sr-only" aria-label={`Attach proof for ${a.note}`}
+                        accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf"
+                        onChange={(e) => attachLater(a.id, e.target.files?.[0] ?? null)} />
+                    </label>
+                  )}
+                  {!locked && a.status === 'active' && (
+                    <Button size="sm" variant="ghost" className="ml-auto h-7" onClick={() => { setVoidingId(a.id); setVoidReason(''); }}>
+                      <Ban className="mr-1 h-3.5 w-3.5" /> Void
+                    </Button>
+                  )}
+                </div>
+                {voidingId === a.id && (
+                  <div className="flex flex-wrap items-end gap-2">
+                    <div className="min-w-[12rem] flex-1 space-y-1">
+                      <Label htmlFor={`void-${a.id}`} className="text-xs">Reason</Label>
+                      <Input id={`void-${a.id}`} value={voidReason} maxLength={500} onChange={(e) => setVoidReason(e.target.value)} />
+                    </div>
+                    <Button size="sm" variant="destructive" disabled={voidReason.trim().length < 3 || saving} onClick={voidAdvance}>
+                      Void advance
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => setVoidingId(null)}>Cancel</Button>
+                  </div>
+                )}
+              </div>
+            ))}
+            <p className="text-right text-sm font-medium" data-testid="cash-advances-total">
+              Total active advances {formatPeso(activeTotal)}
+            </p>
+          </div>
+        )}
+
+        {!locked && (
+          <div className="space-y-2 rounded-md border border-border p-3">
+            <p className="text-sm font-medium">Add advance</p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <div className="space-y-1">
+                <Label htmlFor="advance-date" className="text-xs">Date</Label>
+                <Input id="advance-date" type="date" value={advanceDate} min={advanceDateMin(today)} max={today}
+                  onChange={(e) => setAdvanceDate(e.target.value)} />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="advance-amount" className="text-xs">Amount (₱)</Label>
+                <Input id="advance-amount" inputMode="decimal" value={amount}
+                  onChange={(e) => setAmount(e.target.value.replace(/[^\d.]/g, ''))} />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="advance-note" className="text-xs">Note</Label>
+              <Input id="advance-note" value={note} maxLength={200} onChange={(e) => setNote(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="advance-proof" className="text-xs">Proof (optional — photo or PDF, up to 10 MB)</Label>
+              <Input id="advance-proof" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf"
+                onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+            </div>
+            <div className="flex items-center justify-end gap-2">
+              {(amount || note) && (formError || fileError) && (
+                <span className="text-xs text-destructive">{formError ?? fileError}</span>
+              )}
+              <Button size="sm" onClick={add} disabled={!!formError || !!fileError || saving} data-testid="cash-advance-add">
+                {saving && <Loader2 className="mr-1 h-4 w-4 animate-spin" />} Add advance
+              </Button>
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }

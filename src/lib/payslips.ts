@@ -8,14 +8,16 @@
  * Excel rows of an issued payslip come from its STORED figures.
  */
 import * as XLSX from 'xlsx';
-import type { MonthComputation, TemplateType, TimesheetProfile } from '@/lib/timesheetEngine';
+import type { MonthComputation, PaySetting, TemplateType, TimesheetProfile } from '@/lib/timesheetEngine';
 import type { AgentMonthResult, MonthlyComputation } from '@/lib/commissionEngine';
 import { LEGAL_NAME_JA } from '@/lib/companyInfo';
 
 export const COMPANY_NAME = LEGAL_NAME_JA;
 export const PAYSLIP_PROOF_BUCKET = 'payslip-proofs';
-/** finalize_payslip refuses months before this one. */
+/** finalize_payslip refuses months before this one (before migration 20270204100000). */
 export const FIRST_PAY_MONTH = '2026-06';
+/** …and before this one once it is applied (owner 2026-10-27, decision L). */
+export const FIRST_PAY_MONTH_APRIL = '2026-04';
 
 export type PayslipStatus = 'finalized' | 'paid' | 'void';
 
@@ -78,6 +80,19 @@ export interface Payslip {
   proof_path: string | null;
   /** Who finalized it (get_payslip_book returns the whole row). */
   finalized_by?: string | null;
+  // Migration 20270204100000 (absent on payslips read before it is applied):
+  employee_id?: string | null;
+  hire_date?: string | null;
+  cash_advances?: AdvanceSnapshot[];
+  cash_advance_php?: number;
+  net_pay_php?: number;
+  is_final_pay?: boolean;
+  cash_bond_held_php?: number;
+  cash_bond_released_php?: number;
+  cash_bond_source_payslip_id?: string | null;
+  amount_due_php?: number;
+  /** get_payslip_book: 'YYYY-MM-DD' of the payslip whose cash bond this one releases. */
+  cash_bond_source_month?: string | null;
   finalized_at: string;
   paid_at: string | null;
   voided_at: string | null;
@@ -85,17 +100,62 @@ export interface Payslip {
   created_at: string;
 }
 
+/** One advance as frozen on a payslip (payslips.cash_advances). */
+export interface AdvanceSnapshot {
+  id: string;
+  advance_date: string;
+  amount_php: number;
+  note: string;
+  proof_path: string | null;
+}
+
+/** One row of payslip_cash_advances. */
+export interface CashAdvance extends AdvanceSnapshot {
+  user_id: string;
+  pay_month: string;
+  status: 'active' | 'void';
+  void_reason: string | null;
+  created_at: string;
+  payslip_id: string | null;
+}
+
+export interface BondPending {
+  source_payslip_id: string;
+  pay_month: string;
+  amount: number;
+}
+
 export interface PayrollDetails {
   user_id: string;
   address: string | null;
   date_of_birth: string | null;
+  employee_id?: string | null;
+  hire_date?: string | null;
+  first_month_issued?: boolean | null;
+  cash_bond_pending?: BondPending | null;
 }
+
+/** get_payslip_book "features" — present once migration 20270204100000 is applied. */
+export interface PayslipFeatures {
+  cash_advances: boolean;
+  employee_id: boolean;
+  cash_bond: boolean;
+  pay_history: boolean;
+  from_april: boolean;
+}
+
+export const NO_FEATURES: PayslipFeatures = {
+  cash_advances: false, employee_id: false, cash_bond: false, pay_history: false, from_april: false,
+};
 
 export interface PayslipBook {
   month: string;
   php_jpy_rate: number | null;
   payslips: Payslip[];
   details: PayrollDetails[];
+  features: PayslipFeatures;
+  cash_advances: CashAdvance[];
+  pay_settings: PaySetting[];
 }
 
 export type PayslipBookState = { available: false } | { available: true; book: PayslipBook };
@@ -293,8 +353,23 @@ export function todayTokyo(now: Date = new Date()): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tokyo' }).format(now);
 }
 
-export function canIssueForMonth(monthKey: string): boolean {
-  return monthKey >= FIRST_PAY_MONTH;
+export function canIssueForMonth(monthKey: string, fromApril = false): boolean {
+  return monthKey >= (fromApril ? FIRST_PAY_MONTH_APRIL : FIRST_PAY_MONTH);
+}
+
+/** 'YYYY-MM-DD' → '05 Oct 2026' (two-digit day; the cash-advance and paid-on lines). */
+export function formatDateDD(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const [y, m, d] = iso.slice(0, 10).split('-').map(Number);
+  if (!y || !m || !d) return '—';
+  return `${String(d).padStart(2, '0')} ${MONTHS[m - 1].slice(0, 3)} ${y}`;
+}
+
+/** 'YYYY-MM' + n months → 'YYYY-MM'. */
+export function addMonths(monthKey: string, n: number): string {
+  const [y, m] = monthKey.split('-').map(Number);
+  const i = y * 12 + (m - 1) + n;
+  return `${Math.floor(i / 12)}-${String((i % 12) + 1).padStart(2, '0')}`;
 }
 
 // ── Status / which payslip a row shows ──────────────────────────────────────
@@ -315,8 +390,25 @@ export function currentPayslip(payslips: Payslip[], userId: string): Payslip | n
 
 // ── Staff details ───────────────────────────────────────────────────────────
 
-export function detailsComplete(d: PayrollDetails | null | undefined): boolean {
-  return !!(d && d.address && d.address.trim() && d.date_of_birth);
+/** Address + date of birth, and (once the database has employee IDs) the employee ID. */
+export function detailsComplete(d: PayrollDetails | null | undefined, requireEmployeeId = false): boolean {
+  return !!(d && d.address && d.address.trim() && d.date_of_birth && (!requireEmployeeId || (d.employee_id ?? '').trim()));
+}
+
+export const EMPLOYEE_ID_PATTERN = /^[A-Za-z0-9-]{1,30}$/;
+
+/** Employee ID (empty = none) and hire date (empty = none), as save_staff_payroll_details checks them. */
+export function validateEmployeeDetails(employeeId: string, hireDate: string, today: string = todayTokyo()): string | null {
+  const id = employeeId.trim();
+  if (id && !EMPLOYEE_ID_PATTERN.test(id)) return 'The employee ID can have 1–30 letters, digits and hyphens.';
+  if (hireDate) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(hireDate)) return 'Enter the hire date as a date.';
+    if (hireDate < '2020-01-01') return 'The hire date is before 2020.';
+    const [y, m, d] = today.split('-').map(Number);
+    const limit = `${y + 1}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    if (hireDate > limit) return 'The hire date is more than a year ahead.';
+  }
+  return null;
 }
 
 export function validateDetails(address: string, dob: string, today: string = todayTokyo()): string | null {
@@ -387,11 +479,11 @@ export function proofPath(payslipId: string, fileName: string, now: number = Dat
 export function payslipRefusal(code: string | undefined): string {
   switch (code) {
     case 'permission_denied': return 'Only admin and timesheet managers can work on payslips.';
-    case 'invalid_month': return 'Payslips can be issued from June 2026 up to this month.';
+    case 'invalid_month': return 'Payslips can be issued from April 2026 (June 2026 until the database update) up to this month.';
     case 'staff_not_found': return 'This staff member has no timesheet profile.';
     case 'already_issued': return 'A payslip for this month already exists. Void it first to issue a new one.';
     case 'name_missing': return 'This staff member has no name in Team. Add it first.';
-    case 'details_missing': return 'Add address and date of birth first.';
+    case 'details_missing': return 'Add employee ID, address and date of birth first.';
     case 'invalid_figures':
     case 'invalid_totals': return 'The figures did not add up. Reload the page and try again.';
     case 'not_found': return 'This payslip no longer exists. Reload the page.';
@@ -406,19 +498,49 @@ export function payslipRefusal(code: string | undefined): string {
     case 'already_void': return 'This payslip is already void.';
     case 'invalid_address': return 'The address is over 500 characters.';
     case 'invalid_date_of_birth': return 'The date of birth must be between 1900 and today.';
+    case 'invalid_employee_id': return 'The employee ID can have 1–30 letters, digits and hyphens.';
+    case 'employee_id_taken': return 'Another staff member already has this employee ID.';
+    case 'invalid_hire_date': return 'The hire date must be from 2020 up to a year from today.';
+    case 'pay_settings_mismatch': return 'The basic salary or allowance changed for this month. Reload the page and try again.';
+    case 'cash_bond_order': return 'Finalize the first-month payslip first (it holds the cash bond).';
+    case 'advance_exceeds_pay': return 'The cash advances are more than this month\'s earnings.';
+    case 'month_finalized': return 'This month\'s payslip is finalized — void it to change advances.';
+    case 'invalid_date': return 'The advance date must be from the 1st of last month up to today.';
+    case 'invalid_amount': return 'Enter the amount in pesos (up to 2 decimals) above 0.';
+    case 'note_required': return 'Write a note for the advance.';
+    case 'note_too_long': return 'The note is over 200 characters.';
+    case 'advance_void': return 'This advance is void.';
+    case 'proof_already_attached': return 'This advance already has a proof.';
     default: return 'Something went wrong. Try again in a moment.';
   }
 }
 
 // ── Book normalising ────────────────────────────────────────────────────────
 
+/** The features of a book; all false when the database predates migration 20270204100000. */
+export function bookFeatures(raw: Record<string, unknown>): PayslipFeatures {
+  const f = (raw.features && typeof raw.features === 'object' ? raw.features : {}) as Record<string, unknown>;
+  return {
+    cash_advances: f.cash_advances === true,
+    employee_id: f.employee_id === true,
+    cash_bond: f.cash_bond === true,
+    pay_history: f.pay_history === true,
+    from_april: f.from_april === true,
+  };
+}
+
+const optNum = (v: unknown): number | undefined => (v == null ? undefined : num(v));
+
 export function normaliseBook(raw: Record<string, unknown>): PayslipBook {
   const payslips = (Array.isArray(raw.payslips) ? raw.payslips : []) as Record<string, unknown>[];
   const details = (Array.isArray(raw.details) ? raw.details : []) as Record<string, unknown>[];
+  const advances = (Array.isArray(raw.cash_advances) ? raw.cash_advances : []) as Record<string, unknown>[];
+  const settings = (Array.isArray(raw.pay_settings) ? raw.pay_settings : []) as Record<string, unknown>[];
   const rate = raw.php_jpy_rate == null ? null : Number(raw.php_jpy_rate);
   return {
     month: String(raw.month ?? ''),
     php_jpy_rate: rate != null && Number.isFinite(rate) && rate > 0 ? rate : null,
+    features: bookFeatures(raw),
     payslips: payslips.map(p => ({
       ...(p as unknown as Payslip),
       timesheet_net_php: num(p.timesheet_net_php),
@@ -429,13 +551,205 @@ export function normaliseBook(raw: Record<string, unknown>): PayslipBook {
       php_per_jpy: p.php_per_jpy == null ? null : num(p.php_per_jpy),
       timesheet: (p.timesheet ?? {}) as Record<string, unknown>,
       commission: (p.commission ?? {}) as Record<string, unknown>,
+      cash_advances: Array.isArray(p.cash_advances)
+        ? (p.cash_advances as Record<string, unknown>[]).map(a => ({
+          id: String(a.id), advance_date: String(a.advance_date ?? ''), amount_php: num(a.amount_php),
+          note: String(a.note ?? ''), proof_path: (a.proof_path as string | null) ?? null,
+        }))
+        : undefined,
+      cash_advance_php: optNum(p.cash_advance_php),
+      net_pay_php: optNum(p.net_pay_php),
+      cash_bond_held_php: optNum(p.cash_bond_held_php),
+      cash_bond_released_php: optNum(p.cash_bond_released_php),
+      amount_due_php: optNum(p.amount_due_php),
     })),
-    details: details.map(d => ({
-      user_id: String(d.user_id),
-      address: (d.address as string | null) ?? null,
-      date_of_birth: (d.date_of_birth as string | null) ?? null,
+    details: details.map(d => {
+      const pending = d.cash_bond_pending as Record<string, unknown> | null | undefined;
+      return {
+        user_id: String(d.user_id),
+        address: (d.address as string | null) ?? null,
+        date_of_birth: (d.date_of_birth as string | null) ?? null,
+        employee_id: (d.employee_id as string | null) ?? null,
+        hire_date: (d.hire_date as string | null) ?? null,
+        first_month_issued: d.first_month_issued == null ? null : d.first_month_issued === true,
+        cash_bond_pending: pending && pending.source_payslip_id
+          ? { source_payslip_id: String(pending.source_payslip_id), pay_month: String(pending.pay_month), amount: num(pending.amount) }
+          : null,
+      };
+    }),
+    cash_advances: advances.map(a => ({
+      id: String(a.id), user_id: String(a.user_id), pay_month: String(a.pay_month ?? ''),
+      advance_date: String(a.advance_date ?? ''), amount_php: num(a.amount_php), note: String(a.note ?? ''),
+      proof_path: (a.proof_path as string | null) ?? null, status: a.status === 'void' ? 'void' : 'active',
+      void_reason: (a.void_reason as string | null) ?? null, created_at: String(a.created_at ?? ''),
+      payslip_id: (a.payslip_id as string | null) ?? null,
+    })),
+    pay_settings: settings.map(s => ({
+      user_id: String(s.user_id), effective_from: String(s.effective_from ?? ''),
+      basic_salary: s.basic_salary == null ? null : num(s.basic_salary),
+      allowance: s.allowance == null ? null : num(s.allowance),
+      note: (s.note as string | null) ?? null,
     })),
   };
+}
+
+// ── Cash advances, cash bond, amount due (owner 2026-10-27; migration 20270204100000) ──
+
+/** True when the payslip was issued after migration 20270204100000 (it carries amount_due_php). */
+export function hasDeductionColumns(p: Pick<Payslip, 'amount_due_php'>): boolean {
+  return p.amount_due_php != null;
+}
+
+/** What the staff member receives: amount_due_php, else net_pay_php, else total_php (older payslips). */
+export function amountDue(p: Pick<Payslip, 'amount_due_php' | 'net_pay_php' | 'total_php'>): number {
+  return p.amount_due_php ?? p.net_pay_php ?? p.total_php;
+}
+
+const cents = (n: number) => Math.round(round2(n) * 100);
+
+export type BondKind = 'held' | 'released' | 'none' | 'blocked';
+
+export interface BondPreview {
+  kind: BondKind;
+  held: number;
+  released: number;
+  /** 'YYYY-MM' of the payslip whose bond is released (released only). */
+  releasedFrom: string | null;
+  /** 'YYYY-MM' of the first pay month (blocked only). */
+  firstMonth: string | null;
+}
+
+/**
+ * The cash bond finalize_payslip will decide, computed the same way for the draft preview:
+ *   - the hire month holds floor(net pay / 2) to the centavo (net pay = earnings − advances; the odd
+ *     centavo stays in the paid half), unless ticked "Final pay";
+ *   - a pending bond is released on its month + 1, or earlier on a "Final pay" payslip;
+ *   - a later month before the hire-month payslip exists is refused (cash_bond_order).
+ * The hire month counts only from April 2026 (the first month a payslip can exist).
+ */
+export function bondPreview(o: {
+  monthKey: string;
+  totalPhp: number;
+  advancesPhp: number;
+  hireDate: string | null | undefined;
+  firstMonthIssued: boolean | null | undefined;
+  pending: BondPending | null | undefined;
+  isFinalPay: boolean;
+}): BondPreview {
+  const none: BondPreview = { kind: 'none', held: 0, released: 0, releasedFrom: null, firstMonth: null };
+  const first = o.hireDate ? o.hireDate.slice(0, 7) : null;
+  if (first && first >= FIRST_PAY_MONTH_APRIL && o.monthKey > first && !o.firstMonthIssued) {
+    return { ...none, kind: 'blocked', firstMonth: first };
+  }
+  if (first && first === o.monthKey && !o.isFinalPay) {
+    const net = cents(o.totalPhp) - cents(o.advancesPhp);
+    return { ...none, kind: 'held', held: Math.floor(Math.max(0, net) / 2) / 100 };
+  }
+  const p = o.pending;
+  if (p && p.pay_month.slice(0, 7) < o.monthKey && (o.monthKey === addMonths(p.pay_month.slice(0, 7), 1) || o.isFinalPay)) {
+    return { ...none, kind: 'released', released: round2(p.amount), releasedFrom: p.pay_month.slice(0, 7) };
+  }
+  return none;
+}
+
+export interface PayBreakdown {
+  earnings: number;
+  advances: { advance_date: string; note: string; amount_php: number }[];
+  advancesTotal: number;
+  net: number;
+  held: number;
+  released: number;
+  /** 'YYYY-MM' of the payslip whose bond is released. */
+  releasedFrom: string | null;
+  due: number;
+}
+
+/** The deductions block of an ISSUED payslip, from its stored columns (null for older payslips). */
+export function storedBreakdown(p: Payslip, sourceMonth: string | null = p.cash_bond_source_month?.slice(0, 7) ?? null): PayBreakdown | null {
+  if (!hasDeductionColumns(p)) return null;
+  const advances = (p.cash_advances ?? []).map(a => ({ advance_date: a.advance_date, note: a.note, amount_php: a.amount_php }));
+  return {
+    earnings: p.total_php,
+    advances,
+    advancesTotal: p.cash_advance_php ?? 0,
+    net: p.net_pay_php ?? p.total_php,
+    held: p.cash_bond_held_php ?? 0,
+    released: p.cash_bond_released_php ?? 0,
+    releasedFrom: sourceMonth,
+    due: amountDue(p),
+  };
+}
+
+/** The deductions block of a DRAFT, from live figures, the month's active advances and the bond preview. */
+export function draftBreakdown(totalPhp: number, advances: CashAdvance[], bond: BondPreview): PayBreakdown {
+  const active = advances.filter(a => a.status === 'active')
+    .sort((a, b) => a.advance_date.localeCompare(b.advance_date) || a.created_at.localeCompare(b.created_at));
+  const advancesTotal = active.reduce((s, a) => s + cents(a.amount_php), 0) / 100;
+  const net = (cents(totalPhp) - cents(advancesTotal)) / 100;
+  return {
+    earnings: round2(totalPhp),
+    advances: active.map(a => ({ advance_date: a.advance_date, note: a.note, amount_php: a.amount_php })),
+    advancesTotal,
+    net,
+    held: bond.held,
+    released: bond.released,
+    releasedFrom: bond.releasedFrom,
+    due: (cents(net) - cents(bond.held) + cents(bond.released)) / 100,
+  };
+}
+
+export const BOND_HELD_LABEL = 'Less: Cash bond — first-month pay (50% held)';
+export function bondReleasedLabel(fromMonth: string | null): string {
+  return fromMonth ? `Cash bond released — ${longMonthLabel(fromMonth)}` : 'Cash bond released';
+}
+export function advanceLabel(a: { advance_date: string; note: string }): string {
+  return `Less: Cash advance — ${formatDateDD(a.advance_date)} · ${a.note}`;
+}
+
+/** The lines after the earnings: advances, totals, net pay, cash bond, amount due / paid. */
+export function breakdownLines(b: PayBreakdown, paid: boolean): Line[] {
+  const lines: Line[] = b.advances.map(a => ({ label: advanceLabel(a), value: formatPeso(-a.amount_php) }));
+  lines.push(
+    { label: 'Total earnings', value: formatPeso(b.earnings) },
+    { label: 'Total cash advances', value: formatPeso(b.advancesTotal) },
+    { label: 'Net pay', value: formatPeso(b.net) },
+  );
+  if (b.held > 0) lines.push({ label: BOND_HELD_LABEL, value: formatPeso(-b.held) });
+  if (b.released > 0) lines.push({ label: bondReleasedLabel(b.releasedFrom), value: formatPeso(b.released) });
+  lines.push({ label: paid ? 'Amount paid' : 'Amount due', value: formatPeso(b.due) });
+  return lines;
+}
+
+// ── Cash advance form + proof ───────────────────────────────────────────────
+
+export interface AdvanceForm { advanceDate: string; amount: string; note: string }
+
+/** The first day an advance may be dated: the 1st of last month (Japan time). */
+export function advanceDateMin(today: string = todayTokyo()): string {
+  return `${addMonths(today.slice(0, 7), -1)}-01`;
+}
+
+export function validateAdvance(f: AdvanceForm, today: string = todayTokyo()): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(f.advanceDate)) return 'Enter the date of the advance.';
+  if (f.advanceDate > today) return 'The advance date is in the future.';
+  if (f.advanceDate < advanceDateMin(today)) return 'The advance date must be from the 1st of last month.';
+  if (!/^\d+(\.\d{1,2})?$/.test(f.amount.trim()) || Number(f.amount) <= 0) return 'Enter the amount in pesos (up to 2 decimals) above 0.';
+  if (Number(f.amount) > 10_000_000) return 'The amount is too large.';
+  if (!f.note.trim()) return 'Write a note for the advance.';
+  if (f.note.trim().length > 200) return 'The note is over 200 characters.';
+  return null;
+}
+
+/** advances/<advance id>/<timestamp>-<safe name>: the only shape attach_cash_advance_proof accepts. */
+export function advanceProofPath(advanceId: string, fileName: string, now: number = Date.now()): string {
+  return `advances/${proofPath(advanceId, fileName, now)}`;
+}
+
+/** The file name of an advance proof: everything after advances/<id>/. */
+export function advanceProofFileName(path: string | null | undefined): string {
+  if (!path) return '';
+  const parts = path.split('/');
+  return parts.length >= 3 ? parts.slice(2).join('/') : path;
 }
 
 // ── Excel (STORED figures only) ─────────────────────────────────────────────
@@ -460,12 +774,13 @@ export function paymentLine(p: Pick<Payslip, 'pay_month' | 'jpy_sent' | 'php_rec
   return `${longMonthLabel(p.pay_month)} salary ${formatYen(p.jpy_sent)} → ${formatPeso(p.php_received)}`;
 }
 
-export function payslipRows(p: Payslip, generatedOn: string = todayTokyo()): (string | number)[][] {
+export function payslipRows(p: Payslip, generatedOn: string = todayTokyo(), sourceMonth: string | null = null): (string | number)[][] {
   const rows: (string | number)[][] = [
     [COMPANY_NAME],
     [payslipTitle(p.pay_month)],
     [],
     ['Staff name', p.staff_name],
+    ...(p.employee_id ? [['Employee ID', p.employee_id]] : []),
     ['Address', p.address],
     ['Date of birth', formatDate(p.date_of_birth)],
     ['Job title', p.job_title ?? '—'],
@@ -476,10 +791,14 @@ export function payslipRows(p: Payslip, generatedOn: string = todayTokyo()): (st
     ['Commission'],
     ...commissionLines(p.commission).map(l => [l.label, l.value]),
     [],
-    ['Total', formatPeso(p.total_php)],
-    [],
-    ['Payment'],
   ];
+  const breakdown = storedBreakdown(p, sourceMonth ?? p.cash_bond_source_month?.slice(0, 7) ?? null);
+  if (breakdown) {
+    rows.push(...breakdownLines(breakdown, p.status === 'paid').map(l => [l.label, l.value]));
+  } else {
+    rows.push(['Total', formatPeso(p.total_php)]);
+  }
+  rows.push([], ['Payment']);
   if (p.jpy_sent != null && p.php_received != null) {
     rows.push(
       [paymentLine(p), ''],
@@ -489,8 +808,8 @@ export function payslipRows(p: Payslip, generatedOn: string = todayTokyo()): (st
       ['Paid on', formatDate(p.paid_on)],
       ['Proof of payment', proofFileName(p.proof_path) || '—'],
     );
-    if (figuresChanged(p.total_php, p.php_received)) {
-      rows.push(['Difference vs payslip total', formatPeso(p.php_received - p.total_php)]);
+    if (figuresChanged(amountDue(p), p.php_received)) {
+      rows.push([differenceLabel(p), formatPeso(p.php_received - amountDue(p))]);
     }
   } else {
     rows.push(['Not paid yet']);
@@ -499,14 +818,20 @@ export function payslipRows(p: Payslip, generatedOn: string = todayTokyo()): (st
   return rows;
 }
 
-export function payslipWorkbook(p: Payslip, generatedOn?: string): XLSX.WorkBook {
-  const ws = XLSX.utils.aoa_to_sheet(payslipRows(p, generatedOn));
+/** "Difference vs amount due" on payslips with deductions, "… vs payslip total" on older ones. */
+export function differenceLabel(p: Pick<Payslip, 'amount_due_php'>): string {
+  return hasDeductionColumns(p) ? 'Difference vs amount due' : 'Difference vs payslip total';
+}
+
+export function payslipWorkbook(p: Payslip, generatedOn?: string, sourceMonth: string | null = null): XLSX.WorkBook {
+  const ws = XLSX.utils.aoa_to_sheet(payslipRows(p, generatedOn, sourceMonth));
   ws['!cols'] = [{ wch: 32 }, { wch: 48 }];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Payslip');
   return wb;
 }
 
-export function downloadPayslipXlsx(p: Payslip): void {
-  XLSX.writeFile(payslipWorkbook(p), payslipFileName(p.staff_name, p.pay_month));
+/** `sourceMonth` = 'YYYY-MM' of the payslip whose cash bond this one releases (for its label). */
+export function downloadPayslipXlsx(p: Payslip, sourceMonth: string | null = null): void {
+  XLSX.writeFile(payslipWorkbook(p, undefined, sourceMonth), payslipFileName(p.staff_name, p.pay_month));
 }

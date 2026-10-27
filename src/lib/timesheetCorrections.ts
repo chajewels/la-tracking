@@ -125,7 +125,7 @@ export function correctionRefusal(code: string | undefined): string {
     case 'permission_denied': return 'Only Admin and Brenda can correct a timesheet day.';
     case 'staff_not_found': return 'This staff member has no timesheet profile.';
     case 'comment_required': return 'Write a reason for the correction (3 to 500 characters).';
-    case 'invalid_date': return 'Days can be corrected from 1 June 2026 up to today.';
+    case 'invalid_date': return 'Days can be corrected from 1 April 2026 (1 June 2026 until the database update) up to today.';
     case 'invalid_punch': return 'Each time must be on this day (PM out may run past midnight, up to 06:00).';
     case 'invalid_order': return 'The times must be in order: AM in, AM out, PM in, PM out.';
     case 'save_failed': return 'The correction was not saved. Try again.';
