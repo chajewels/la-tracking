@@ -6669,6 +6669,8 @@ export type Database = {
           cash_bond_source_payslip_id: string | null
           commission: Json
           commission_php: number
+          corrected_from_payslip_id: string | null
+          correction_reason: string | null
           created_at: string
           date_of_birth: string
           employee_id: string | null
@@ -6711,6 +6713,8 @@ export type Database = {
           cash_bond_source_payslip_id?: string | null
           commission: Json
           commission_php: number
+          corrected_from_payslip_id?: string | null
+          correction_reason?: string | null
           created_at?: string
           date_of_birth: string
           employee_id?: string | null
@@ -6753,6 +6757,8 @@ export type Database = {
           cash_bond_source_payslip_id?: string | null
           commission?: Json
           commission_php?: number
+          corrected_from_payslip_id?: string | null
+          correction_reason?: string | null
           created_at?: string
           date_of_birth?: string
           employee_id?: string | null
@@ -6787,6 +6793,13 @@ export type Database = {
           {
             foreignKeyName: "payslips_cash_bond_source_payslip_id_fkey"
             columns: ["cash_bond_source_payslip_id"]
+            isOneToOne: false
+            referencedRelation: "payslips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payslips_corrected_from_payslip_id_fkey"
+            columns: ["corrected_from_payslip_id"]
             isOneToOne: false
             referencedRelation: "payslips"
             referencedColumns: ["id"]
@@ -11593,6 +11606,15 @@ export type Database = {
         }
         Returns: Json
       }
+      correct_payslip: {
+        Args: {
+          p_id: string
+          p_is_final_pay: boolean
+          p_payload: Json
+          p_reason: string
+        }
+        Returns: Json
+      }
       correct_timesheet_day: {
         Args: {
           p_am_in: string
@@ -11998,6 +12020,16 @@ export type Database = {
           }
         | {
             Args: {
+              p_is_final_pay: boolean
+              p_pay_month: string
+              p_payload: Json
+              p_user_id: string
+            }
+            Returns: Json
+          }
+        | {
+            Args: {
+              p_correction_reason: string
               p_is_final_pay: boolean
               p_pay_month: string
               p_payload: Json
@@ -13031,6 +13063,17 @@ export type Database = {
         }[]
       }
       payslip_figure: { Args: { p_int: boolean; v: Json }; Returns: number }
+      payslip_issue: {
+        Args: {
+          p_corrected_from: string
+          p_correction_reason: string
+          p_is_final_pay: boolean
+          p_pay_month: string
+          p_payload: Json
+          p_user_id: string
+        }
+        Returns: Json
+      }
       portal_token_expiry_report: { Args: { p_days?: number }; Returns: Json }
       portal_tokens_expiring_list: {
         Args: { p_days?: number }
