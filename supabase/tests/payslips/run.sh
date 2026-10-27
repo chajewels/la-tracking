@@ -8,6 +8,8 @@
 #            (a 2nd proof file on the payment and on each cash advance).
 #   Phase 4: on the Phase 3 database, snapshots, then 20270206100000 applied twice -> test_bonuses.sql.
 #   Phase 5: on the Phase 4 database, snapshots, then 20270207100000 applied twice -> test_edit_figures.sql.
+#   Phase 6: on the Phase 5 database, snapshots, then 20270208100000 applied twice -> test_bond_final_pay.sql
+#            (the cash bond is released only on a Final pay payslip).
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
 PGURL="${PGURL:-postgres:///postgres}"
@@ -53,3 +55,10 @@ psql "$URL2" -v ON_ERROR_STOP=1 -q \
   -c "CREATE TABLE public.pre7_audit AS SELECT count(*) AS n FROM public.audit_logs"
 psql "$URL2" -v ON_ERROR_STOP=1 -q -f $M7 -f $M7 2>&1 | grep -vE "$QUIET" || true
 psql "$URL2" -v ON_ERROR_STOP=1 -q -f $T/test_edit_figures.sql 2>&1 | grep -E "NOTICE:  E|PASSED|ERROR|CONTEXT"
+
+M8=supabase/migrations/20270208100000_payslip_bond_final_pay_only.sql
+psql "$URL2" -v ON_ERROR_STOP=1 -q \
+  -c "CREATE TABLE public.pre8_payslips AS SELECT id, to_jsonb(p) AS row FROM public.payslips p" \
+  -c "CREATE TABLE public.pre8_audit AS SELECT count(*) AS n FROM public.audit_logs"
+psql "$URL2" -v ON_ERROR_STOP=1 -q -f $M8 -f $M8 2>&1 | grep -vE "$QUIET" || true
+psql "$URL2" -v ON_ERROR_STOP=1 -q -f $T/test_bond_final_pay.sql 2>&1 | grep -E "NOTICE:  F|PASSED|ERROR|CONTEXT"
