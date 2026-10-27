@@ -43,15 +43,19 @@ Code: `_shared/receipt-math.ts` (rules), `_shared/receipt-pdf.ts` (PDF), `_share
   - Stored as printed: each item's `unit_price_ex` / `line_ex` in `lines.items`; `subtotal`,
     `tax_amount`, `taxable_total` (Σ tax-included item amounts). `fx_rate_used` is never printed.
 
-- **Peso orders — HELD, owner decision pending.** The layout needs per-line peso amounts, and none
-  exist: item lines are stored in YEN only (`unit_price_jpy` / `line_total_jpy`), and checkout never
-  derived per-line pesos — it converts the total and the shipping once (`_shared/settlement.ts`
-  `settleFullPaymentInPhp`: "the items are the remainder"); staff service lines on a peso order are
-  even stored as `Math.round(pesos ÷ rate)` yen (`confirm-web-draft/index.ts`). So no peso receipt is
-  issued (`web_receipt_sync` → `not_issued: peso_pending_owner_decision`). Options for the owner:
-  (a) convert each line with the order's rate and give the rounding remainder to one line so the
-  lines equal the stored peso product amount; (b) one peso line for all pieces (titles listed
-  without amounts); (c) store per-line peso amounts at Confirm from now on (a checkout change).
+- **Peso orders — option (a), owner 2026-10-27.** Item lines are stored in YEN only and checkout
+  converts only the total and the shipping (`_shared/settlement.ts`: "the items are the
+  remainder"). The receipt converts each line ONCE with the order's `fx_rate_used` (pesos per ¥1):
+  `unit_php = round(unit_price_jpy × rate)` (half-up), `line_php = unit_php × quantity`. The rounding
+  remainder (`goods_total − Σ line_php`) goes on the LARGEST quantity-1 line (first on a tie), so the
+  peso rows add up exactly to the stored peso product amount. Then the same block runs in PHP. No
+  rate → `peso_no_rate`; a remainder with no quantity-1 line → `peso_lines_mismatch` (no receipt).
+  TS mirror: `pesoLines()` in `_shared/receipt-math.ts`.
+- **Fully paid but it does not add up → staff are told once.** `snapshot.problem` is one of
+  `no_items`, `lines_mismatch`, `block_mismatch`, `peso_no_rate`, `peso_lines_mismatch`. No receipt
+  is issued and ONE `staff_notifications` row `website_receipt_not_issued` is written per order per
+  problem (never repeated on later syncs; bell opens the plan via `account_id` or the cash order via
+  `metadata.cash_order_id`). When staff correct the order, the next sync issues the receipt.
 - **Cancel, never edit.** Figures are a snapshot. When an order with an issued receipt leaves
   `completed`, is refunded (Square COMPLETED refund, any Paidy refund), disputed, reassigned, or its
   totals / discount / shipping / COD fee / penalties change (a waiver included) while it stays
@@ -133,14 +137,10 @@ function (package.json and the package guard untouched). A4, Japanese by default
   `receipt-assets` at **`fonts/NotoSansJP-Regular.ttf`** and is cached in memory per instance.
   Upload the static Regular (400) TTF of Noto Sans JP (Google Fonts, OFL). A missing font answers
   503 `receipt_unavailable` before a download is recorded.
-- **Seal:** `receipt-assets/seal/seal.png` (transparent PNG, ~300 px square is plenty for print),
-  read server-side, drawn 19 mm next to the issuer block with the receipt number printed faintly
-  across it. Missing → rendered without it, warning logged. Never committed, never public.
-  The seal is an image object inside the PDF: a determined person with a PDF tool can extract it.
-  The overprinted receipt number and the verify code are the protection; full flattening would need
-  rasterising the page, which needs a new dependency.
+- **No seal / stamp (owner 2026-10-27).** The receipt carries no company seal image and no stamp
+  mark; authenticity is the QR + verify code. Nothing to upload besides the font.
 - **Size / time (local, 2026-10-27, Apple M-series):** ~3.37 MB per PDF; 370–450 ms per render. Every
-  render logs `website_receipt_pdf: rendered` with font_ms, font_cached, seal_ms, render_ms,
+  render logs `website_receipt_pdf: rendered` with font_ms, font_cached, render_ms,
   pdf_bytes — read it in test mode on Supabase (2 s CPU limit per request).
 - **Follow-up if Supabase is too slow or the files too large (option b):** a pre-cut font (JIS level
   1 + 2 kanji, kana, Latin, the receipt's symbols) uploaded to the same path; the code does not change.
@@ -158,11 +158,11 @@ receipt cancelled before its email is never emailed.
 
 - `supabase/tests/website-receipts/run.sh` — the migration applied twice on a scratch PostgreSQL,
   then every scenario (switch, deferral, coupon/points/COD, store credit, void → new number, figures
-  change, owner change, refunds, disputes, peso layaway with penalty and waiver, test mode, downloads,
+  change, owner change, refunds, disputes, peso orders (per-line conversion, remainder on the qty-1 line), staff bell once, test mode, downloads,
   details, verify, guards, email queue, privileges).
 - `src/test/receipt-math.test.ts` (vitest, CI) — items excl. tax and the totals block (1 item; the
   owner's 2-item example; 3 items with qty 2 + discount + shipping + COD fee; layaway late fee; peso
-  held; does-not-add-up), numbering, reissue, cancellation, switch.
+  lines incl. the rounding remainder; does-not-add-up), numbering, reissue, cancellation, switch.
 - `development/website-receipts.test.ts` (deno, CI) — rows, routes, email, migration hygiene;
   `RECEIPT_TEST_FONT=<ttf>` also renders real PDFs.
 

@@ -8,7 +8,7 @@ import * as React from 'npm:react@18.3.1'
 import { renderEmail } from '../supabase/functions/_shared/render-email.ts'
 import { COMPANY_NAME } from '../supabase/functions/_shared/transactional-email-templates/brand.ts'
 import {
-  ISSUER, RECEIPT_FONT_PATH, RECEIPT_SEAL_PATH, itemTable, paymentRows, renderReceiptPdf, totalsRows, verifyUrl,
+  ISSUER, RECEIPT_FONT_PATH, itemTable, paymentRows, renderReceiptPdf, totalsRows, verifyUrl,
   type ReceiptPayload,
 } from '../supabase/functions/_shared/receipt-pdf.ts'
 import { receiptPdf, updateReceiptDetails, verifyReceipt, verifyRateLimited } from '../supabase/functions/_shared/website-receipts.ts'
@@ -87,6 +87,27 @@ Deno.test('layaway: the late fee is its own line', () => {
   ], 'late fee')
 })
 
+// peso order (owner option a): lines converted at fx_rate_used, remainder on the qty-1 line
+const peso: ReceiptPayload = {
+  ...yen, receipt_number: 'CJR-2026-000044', order_number: 'CJ-W-900703', currency: 'PHP',
+  lines: {
+    items: [
+      { title: 'Earrings', quantity: 2, unit_price_jpy: 19000, line_total_jpy: 38000, unit_price: 5859, line_total: 11718, unit_price_ex: 5326, line_ex: 10652 },
+      { title: 'Pendant', quantity: 1, unit_price_jpy: 30000, line_total_jpy: 30000, unit_price: 9249, line_total: 9249, unit_price_ex: 8408, line_ex: 8408 },
+    ],
+    discount_total: 0, shipping: 0, cod_fee: 0, payments: [{ method: 'gcash', amount: 20967 }],
+  },
+  total_paid: 20967, penalty_total: 0, taxable_total: 20967, subtotal: 19060, tax_amount: 1907, fx_rate_used: 0.308345, addressee: null,
+}
+
+Deno.test('peso receipt: every figure in PHP, no yen, no rate', () => {
+  eq(itemTable(peso, 'ja').rows, [['Earrings', '2', 'PHP 5,326', 'PHP 10,652'], ['Pendant', '1', 'PHP 8,408', 'PHP 8,408']], 'peso rows')
+  eq(10652 + 8408, 19060, 'lines = subtotal')
+  const all = JSON.stringify([itemTable(peso, 'ja'), totalsRows(peso, 'ja'), paymentRows(peso, 'ja')])
+  ok(!all.includes('¥') && !all.includes('0.308345'), 'no yen figure or rate on a peso receipt')
+  eq(totalsRows(peso, 'ja').map((r) => [r.label, r.value]).at(-1), ['合計（税込）', 'PHP 20,967'], 'peso total')
+})
+
 Deno.test('no layaway wording anywhere the receipt prints', () => {
   for (const lang of ['ja', 'en'] as const) {
     const all = JSON.stringify([itemTable(lay, lang), totalsRows(lay, lang), paymentRows(lay, lang)])
@@ -99,7 +120,7 @@ Deno.test('the issuer block is the owner\'s exact text; verify link on chajewels
   eq(ISSUER.registration, 'T7011801044120', 'registration')
   eq(ISSUER.tel, '03-6657-6129', 'tel')
   eq(verifyUrl('ab'), 'https://chajewelsjp.com/receipts/verify?code=ab', 'verify url')
-  eq([RECEIPT_FONT_PATH, RECEIPT_SEAL_PATH], ['fonts/NotoSansJP-Regular.ttf', 'seal/seal.png'], 'asset paths')
+  eq(RECEIPT_FONT_PATH, 'fonts/NotoSansJP-Regular.ttf', 'font path (no seal: owner 2026-10-27)')
 })
 
 const FONT = Deno.env.get('RECEIPT_TEST_FONT')
@@ -108,9 +129,9 @@ Deno.test({
   ignore: !FONT,
   fn: async () => {
     const font = await Deno.readFile(FONT!)
-    for (const [r, lang, reissue] of [[yen, 'ja', false], [lay, 'en', true]] as const) {
+    for (const [r, lang, reissue] of [[yen, 'ja', false], [lay, 'en', true], [peso, 'ja', false]] as const) {
       const t = performance.now()
-      const bytes = await renderReceiptPdf({ receipt: r, lang, issueNo: reissue ? 2 : 1, isReissue: reissue, downloadedAt: '2026-10-28T05:00:00Z' }, font, null)
+      const bytes = await renderReceiptPdf({ receipt: r, lang, issueNo: reissue ? 2 : 1, isReissue: reissue, downloadedAt: '2026-10-28T05:00:00Z' }, font)
       const ms = Math.round(performance.now() - t)
       const head = new TextDecoder('latin1').decode(bytes.slice(0, 8))
       ok(head.startsWith('%PDF-'), 'a PDF')
