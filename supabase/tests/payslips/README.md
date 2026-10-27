@@ -15,3 +15,13 @@ Lovable database. Last run 2026-10-26 on PostgreSQL 16: all groups passed.
 (Q1–Q8): shape and existing rows unchanged; the patched freeze trigger; the pay settings RPC and its read audience;
 employee ID and hire date; the April floor, inactive staff and pay_settings_mismatch; cash advances and their proof
 storage rules; the cash bond; corrections from April; audit. Last run 2026-10-27 on PostgreSQL 16.14: all groups passed.
+
+**Phase 3** (migration 20270205100000; added 2026-10-27): on the Phase 2 database, `pre5_*` snapshots, then
+20270205 applied twice, then `test_second_proof.sql` (S1–S7). It checks:
+- existing rows are unchanged;
+- a payment with two files, and one file followed by a 2nd added later;
+- the gate and direct writes;
+- advance proof slots 1 and 2 (never 3), and the finalize snapshot;
+- audit.
+
+Last run 2026-10-27 on PostgreSQL 16: all groups in all three phases passed.

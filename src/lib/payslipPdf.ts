@@ -16,7 +16,7 @@ import {
   employeeIdLine, footer, headerDetails, letterheadLines, letterheadSmallLines, payBand, payslipNumber,
   paymentBlock, paymentNote, proofCaption, rightBlockLayout, signatureBlock, type PageRange,
 } from '@/lib/payslipPdfLayout';
-import { advanceProofFileName } from '@/lib/payslips';
+import { advanceProofFileName, advanceProofPaths } from '@/lib/payslips';
 
 /** A4 portrait in PDF points. */
 export const A4 = { width: 595.28, height: 841.89 } as const;
@@ -33,7 +33,9 @@ export interface ProofFile {
 export type ImageConverter = (bytes: Uint8Array, contentType: string) => Promise<Uint8Array | null>;
 
 /** Draws page 1 once the final page count (and whether the proofs made it in) is known. */
-export type Page1Renderer = (pageCount: number, proofIncluded: boolean | null, advancePages: PageRange | null) => Promise<Uint8Array>;
+export type Page1Renderer = (
+  pageCount: number, proofIncluded: boolean | null, advancePages: PageRange | null, proofPages?: PageRange | null,
+) => Promise<Uint8Array>;
 
 /** One cash advance proof to append (proof null = could not be fetched: a fallback page is added). */
 export interface AdvanceProofInput {
@@ -45,8 +47,12 @@ export interface AdvanceProofInput {
 export interface BuiltPayslipPdf {
   bytes: Uint8Array;
   pageCount: number;
-  /** null = no proof expected (unpaid); false = the fallback page was used. */
+  /** null = no proof expected (unpaid); false = a fallback page was used for a payment proof file. */
   proofIncluded: boolean | null;
+  /** The pages holding the payment proof file(s) (fallback pages included); null when none. */
+  proofPages: PageRange | null;
+  /** File names of payment proofs that got the fallback page. */
+  proofFallbacks: string[];
   /** The pages holding the cash advance proofs (fallback pages included); null when none. */
   advancePages: PageRange | null;
   /** File names of advance proofs that got the fallback page. */
@@ -100,6 +106,8 @@ export async function buildPayslipPdf(opts: {
   page1Png?: Uint8Array;
   renderPage1?: Page1Renderer;
   proof: ProofFile | null;
+  /** The 2nd payment proof file, appended right after the first. */
+  proof2?: ProofFile | null;
   paidOn: string | null;
   payslipNo?: string;
   convertImage?: ImageConverter;
@@ -108,10 +116,19 @@ export async function buildPayslipPdf(opts: {
 }): Promise<BuiltPayslipPdf> {
   const doc = await PDFDocument.create();
   let proofIncluded: boolean | null = null;
-  if (opts.proof) {
-    proofIncluded = await appendProof(doc, opts.proof, proofCaption(opts.payslipNo ?? '', opts.proof.fileName, opts.paidOn), opts.convertImage);
-    if (!proofIncluded) await addFallbackPage(doc, opts.proof.fileName);
+  const proofFallbacks: string[] = [];
+  const payment = [opts.proof, opts.proof2].filter((f): f is ProofFile => !!f);
+  for (const [i, f] of payment.entries()) {
+    const part = payment.length > 1 ? `${i + 1} of ${payment.length}` : undefined;
+    const ok = await appendProof(doc, f, proofCaption(opts.payslipNo ?? '', f.fileName, opts.paidOn, part), opts.convertImage);
+    if (!ok) {
+      proofFallbacks.push(f.fileName);
+      await addFallbackPage(doc, f.fileName);
+    }
+    proofIncluded = (proofIncluded ?? true) && ok;
   }
+  // Page numbers count page 1, which is inserted in front last.
+  const proofPages: PageRange | null = doc.getPageCount() > 0 ? { first: 2, last: doc.getPageCount() + 1 } : null;
   const advanceStart = doc.getPageCount();
   const advanceFallbacks: string[] = [];
   for (const a of opts.advanceProofs ?? []) {
@@ -121,11 +138,10 @@ export async function buildPayslipPdf(opts: {
       await addFallbackPage(doc, a.fileName, advanceProofFallback(a.fileName));
     }
   }
-  // Page numbers count page 1, which is inserted in front last.
   const advancePages: PageRange | null = doc.getPageCount() > advanceStart
     ? { first: advanceStart + 2, last: doc.getPageCount() + 1 } : null;
   const pageCount = doc.getPageCount() + 1;
-  const page1Png = opts.page1Png ?? (opts.renderPage1 ? await opts.renderPage1(pageCount, proofIncluded, advancePages) : null);
+  const page1Png = opts.page1Png ?? (opts.renderPage1 ? await opts.renderPage1(pageCount, proofIncluded, advancePages, proofPages) : null);
   if (!page1Png) throw new Error('page1_missing');
   const png = await doc.embedPng(page1Png);
   const first = doc.insertPage(0, [A4.width, A4.height]);
@@ -133,7 +149,7 @@ export async function buildPayslipPdf(opts: {
   first.drawImage(png, { x: (A4.width - size.width) / 2, y: A4.height - MARGIN - size.height, ...size });
 
   const bytes = await doc.save();
-  return { bytes, pageCount: doc.getPageCount(), proofIncluded, advancePages, advanceFallbacks };
+  return { bytes, pageCount: doc.getPageCount(), proofIncluded, proofPages, proofFallbacks, advancePages, advanceFallbacks };
 }
 
 async function appendProof(
@@ -226,7 +242,10 @@ async function loadBadge(): Promise<HTMLImageElement | null> {
  */
 export async function renderPayslipPage(
   p: Payslip,
-  opts: { pageCount: number; proofIncluded: boolean | null; finalizerName?: string | null; advancePages?: PageRange | null },
+  opts: {
+    pageCount: number; proofIncluded: boolean | null; finalizerName?: string | null; advancePages?: PageRange | null;
+    proofPages?: PageRange | null;
+  },
 ): Promise<Uint8Array> {
   const rows = earningsRows(p);
   assertEarningsMatch(rows, p.total_php);
@@ -412,7 +431,7 @@ export async function renderPayslipPage(
   y += 30;
 
   // f. Payment line (paid) and the cash advance proof pages.
-  const note = paymentNote(p, opts.proofIncluded, opts.advancePages ?? null);
+  const note = paymentNote(p, opts.proofIncluded, opts.advancePages ?? null, opts.proofPages ?? null);
   if (note) {
     y += 12;
     font(400, 8.5);
@@ -489,34 +508,41 @@ export async function makePayslipPdf(
   loadProof: () => Promise<ProofFile | null>,
   finalizerName?: string | null,
   loadAdvanceProof?: (path: string) => Promise<ProofFile | null>,
+  loadProof2?: () => Promise<ProofFile | null>,
 ): Promise<BuiltPayslipPdf & { fileName: string }> {
-  let proof: ProofFile | null = null;
-  const fileName = p.proof_path ? p.proof_path.slice(p.proof_path.indexOf('/') + 1) : '';
-  if (p.status === 'paid' && p.proof_path) {
-    try {
-      proof = await loadProof();
-    } catch {
-      proof = null;
-    }
-    // a proof that cannot be fetched still gets the fallback page
-    if (!proof) proof = { bytes: new Uint8Array(), contentType: '', fileName };
-  }
-  // Each frozen cash advance with a proof, in the payslip's order (advance date).
-  const advanceProofs: AdvanceProofInput[] = [];
-  for (const a of p.cash_advances ?? []) {
-    if (!a.proof_path) continue;
+  const nameOf = (path: string | null | undefined) => (path ? path.slice(path.indexOf('/') + 1) : '');
+  const fileName = nameOf(p.proof_path);
+  // a proof that cannot be fetched still gets the fallback page
+  const fetchProof = async (path: string | null | undefined, load?: () => Promise<ProofFile | null>): Promise<ProofFile | null> => {
+    if (p.status !== 'paid' || !path) return null;
     let file: ProofFile | null = null;
     try {
-      file = loadAdvanceProof ? await loadAdvanceProof(a.proof_path) : null;
+      file = load ? await load() : null;
     } catch {
       file = null;
     }
-    advanceProofs.push({ proof: file, advanceDate: a.advance_date, fileName: advanceProofFileName(a.proof_path) });
+    return file ?? { bytes: new Uint8Array(), contentType: '', fileName: nameOf(path) };
+  };
+  const proof = await fetchProof(p.proof_path, loadProof);
+  const proof2 = await fetchProof(p.proof_path_2, loadProof2);
+  // Each frozen cash advance's proof file(s), in the payslip's order (advance date), 1st file then 2nd.
+  const advanceProofs: AdvanceProofInput[] = [];
+  for (const a of p.cash_advances ?? []) {
+    for (const path of advanceProofPaths(a)) {
+      let file: ProofFile | null = null;
+      try {
+        file = loadAdvanceProof ? await loadAdvanceProof(path) : null;
+      } catch {
+        file = null;
+      }
+      advanceProofs.push({ proof: file, advanceDate: a.advance_date, fileName: advanceProofFileName(path) });
+    }
   }
   const built = await buildPayslipPdf({
-    renderPage1: (pageCount, proofIncluded, advancePages) =>
-      renderPayslipPage(p, { pageCount, proofIncluded, finalizerName, advancePages }),
+    renderPage1: (pageCount, proofIncluded, advancePages, proofPages) =>
+      renderPayslipPage(p, { pageCount, proofIncluded, finalizerName, advancePages, proofPages }),
     proof,
+    proof2,
     paidOn: p.paid_on,
     payslipNo: payslipNumber(p),
     convertImage: browserImageToJpeg,
@@ -536,10 +562,11 @@ export async function downloadPayslipPdf(
   loadProof: () => Promise<ProofFile | null>,
   finalizerName?: string | null,
   loadAdvanceProof?: (path: string) => Promise<ProofFile | null>,
+  loadProof2?: () => Promise<ProofFile | null>,
 ): Promise<{ proofNote: string | null }> {
-  const built = await makePayslipPdf(p, loadProof, finalizerName, loadAdvanceProof);
+  const built = await makePayslipPdf(p, loadProof, finalizerName, loadAdvanceProof, loadProof2);
   const notes = [
-    ...(built.proofIncluded === false ? [proofFallbackNote(built.fileName)] : []),
+    ...built.proofFallbacks.map(proofFallbackNote),
     ...built.advanceFallbacks.map(advanceProofFallback),
   ];
   const note = notes.length ? notes.join(' ') : null;

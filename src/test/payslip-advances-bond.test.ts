@@ -125,7 +125,7 @@ describe("breakdown, amount due, Excel", () => {
 });
 
 describe("forms, features, refusals", () => {
-  it("features: an old book has none, a new book all five", () => {
+  it("features: an old book has none, a 20270204100000 book all five (second_proof comes with 20270205100000)", () => {
     expect(normaliseBook({ month: "2026-09-01", payslips: [], details: [] }).features.cash_advances).toBe(false);
     const b = normaliseBook({
       month: "2026-09-01", payslips: [], features: { cash_advances: true, employee_id: true, cash_bond: true, pay_history: true, from_april: true },
@@ -134,7 +134,9 @@ describe("forms, features, refusals", () => {
       cash_advances: [{ id: "a", user_id: "u", pay_month: "2026-09-01", advance_date: "2026-09-02", amount_php: "100.50", note: "x", status: "void" }],
       pay_settings: [{ user_id: "u", effective_from: "2026-04-01", basic_salary: null, allowance: "4000" }],
     });
-    expect(Object.values(b.features).every(Boolean)).toBe(true);
+    const { second_proof, ...five } = b.features;
+    expect(Object.values(five).every(Boolean)).toBe(true);
+    expect(second_proof).toBe(false);
     expect(b.details[0].cash_bond_pending?.amount).toBe(4500.01);
     expect(b.cash_advances[0]).toMatchObject({ amount_php: 100.5, status: "void" });
     expect(b.pay_settings[0].allowance).toBe(4000);

@@ -78,6 +78,8 @@ export interface Payslip {
   php_per_jpy: number | null;
   paid_on: string | null;
   proof_path: string | null;
+  /** The 2nd proof-of-payment file (migration 20270205100000; absent before it). */
+  proof_path_2?: string | null;
   /** Who finalized it (get_payslip_book returns the whole row). */
   finalized_by?: string | null;
   // Migration 20270204100000 (absent on payslips read before it is applied):
@@ -107,6 +109,8 @@ export interface AdvanceSnapshot {
   amount_php: number;
   note: string;
   proof_path: string | null;
+  /** The advance's 2nd proof file (migration 20270205100000). */
+  proof_path_2?: string | null;
 }
 
 /** One row of payslip_cash_advances. */
@@ -142,10 +146,13 @@ export interface PayslipFeatures {
   cash_bond: boolean;
   pay_history: boolean;
   from_april: boolean;
+  /** Migration 20270205100000: a 2nd proof file on the payment and on each cash advance. */
+  second_proof: boolean;
 }
 
 export const NO_FEATURES: PayslipFeatures = {
   cash_advances: false, employee_id: false, cash_bond: false, pay_history: false, from_april: false,
+  second_proof: false,
 };
 
 export interface PayslipBook {
@@ -510,7 +517,9 @@ export function payslipRefusal(code: string | undefined): string {
     case 'note_required': return 'Write a note for the advance.';
     case 'note_too_long': return 'The note is over 200 characters.';
     case 'advance_void': return 'This advance is void.';
-    case 'proof_already_attached': return 'This advance already has a proof.';
+    case 'proof_already_attached': return 'This advance already has 2 proofs.';
+    case 'not_paid': return 'Record the payment first.';
+    case 'second_proof_attached': return 'This payslip already has 2 proof files.';
     default: return 'Something went wrong. Try again in a moment.';
   }
 }
@@ -526,6 +535,7 @@ export function bookFeatures(raw: Record<string, unknown>): PayslipFeatures {
     cash_bond: f.cash_bond === true,
     pay_history: f.pay_history === true,
     from_april: f.from_april === true,
+    second_proof: f.second_proof === true,
   };
 }
 
@@ -555,6 +565,7 @@ export function normaliseBook(raw: Record<string, unknown>): PayslipBook {
         ? (p.cash_advances as Record<string, unknown>[]).map(a => ({
           id: String(a.id), advance_date: String(a.advance_date ?? ''), amount_php: num(a.amount_php),
           note: String(a.note ?? ''), proof_path: (a.proof_path as string | null) ?? null,
+          proof_path_2: (a.proof_path_2 as string | null) ?? null,
         }))
         : undefined,
       cash_advance_php: optNum(p.cash_advance_php),
@@ -580,7 +591,8 @@ export function normaliseBook(raw: Record<string, unknown>): PayslipBook {
     cash_advances: advances.map(a => ({
       id: String(a.id), user_id: String(a.user_id), pay_month: String(a.pay_month ?? ''),
       advance_date: String(a.advance_date ?? ''), amount_php: num(a.amount_php), note: String(a.note ?? ''),
-      proof_path: (a.proof_path as string | null) ?? null, status: a.status === 'void' ? 'void' : 'active',
+      proof_path: (a.proof_path as string | null) ?? null,
+      proof_path_2: (a.proof_path_2 as string | null) ?? null, status: a.status === 'void' ? 'void' : 'active',
       void_reason: (a.void_reason as string | null) ?? null, created_at: String(a.created_at ?? ''),
       payslip_id: (a.payslip_id as string | null) ?? null,
     })),
@@ -761,6 +773,22 @@ export function payslipFileName(staffName: string, payMonth: string, ext: 'xlsx'
   return `Payslip_${safe}_${payMonth.slice(0, 7)}.${ext}`;
 }
 
+/** The payment proof paths of a payslip, in order (1st, then the 2nd when there is one). */
+export function payslipProofPaths(p: Pick<Payslip, 'proof_path' | 'proof_path_2'>): string[] {
+  return [p.proof_path, p.proof_path_2].filter((x): x is string => !!x);
+}
+
+/** The proof paths of a cash advance, in order. */
+export function advanceProofPaths(a: Pick<AdvanceSnapshot, 'proof_path' | 'proof_path_2'>): string[] {
+  return [a.proof_path, a.proof_path_2].filter((x): x is string => !!x);
+}
+
+/** A 2nd proof can still be added to an advance (the database has the feature and a slot is free). */
+export function advanceProofSlotFree(a: Pick<AdvanceSnapshot, 'proof_path' | 'proof_path_2'>, secondProof: boolean): boolean {
+  if (!a.proof_path) return true;
+  return secondProof && !a.proof_path_2;
+}
+
 /** The proof's file name: everything after the first "/" of proof_path (<payslip_id>/<file>). */
 export function proofFileName(proofPath: string | null | undefined): string {
   if (!proofPath) return '';
@@ -807,6 +835,7 @@ export function payslipRows(p: Payslip, generatedOn: string = todayTokyo(), sour
       ['Rate used (₱ per ¥1)', p.php_per_jpy != null ? String(p.php_per_jpy) : '—'],
       ['Paid on', formatDate(p.paid_on)],
       ['Proof of payment', proofFileName(p.proof_path) || '—'],
+      ...(p.proof_path_2 ? [['Proof of payment (2nd file)', proofFileName(p.proof_path_2)]] : []),
     );
     if (figuresChanged(amountDue(p), p.php_received)) {
       rows.push([differenceLabel(p), formatPeso(p.php_received - amountDue(p))]);
