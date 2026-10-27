@@ -29,11 +29,11 @@ import {
   COMPANY_NAME, NO_FEATURES, PAYSLIP_BOOK_KEY, PAYSLIP_PROOF_BUCKET, STATUS_LABEL,
   type BondPreview, type CashAdvance, type Payslip, type PayslipBookState, type PayslipFeatures, type PayslipFigures,
   type PayrollDetails, type RowStatus,
-  actualRate, advanceDateMin, advanceProofFileName, advanceProofPath, amountDue, bondPreview, breakdownLines,
+  actualRate, advanceDateMin, advanceProofFileName, advanceProofPath, advanceProofPaths, advanceProofSlotFree, amountDue, bondPreview, breakdownLines,
   buildCommissionFigures, buildFigures, buildTimesheetFigures, canIssueForMonth, commissionLines,
   currentPayslip, defaultYenSent, detailsComplete, differenceLabel, downloadPayslipXlsx, draftBreakdown, figuresChanged,
   finalizePayload, findAgentResult, formatDate, formatDateDD, formatPeso, formatYen, longMonthLabel, normaliseBook,
-  payslipRefusal, payslipTitle, proofContentType, proofFileName, proofPath, proofProblem, storedBreakdown, timesheetLines,
+  payslipProofPaths, payslipRefusal, payslipTitle, proofContentType, proofFileName, proofPath, proofProblem, storedBreakdown, timesheetLines,
   todayTokyo, validateAdvance, validateDetails, validateEmployeeDetails, validatePayment,
 } from '@/lib/payslips';
 import type { ProofFile } from '@/lib/payslipPdf';
@@ -264,12 +264,37 @@ export default function PayslipsTab({
       const { proofNote } = await downloadPayslipPdf(
         p, () => (p.proof_path ? loadProof(p.proof_path) : Promise.resolve(null)), finalizerName,
         (path) => loadProof(path, advanceProofFileName(path)),
+        () => (p.proof_path_2 ? loadProof(p.proof_path_2) : Promise.resolve(null)),
       );
       if (proofNote) toast.warning(proofNote);
     } catch {
       toast.error('The PDF could not be made. Try again.');
     } finally {
       setPdfBusy(false);
+    }
+  };
+
+  // The 2nd proof-of-payment file, added after the payment was recorded (migration 20270205100000).
+  const [proofBusy, setProofBusy] = useState(false);
+  const addSecondProof = async (p: Payslip, f: File | null) => {
+    if (!f) return;
+    const problem = proofProblem(f);
+    if (problem) { toast.error(problem); return; }
+    setProofBusy(true);
+    try {
+      const path = proofPath(p.id, f.name);
+      const { error: upErr } = await supabase.storage.from(PAYSLIP_PROOF_BUCKET)
+        .upload(path, f, { cacheControl: '3600', upsert: false, contentType: proofContentType(f) || undefined });
+      if (upErr) { toast.error('The 2nd proof did not upload. Try again.'); return; }
+      try {
+        await callRpc('attach_payslip_proof', { p_id: p.id, p_path: path });
+        toast.success('2nd proof of payment added');
+      } catch (e) {
+        toast.error(`The 2nd proof was not added. ${refusal(e)}`);
+      }
+      refresh();
+    } finally {
+      setProofBusy(false);
     }
   };
 
@@ -413,6 +438,8 @@ export default function PayslipsTab({
               onDownloadProof={downloadProof}
               onDownloadPdf={downloadPdf}
               pdfBusy={pdfBusy}
+              onAddSecondProof={addSecondProof}
+              proofBusy={proofBusy}
               onEditDetails={() => setEditingDetails(viewingRow.profile.user_id)}
             />
           )}
@@ -461,6 +488,7 @@ export default function PayslipsTab({
       {paying && (
         <PaymentDialog
           payslip={paying}
+          secondProof={features.second_proof}
           onClose={() => setPaying(null)}
           onSaved={() => { setPaying(null); refresh(); }}
         />
@@ -502,6 +530,7 @@ export default function PayslipsTab({
           row={advancesRow}
           monthKey={monthKey}
           locked={!!advancesRow.payslip && advancesRow.payslip.status !== 'void'}
+          secondProof={features.second_proof}
           onOpenProof={openProof}
           onClose={() => setAdvancesFor(null)}
           onChanged={refresh}
@@ -556,7 +585,7 @@ function Section({ title, lines }: { title: string; lines: { label: string; valu
 
 function PayslipView({
   row, monthKey, features, detailsMissing, finalizeBlock, onFinalize, onPay, onVoid, onProof, onDownloadProof, onDownloadPdf,
-  pdfBusy, onEditDetails,
+  pdfBusy, onAddSecondProof, proofBusy, onEditDetails,
 }: {
   row: StaffRow;
   monthKey: string;
@@ -570,6 +599,8 @@ function PayslipView({
   onDownloadProof: (path: string) => void;
   onDownloadPdf: (p: Payslip) => void;
   pdfBusy: boolean;
+  onAddSecondProof: (p: Payslip, f: File | null) => void;
+  proofBusy: boolean;
   onEditDetails: () => void;
 }) {
   const p = row.payslip;
@@ -666,15 +697,28 @@ function PayslipView({
           {due != null && figuresChanged(due, issued.php_received) && (
             <p className="text-xs">{differenceLabel(issued)}: {formatPeso(issued.php_received - due)}</p>
           )}
-          {issued.proof_path && (
-            <Button size="sm" variant="link" className="h-auto p-0" onClick={() => onProof(issued.proof_path as string)}>
-              <Paperclip className="mr-1 h-3.5 w-3.5" /> Open proof of payment
-            </Button>
-          )}
-          {issued.proof_path && (
-            <Button size="sm" variant="outline" className="ml-2" onClick={() => onDownloadProof(issued.proof_path as string)}>
-              <Download className="mr-1 h-3.5 w-3.5" /> Download proof
-            </Button>
+          {payslipProofPaths(issued).map((path, i, all) => {
+            const part = all.length > 1 ? ` (${i + 1} of ${all.length})` : '';
+            return (
+              <div key={path} className="flex flex-wrap items-center gap-2" data-testid="payslip-proof">
+                <Button size="sm" variant="link" className="h-auto p-0" onClick={() => onProof(path)}>
+                  <Paperclip className="mr-1 h-3.5 w-3.5" /> Open proof of payment{part}
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => onDownloadProof(path)}>
+                  <Download className="mr-1 h-3.5 w-3.5" /> Download proof{part}
+                </Button>
+              </div>
+            );
+          })}
+          {features.second_proof && issued.proof_path && !issued.proof_path_2 && (
+            <label className={`inline-flex items-center text-xs text-primary underline-offset-2 ${proofBusy ? 'opacity-50' : 'cursor-pointer hover:underline'}`}
+              data-testid="payslip-add-second-proof">
+              {proofBusy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Paperclip className="mr-1 h-3.5 w-3.5" />}
+              Add 2nd proof
+              <input type="file" className="sr-only" aria-label="Add 2nd proof of payment" disabled={proofBusy}
+                accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf"
+                onChange={(e) => { onAddSecondProof(issued, e.target.files?.[0] ?? null); e.target.value = ''; }} />
+            </label>
           )}
         </div>
       )}
@@ -719,9 +763,11 @@ function PayslipView({
 // ── Record payment ──────────────────────────────────────────────────────────
 
 function PaymentDialog({
-  payslip, onClose, onSaved,
+  payslip, secondProof, onClose, onSaved,
 }: {
   payslip: Payslip;
+  /** The database takes a 2nd proof file (migration 20270205100000). */
+  secondProof: boolean;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -743,10 +789,11 @@ function PaymentDialog({
   const [phpReceived, setPhpReceived] = useState(() => String(due));
   const [paidOn, setPaidOn] = useState(() => todayTokyo());
   const [file, setFile] = useState<File | null>(null);
+  const [file2, setFile2] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
 
   const formError = validatePayment({ jpySent, phpReceived, paidOn }, payslip.pay_month);
-  const fileError = proofProblem(file);
+  const fileError = proofProblem(file) ?? (file2 ? proofProblem(file2) : null);
   const rateUsed = actualRate(Number(phpReceived), Number(jpySent));
 
   const save = async () => {
@@ -757,10 +804,19 @@ function PaymentDialog({
       const { error: upErr } = await supabase.storage.from(PAYSLIP_PROOF_BUCKET)
         .upload(path, file, { cacheControl: '3600', upsert: false, contentType: proofContentType(file) || undefined });
       if (upErr) { toast.error('The proof of payment did not upload. Try again.'); return; }
+      let path2: string | null = null;
+      if (secondProof && file2) {
+        // +1 ms keeps the two paths different even for two files with the same name.
+        path2 = proofPath(payslip.id, file2.name, Date.now() + 1);
+        const { error: upErr2 } = await supabase.storage.from(PAYSLIP_PROOF_BUCKET)
+          .upload(path2, file2, { cacheControl: '3600', upsert: false, contentType: proofContentType(file2) || undefined });
+        if (upErr2) { toast.error('The 2nd proof file did not upload. Try again.'); return; }
+      }
       try {
         await callRpc('record_payslip_payment', {
           p_id: payslip.id, p_jpy_sent: Number(jpySent), p_php_received: Number(phpReceived),
           p_paid_on: paidOn, p_proof_path: path,
+          ...(secondProof ? { p_proof_path_2: path2 } : {}),
         });
       } catch (e) {
         toast.error(`The payment was not recorded. ${refusal(e)} Try again.`);
@@ -802,6 +858,13 @@ function PaymentDialog({
             <Input id="payslip-proof" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf"
               onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
           </div>
+          {secondProof && (
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label htmlFor="payslip-proof-2">Proof of payment (2nd file, optional)</Label>
+              <Input id="payslip-proof-2" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf"
+                onChange={(e) => setFile2(e.target.files?.[0] ?? null)} />
+            </div>
+          )}
         </div>
         <div className="space-y-1 text-xs text-muted-foreground">
           {market.isLoading && <p data-testid="market-rate">Getting today's market rate…</p>}
@@ -914,12 +977,14 @@ function StaffDetailsRow({ row, features, onSaved }: { row: StaffRow; features: 
 // ── Cash advances (owner 2026-10-27; migration 20270204100000) ─────────────
 
 function CashAdvancesDialog({
-  row, monthKey, locked, onOpenProof, onClose, onChanged,
+  row, monthKey, locked, secondProof, onOpenProof, onClose, onChanged,
 }: {
   row: StaffRow;
   monthKey: string;
   /** A non-void payslip exists for the month: advances are read-only. */
   locked: boolean;
+  /** Each advance takes a 2nd proof file (migration 20270205100000). */
+  secondProof: boolean;
   onOpenProof: (path: string) => void;
   onClose: () => void;
   onChanged: () => void;
@@ -929,17 +994,18 @@ function CashAdvancesDialog({
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
   const [file, setFile] = useState<File | null>(null);
+  const [file2, setFile2] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [voidingId, setVoidingId] = useState<string | null>(null);
   const [voidReason, setVoidReason] = useState('');
 
   const formError = validateAdvance({ advanceDate, amount, note }, today);
-  const fileError = file ? proofProblem(file) : null;
+  const fileError = (file ? proofProblem(file) : null) ?? (file2 ? proofProblem(file2) : null);
   const activeTotal = row.advances.filter(a => a.status === 'active').reduce((s, a) => s + a.amount_php, 0);
 
   /** Upload, then attach; false (with a toast) when either step fails — the advance itself stays. */
-  const attach = async (advanceId: string, f: File): Promise<boolean> => {
-    const path = advanceProofPath(advanceId, f.name);
+  const attach = async (advanceId: string, f: File, now: number = Date.now()): Promise<boolean> => {
+    const path = advanceProofPath(advanceId, f.name, now);
     const { error: upErr } = await supabase.storage.from(PAYSLIP_PROOF_BUCKET)
       .upload(path, f, { cacheControl: '3600', upsert: false, contentType: proofContentType(f) || undefined });
     if (!upErr) {
@@ -967,12 +1033,16 @@ function CashAdvancesDialog({
         toast.error(refusal(e));
         return;
       }
-      if (file && id) {
-        if (await attach(id, file)) toast.success('Cash advance added with its proof');
+      const files = [file, secondProof ? file2 : null].filter((f): f is File => !!f);
+      if (files.length && id) {
+        let ok = true;
+        // One at a time: the 1st fills slot 1, the 2nd slot 2 (+i ms keeps same-named files apart).
+        for (const [i, f] of files.entries()) ok = (await attach(id, f, Date.now() + i)) && ok;
+        if (ok) toast.success(files.length > 1 ? 'Cash advance added with its 2 proofs' : 'Cash advance added with its proof');
       } else {
         toast.success('Cash advance added');
       }
-      setAmount(''); setNote(''); setFile(null); setAdvanceDate(today);
+      setAmount(''); setNote(''); setFile(null); setFile2(null); setAdvanceDate(today);
       onChanged();
     } finally {
       setSaving(false);
@@ -1040,15 +1110,16 @@ function CashAdvancesDialog({
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge variant={a.status === 'void' ? 'outline' : 'secondary'}>{a.status === 'void' ? 'Void' : 'Active'}</Badge>
                   {a.status === 'void' && a.void_reason && <span className="text-xs text-muted-foreground">{a.void_reason}</span>}
-                  {a.proof_path && (
-                    <Button size="sm" variant="link" className="h-auto p-0" onClick={() => onOpenProof(a.proof_path as string)}>
-                      <Paperclip className="mr-1 h-3.5 w-3.5" /> Open proof
+                  {advanceProofPaths(a).map((path, i, all) => (
+                    <Button key={path} size="sm" variant="link" className="h-auto p-0" onClick={() => onOpenProof(path)}>
+                      <Paperclip className="mr-1 h-3.5 w-3.5" /> Open proof{all.length > 1 ? ` ${i + 1}` : ''}
                     </Button>
-                  )}
-                  {!locked && a.status === 'active' && !a.proof_path && (
+                  ))}
+                  {!locked && a.status === 'active' && advanceProofSlotFree(a, secondProof) && (
                     <label className="cursor-pointer text-xs text-primary underline-offset-2 hover:underline">
-                      Attach proof
-                      <input type="file" className="sr-only" aria-label={`Attach proof for ${a.note}`}
+                      {a.proof_path ? 'Attach 2nd proof' : 'Attach proof'}
+                      <input type="file" className="sr-only"
+                        aria-label={a.proof_path ? `Attach 2nd proof for ${a.note}` : `Attach proof for ${a.note}`}
                         accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf"
                         onChange={(e) => attachLater(a.id, e.target.files?.[0] ?? null)} />
                     </label>
@@ -1103,6 +1174,13 @@ function CashAdvancesDialog({
               <Input id="advance-proof" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf"
                 onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
             </div>
+            {secondProof && (
+              <div className="space-y-1">
+                <Label htmlFor="advance-proof-2" className="text-xs">2nd proof (optional)</Label>
+                <Input id="advance-proof-2" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf"
+                  onChange={(e) => setFile2(e.target.files?.[0] ?? null)} />
+              </div>
+            )}
             <div className="flex items-center justify-end gap-2">
               {(amount || note) && (formError || fileError) && (
                 <span className="text-xs text-destructive">{formError ?? fileError}</span>

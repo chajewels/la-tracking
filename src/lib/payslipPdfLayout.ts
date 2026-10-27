@@ -307,14 +307,20 @@ export function paymentBlock(p: Payslip): PaymentBlock {
  * payment attached (page 2)" plus ", cash advance proofs pages a–b". Unpaid: only the advance-proof pages,
  * or null.
  */
-export function paymentNote(p: Payslip, proofIncluded: boolean | null, advancePages: PageRange | null = null): string | null {
+/**
+ * `proofPages`: the pages holding the payment proof file(s) (2 files, or a multi-page PDF, take more
+ * than page 2); omitted = "page 2".
+ */
+export function paymentNote(
+  p: Payslip, proofIncluded: boolean | null, advancePages: PageRange | null = null, proofPages: PageRange | null = null,
+): string | null {
   const advances = advancePages ? `cash advance proofs ${pagesText(advancePages)}` : null;
   if (p.status !== 'paid' || p.jpy_sent == null || p.php_received == null) {
     return advances ? `Cash advance proofs attached (${pagesText(advancePages as PageRange)})` : null;
   }
   const proof = proofIncluded === false
     ? 'Proof of payment could not be included'
-    : 'Proof of payment attached (page 2)';
+    : `Proof of payment attached (${proofPages ? pagesText(proofPages) : 'page 2'})`;
   const paid = `${longMonthLabel(p.pay_month)} salary paid on ${formatDateDD(p.paid_on)}: ${formatYen(p.jpy_sent)} → ${formatPeso(p.php_received)}`;
   return `${paid} · ${proof}${advances ? `, ${advances}` : ''}`;
 }
@@ -338,6 +344,8 @@ export function footer(pageCount: number): { left: string; right: string } {
 }
 
 /** Caption under an image proof (drawn with a standard font, so callers pass it through winAnsiSafe). */
-export function proofCaption(payslipNo: string, fileName: string, paidOn: string | null): string {
-  return `Cha Jewels Co., Ltd. — Proof of payment — ${payslipNo} — ${fileName} — paid on ${formatDate(paidOn)}`;
+/** `part` = "1 of 2" / "2 of 2" when the payment has two proof files. */
+export function proofCaption(payslipNo: string, fileName: string, paidOn: string | null, part?: string): string {
+  const label = part ? `Proof of payment (${part})` : 'Proof of payment';
+  return `Cha Jewels Co., Ltd. — ${label} — ${payslipNo} — ${fileName} — paid on ${formatDate(paidOn)}`;
 }
