@@ -17,8 +17,8 @@ Firebase deploy green):
 | `20270206100000_payslip_bonuses.sql` | Bonuses (Performance / KPI, Holiday / Christmas) | applied |
 | `20270207100000_payslip_edit_figures.sql` | Edit figures + cash bond on salary only | applied 2026-10-27 JST; 17 payslips unchanged |
 | `20270208100000_payslip_bond_final_pay_only.sql` | Cash bond released only on Final pay | applied 2026-10-27 JST after release #642; 24 payslips unchanged |
-| `20270209100000_payslip_proof_not_on_file_bond_returned.sql` | Proof not on file (before June 2026) + cash bond returned on Final pay | NOT applied yet |
-| `20270219100000_payslip_proof_not_on_file_to_september.sql` | Proof not on file widened to months before October 2026 (Brenda June–September) | NOT applied yet |
+| `20270209100000_payslip_proof_not_on_file_bond_returned.sql` | Proof not on file (before June 2026) + cash bond returned on Final pay | applied 2026-10-28 JST after release #659; 39 payslips unchanged |
+| `20270219100000_payslip_proof_not_on_file_to_september.sql` | Proof not on file widened to months before October 2026 (Brenda June–September) | applied 2026-10-28 JST after release #662 |
 
 April and May 2026 timesheets loaded 2026-10-27 (207 entries); with the release, April totals ₱79,020.55 and
 May ₱74,541.48. The "NOT applied" notes in the sections below describe each migration at the time it was written.
