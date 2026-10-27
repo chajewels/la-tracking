@@ -279,8 +279,9 @@ DO $t$ DECLARE r public.website_receipts; BEGIN
   PERFORM pg_temp.ok((r.lines -> 'items' -> 0 ->> 'unit_price_ex')::numeric = 90909, 'item shown excl. tax');
 END $t$;
 
--- ------------------------------ 9a. peso orders: held until the owner decides
--- Item lines are yen only and checkout never derived per-line pesos.
+-- ------------------------------ 9a. peso orders (owner option a)
+-- Item lines are yen only; each line is converted once at fx_rate_used and the
+-- rounding remainder goes on the largest quantity-1 line.
 INSERT INTO public.layaway_accounts (id, customer_id, invoice_number, currency, total_amount, remaining_balance, source_channel, web_reference, fx_rate_used)
 VALUES ('00000000-0000-0000-0000-000000000702', '00000000-0000-0000-0000-0000000000c2', '900702', 'PHP', 42000, 42000, 'web', 'CJ-W-900702', 0.42);
 INSERT INTO public.layaway_account_items (account_id, title, quantity, unit_price_jpy, line_total_jpy) VALUES
@@ -289,9 +290,30 @@ BEGIN;
 INSERT INTO public.payments (account_id, amount_paid, currency, payment_method) VALUES ('00000000-0000-0000-0000-000000000702', 42000, 'PHP', 'bdo');
 UPDATE public.layaway_accounts SET total_paid = 42000, remaining_balance = 0, status = 'completed', completed_at = now() WHERE id = '00000000-0000-0000-0000-000000000702';
 COMMIT;
-DO $t$ BEGIN
-  PERFORM pg_temp.ok(NOT EXISTS (SELECT 1 FROM public.website_receipts WHERE layaway_account_id = '00000000-0000-0000-0000-000000000702'), 'peso: no receipt yet');
-  PERFORM pg_temp.ok(public.web_receipt_sync('layaway', '00000000-0000-0000-0000-000000000702') ->> 'not_issued' = 'peso_pending_owner_decision', 'peso reason');
+DO $t$ DECLARE r public.website_receipts; BEGIN
+  r := pg_temp.issued('00000000-0000-0000-0000-000000000702');
+  PERFORM pg_temp.ok(r.id IS NOT NULL AND r.currency = 'PHP', 'peso: issued');
+  PERFORM pg_temp.ok((SELECT (e ->> 'line_total')::numeric FROM jsonb_array_elements(r.lines -> 'items') e WHERE e ->> 'title' = 'Bracelet') = 25200 AND (SELECT (e ->> 'line_total')::numeric FROM jsonb_array_elements(r.lines -> 'items') e WHERE e ->> 'title' = 'Ring') = 16800, 'peso lines 25,200 + 16,800');
+  PERFORM pg_temp.ok((SELECT (e ->> 'unit_price_ex')::numeric FROM jsonb_array_elements(r.lines -> 'items') e WHERE e ->> 'title' = 'Bracelet') = 22909 AND (SELECT (e ->> 'unit_price_ex')::numeric FROM jsonb_array_elements(r.lines -> 'items') e WHERE e ->> 'title' = 'Ring') = 15273, 'peso lines excl. tax');
+  PERFORM pg_temp.ok(r.subtotal = 38182 AND r.tax_amount = 3818 AND r.total_paid = 42000, 'peso block: ' || r.subtotal || ' + ' || r.tax_amount);
+END $t$;
+
+-- peso remainder: ¥19,000 × 2 + ¥30,000 at 0.308345; checkout total ₱20,967
+-- (Σ unit-converted lines would be 20,968 → −1 on the ¥30,000 line).
+INSERT INTO public.cash_orders (id, invoice_number, customer_id, currency, total_amount, remaining_balance, source_channel, web_reference, fx_rate_used)
+VALUES ('00000000-0000-0000-0000-000000000703', '900703', '00000000-0000-0000-0000-0000000000c2', 'PHP', 20967, 20967, 'web', 'CJ-W-900703', 0.308345);
+INSERT INTO public.cash_order_items (cash_order_id, title, quantity, unit_price_jpy, line_total_jpy) VALUES
+  ('00000000-0000-0000-0000-000000000703', 'Earrings', 2, 19000, 38000), ('00000000-0000-0000-0000-000000000703', 'Pendant', 1, 30000, 30000);
+BEGIN;
+INSERT INTO public.cash_payments (cash_order_id, amount_paid, currency, payment_method) VALUES ('00000000-0000-0000-0000-000000000703', 20967, 'PHP', 'gcash');
+UPDATE public.cash_orders SET total_paid = 20967, remaining_balance = 0, status = 'completed', completed_at = now() WHERE id = '00000000-0000-0000-0000-000000000703';
+COMMIT;
+DO $t$ DECLARE r public.website_receipts; BEGIN
+  r := pg_temp.issued('00000000-0000-0000-0000-000000000703');
+  PERFORM pg_temp.ok(r.id IS NOT NULL, 'peso remainder: issued');
+  PERFORM pg_temp.ok((SELECT (e ->> 'unit_price')::numeric FROM jsonb_array_elements(r.lines -> 'items') e WHERE e ->> 'title' = 'Earrings') = 5859 AND (SELECT (e ->> 'line_total')::numeric FROM jsonb_array_elements(r.lines -> 'items') e WHERE e ->> 'title' = 'Earrings') = 11718, 'qty-2 line untouched');
+  PERFORM pg_temp.ok((SELECT (e ->> 'unit_price')::numeric FROM jsonb_array_elements(r.lines -> 'items') e WHERE e ->> 'title' = 'Pendant') = 9249, 'remainder on the qty-1 line');
+  PERFORM pg_temp.ok(r.subtotal + r.tax_amount = 20967 AND r.total_paid = 20967, 'peso remainder adds up');
 END $t$;
 
 -- ------------------------------ 9b. item lines that do not add up: never issued
@@ -306,6 +328,13 @@ COMMIT;
 DO $t$ BEGIN
   PERFORM pg_temp.ok(NOT EXISTS (SELECT 1 FROM public.website_receipts WHERE cash_order_id = '00000000-0000-0000-0000-000000000751'), 'lines ≠ total: not issued');
   PERFORM pg_temp.ok(public.web_receipt_sync('cash', '00000000-0000-0000-0000-000000000751') ->> 'not_issued' = 'does_not_add_up', 'reason reported');
+  PERFORM public.web_receipt_sync('cash', '00000000-0000-0000-0000-000000000751');
+  PERFORM pg_temp.ok((SELECT count(*) FROM public.staff_notifications
+                       WHERE type = 'website_receipt_not_issued'
+                         AND metadata ->> 'order_id' = '00000000-0000-0000-0000-000000000751'
+                         AND metadata ->> 'reason' = 'block_mismatch'
+                         AND metadata ->> 'cash_order_id' = '00000000-0000-0000-0000-000000000751') = 1,
+                     'staff told once, not on every sync');
 END $t$;
 
 -- ------------------------------ 10. mode = test: TEST orders only

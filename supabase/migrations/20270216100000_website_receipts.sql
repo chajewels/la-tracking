@@ -26,7 +26,7 @@
 --   5. deferred triggers on cash_orders, layaway_accounts, penalty_fees,
 --      square_refunds, square_disputes, paidy_refunds
 --   6. service-role RPCs for the website edge function and the email sweep
---   7. private storage bucket receipt-assets (font + seal; no object policies)
+--   7. private storage bucket receipt-assets (the font; no object policies)
 --   8. cron 'website-receipt-emails' (Vault key)
 --   9. self-checks
 --
@@ -363,11 +363,17 @@ FOR EACH ROW EXECUTE FUNCTION public.guard_website_receipt_issues();
 --      equal received exactly (adds_up), and Σ unit × qty must equal Σ
 --      line_total_jpy; otherwise a receipt is never issued (and an issued one
 --      is cancelled). No balancing line, ever.
---    PESO ORDERS: adds_up is FALSE (no receipt). Their item lines are stored
---      in yen only and checkout never derived per-line peso amounts (it
---      converts the total and shipping; the items are the remainder), so the
---      per-line peso figures the layout needs do not exist. Owner decision
---      pending (docs/RECEIPTS.md "Peso orders").
+--    PESO ORDERS (owner 2026-10-27, option a): item lines are stored in yen
+--      only and checkout converts only the total and shipping (the items are
+--      the remainder). The receipt converts each line ONCE with the order's
+--      fx_rate_used (pesos per ¥1): unit_php = round(unit_price_jpy × rate),
+--      line_php = unit_php × quantity; the rounding remainder
+--      (goods_total − Σ line_php) goes on the LARGEST quantity-1 line, so the
+--      peso rows add up EXACTLY to the stored peso product amount. No rate →
+--      peso_no_rate; a remainder with no quantity-1 line → peso_lines_mismatch.
+--      Then the same block in PHP (unit_price_ex = round(unit_php × 10 / 11)).
+--    problem   NULL | no_items | lines_mismatch | block_mismatch |
+--              peso_no_rate | peso_lines_mismatch  (why adds_up is false)
 --    fully_paid  = status 'completed' AND payments − refunds ≥ order_total
 --                  AND no Square dispute other than WON
 --    The TS mirror is supabase/functions/_shared/receipt-math.ts.
@@ -401,6 +407,11 @@ DECLARE
   v_tax         numeric;
   v_disc_total  numeric;
   v_adds_up     boolean;
+  v_items_incl_jpy numeric := 0;
+  v_php_sum     numeric := 0;
+  v_rem         numeric := 0;
+  v_fix_ord     bigint;
+  v_problem     text;
 BEGIN
   IF p_kind = 'cash' THEN
     SELECT o.id, o.customer_id, o.status::text AS status, o.completed_at, o.currency::text AS currency,
@@ -494,18 +505,61 @@ BEGIN
   v_order_total := v_o.total_amount + v_penalties;
   v_received    := v_paid_all - v_points - v_refunds;
   SELECT coalesce(sum((e ->> 'line_total_jpy')::numeric), 0),
-         coalesce(sum((e ->> 'unit_price_jpy')::numeric * (e ->> 'quantity')::numeric), 0),
+         coalesce(sum((e ->> 'unit_price_jpy')::numeric * (e ->> 'quantity')::numeric), 0)
+    INTO v_items_sum, v_items_incl_jpy
+    FROM jsonb_array_elements(v_items) e;
+
+  IF v_o.currency = 'PHP' THEN
+    IF v_o.fx_rate_used IS NULL OR v_o.fx_rate_used <= 0 THEN
+      v_problem := 'peso_no_rate';
+    ELSE
+      SELECT coalesce(sum(round((e ->> 'unit_price_jpy')::numeric * v_o.fx_rate_used) * (e ->> 'quantity')::numeric), 0)
+        INTO v_php_sum FROM jsonb_array_elements(v_items) e;
+      v_rem := v_goods - v_php_sum;
+      SELECT t.o INTO v_fix_ord
+        FROM jsonb_array_elements(v_items) WITH ORDINALITY t(e, o)
+       WHERE (t.e ->> 'quantity')::numeric = 1
+       ORDER BY round((t.e ->> 'unit_price_jpy')::numeric * v_o.fx_rate_used) DESC, t.o
+       LIMIT 1;
+      IF v_rem <> 0 AND v_fix_ord IS NULL THEN
+        v_problem := 'peso_lines_mismatch';
+      END IF;
+      SELECT coalesce(jsonb_agg(s.e || jsonb_build_object(
+               'unit_price', s.up, 'line_total', s.up * s.qty,
+               'unit_price_ex', round(s.up * 10 / 11), 'line_ex', round(s.up * 10 / 11) * s.qty)
+               ORDER BY s.o), '[]'::jsonb)
+        INTO v_items
+        FROM (SELECT t.e, t.o, (t.e ->> 'quantity')::numeric AS qty,
+                     round((t.e ->> 'unit_price_jpy')::numeric * v_o.fx_rate_used)
+                       + CASE WHEN t.o = v_fix_ord THEN v_rem ELSE 0 END AS up
+                FROM jsonb_array_elements(v_items) WITH ORDINALITY t(e, o)) s;
+    END IF;
+  ELSE
+    SELECT coalesce(jsonb_agg(t.e || jsonb_build_object(
+             'unit_price', (t.e ->> 'unit_price_jpy')::numeric,
+             'line_total', (t.e ->> 'unit_price_jpy')::numeric * (t.e ->> 'quantity')::numeric)
+             ORDER BY t.o), '[]'::jsonb)
+      INTO v_items
+      FROM jsonb_array_elements(v_items) WITH ORDINALITY t(e, o);
+  END IF;
+
+  SELECT coalesce(sum((e ->> 'line_total')::numeric), 0),
          coalesce(sum((e ->> 'line_ex')::numeric), 0)
-    INTO v_items_sum, v_items_incl, v_items_ex
+    INTO v_items_incl, v_items_ex
     FROM jsonb_array_elements(v_items) e;
   v_product     := v_items_incl;
   v_subtotal    := v_items_ex;
   v_tax         := v_items_incl - v_items_ex;
   v_disc_total  := v_discount + v_points;
-  v_adds_up     := v_o.currency = 'JPY'
-                   AND v_items_incl > 0
-                   AND v_items_incl = v_items_sum
-                   AND abs((v_subtotal + v_tax - v_disc_total + v_shipping + v_cod + v_penalties) - v_received) < 0.005;
+  IF v_problem IS NULL THEN
+    v_problem := CASE
+      WHEN v_items_incl_jpy <= 0 OR v_items_incl <= 0 THEN 'no_items'
+      WHEN v_items_incl_jpy <> v_items_sum THEN 'lines_mismatch'
+      WHEN abs((v_subtotal + v_tax - v_disc_total + v_shipping + v_cod + v_penalties) - v_received) >= 0.005 THEN 'block_mismatch'
+      ELSE NULL
+    END;
+  END IF;
+  v_adds_up     := v_problem IS NULL;
 
   RETURN jsonb_build_object(
     'kind', p_kind,
@@ -523,6 +577,7 @@ BEGIN
                   AND NOT v_disputed,
     'disputed', v_disputed,
     'adds_up', v_adds_up,
+    'problem', v_problem,
     'lines', jsonb_build_object(
       'items', v_items,
       'goods_total', v_goods,
@@ -561,6 +616,10 @@ GRANT EXECUTE ON FUNCTION public.web_receipt_snapshot(text, uuid) TO service_rol
 --       mode on → real orders only, off → never; and completed_at ≥ live_at.
 --    Receipt number CJR-<JST year of issue>-<6+ digits, own sequence>.
 --    Verify code: 20 random bytes, hex (160 bits).
+--    Fully paid but the block does not add up (snapshot.problem): no receipt,
+--    and ONE staff_notifications row 'website_receipt_not_issued' per order
+--    per problem (owner 2026-10-27) — fixing the order issues it on the next
+--    sync. Bell: layaway → account_id, cash → metadata.cash_order_id.
 --    Returns {action: kept|cancelled|issued|cancelled_and_issued|none, ...}.
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.web_receipt_sync(p_kind text, p_id uuid)
@@ -631,12 +690,33 @@ BEGIN
      OR (v_mode = 'test') <> (v_snap ->> 'is_test')::boolean THEN
     RETURN jsonb_build_object('action', v_action, 'cancelled_id', v_cancelled, 'reason', v_reason, 'not_issued', 'switch');
   END IF;
-  IF (v_snap ->> 'currency') = 'PHP' THEN
-    RETURN jsonb_build_object('action', v_action, 'cancelled_id', v_cancelled, 'reason', v_reason, 'not_issued', 'peso_pending_owner_decision');
-  END IF;
   IF NOT (v_snap ->> 'adds_up')::boolean THEN
-    RAISE WARNING 'website receipt not issued for % %: the totals block does not add up to the money received', p_kind, p_id;
-    RETURN jsonb_build_object('action', v_action, 'cancelled_id', v_cancelled, 'reason', v_reason, 'not_issued', 'does_not_add_up');
+    RAISE WARNING 'website receipt not issued for % %: %', p_kind, p_id, v_snap ->> 'problem';
+    INSERT INTO public.staff_notifications (type, title, body, account_id, customer_id, invoice_number, metadata)
+    SELECT 'website_receipt_not_issued',
+           'Receipt not issued — order ' || coalesce(v_snap ->> 'order_number', v_snap ->> 'invoice_number', p_id::text),
+           'This website order is fully paid but no receipt was issued: '
+             || CASE v_snap ->> 'problem'
+                  WHEN 'no_items' THEN 'the order has no item lines.'
+                  WHEN 'lines_mismatch' THEN 'the item lines do not add up (unit price × quantity ≠ line total).'
+                  WHEN 'block_mismatch' THEN 'items, discount, shipping and fees do not add up to the money received.'
+                  WHEN 'peso_no_rate' THEN 'the peso order has no exchange rate stored.'
+                  WHEN 'peso_lines_mismatch' THEN 'the peso item amounts cannot be made to add up (no single-quantity line to carry the rounding).'
+                  ELSE 'its figures do not add up.'
+                END
+             || ' Correct the order and the receipt is issued automatically.',
+           CASE WHEN p_kind = 'layaway' THEN p_id END,
+           (v_snap ->> 'customer_id')::uuid,
+           v_snap ->> 'invoice_number',
+           jsonb_build_object('order_id', p_id, 'kind', p_kind, 'reason', v_snap ->> 'problem',
+                              'cash_order_id', CASE WHEN p_kind = 'cash' THEN p_id END)
+     WHERE NOT EXISTS (
+       SELECT 1 FROM public.staff_notifications n
+        WHERE n.type = 'website_receipt_not_issued'
+          AND n.metadata ->> 'order_id' = p_id::text
+          AND n.metadata ->> 'reason' IS NOT DISTINCT FROM (v_snap ->> 'problem'));
+    RETURN jsonb_build_object('action', v_action, 'cancelled_id', v_cancelled, 'reason', v_reason,
+                              'not_issued', 'does_not_add_up', 'problem', v_snap ->> 'problem');
   END IF;
 
   v_number := 'CJR-' || to_char(v_now AT TIME ZONE 'Asia/Tokyo', 'YYYY') || '-'
@@ -930,14 +1010,14 @@ GRANT EXECUTE ON FUNCTION public.finish_website_receipt_email(uuid, boolean, tex
 -- ---------------------------------------------------------------------------
 -- 7. Private bucket receipt-assets. The owner uploads (Dashboard):
 --      fonts/NotoSansJP-Regular.ttf   Noto Sans JP Regular (OFL), whole file
---      seal/seal.png                  the company seal, transparent PNG
+--    No seal (owner 2026-10-27: the receipt carries no stamp).
 --    Read ONLY by the website edge function with the service role. No object
 --    policies: authenticated / anon can neither read nor list it.
 -- ---------------------------------------------------------------------------
 INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 VALUES ('receipt-assets', 'receipt-assets', false, 20971520,
         ARRAY['font/ttf', 'font/otf', 'font/sfnt', 'application/x-font-ttf', 'application/font-sfnt',
-              'application/octet-stream', 'image/png'])
+              'application/octet-stream'])
 ON CONFLICT (id) DO NOTHING;
 
 -- ---------------------------------------------------------------------------

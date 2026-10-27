@@ -90,9 +90,6 @@ export async function receiptPdf(db: Db, customerId: string, receiptId: string, 
     console.error(JSON.stringify({ website_receipt_pdf: "font_missing", receipt_id: receiptId }));
     return jsonResponse({ error: "receipt_unavailable" }, 503);
   }
-  if (!assets.seal) {
-    console.warn(JSON.stringify({ website_receipt_pdf: "seal_missing", receipt_id: receiptId }));
-  }
 
   const { data, error } = await db.rpc("record_website_receipt_issue", {
     p_receipt_id: receiptId, p_customer_id: customerId, p_language: lang,
@@ -109,12 +106,12 @@ export async function receiptPdf(db: Db, customerId: string, receiptId: string, 
     issueNo,
     isReissue: isReissue(issueNo),
     downloadedAt: String(rec.downloaded_at),
-  }, assets.font, assets.seal);
+  }, assets.font);
   const renderMs = Math.round(performance.now() - t0);
   const number = String((rec.receipt as AnyRec)?.receipt_number ?? "receipt");
   console.log(JSON.stringify({
     website_receipt_pdf: "rendered", receipt_number: number, issue_no: issueNo, lang,
-    font_ms: assets.fontMs, font_cached: assets.fontCached, seal_ms: assets.sealMs, seal: assets.seal !== null,
+    font_ms: assets.fontMs, font_cached: assets.fontCached,
     render_ms: renderMs, pdf_bytes: bytes.length,
   }));
 
