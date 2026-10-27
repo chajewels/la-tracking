@@ -6529,18 +6529,87 @@ export type Database = {
           },
         ]
       }
+      payslip_cash_advances: {
+        Row: {
+          advance_date: string
+          amount_php: number
+          created_at: string
+          created_by: string
+          id: string
+          note: string
+          pay_month: string
+          payslip_id: string | null
+          proof_path: string | null
+          status: string
+          user_id: string
+          void_reason: string | null
+          voided_at: string | null
+          voided_by: string | null
+        }
+        Insert: {
+          advance_date: string
+          amount_php: number
+          created_at?: string
+          created_by: string
+          id?: string
+          note: string
+          pay_month: string
+          payslip_id?: string | null
+          proof_path?: string | null
+          status?: string
+          user_id: string
+          void_reason?: string | null
+          voided_at?: string | null
+          voided_by?: string | null
+        }
+        Update: {
+          advance_date?: string
+          amount_php?: number
+          created_at?: string
+          created_by?: string
+          id?: string
+          note?: string
+          pay_month?: string
+          payslip_id?: string | null
+          proof_path?: string | null
+          status?: string
+          user_id?: string
+          void_reason?: string | null
+          voided_at?: string | null
+          voided_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payslip_cash_advances_payslip_id_fkey"
+            columns: ["payslip_id"]
+            isOneToOne: false
+            referencedRelation: "payslips"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       payslips: {
         Row: {
           address: string
+          amount_due_php: number | null
+          cash_advance_php: number
+          cash_advances: Json
+          cash_bond_held_php: number
+          cash_bond_released_php: number
+          cash_bond_source_payslip_id: string | null
           commission: Json
           commission_php: number
           created_at: string
           date_of_birth: string
+          employee_id: string | null
           finalized_at: string
           finalized_by: string
+          hire_date: string | null
           id: string
+          is_final_pay: boolean
           job_title: string | null
           jpy_sent: number | null
+          net_pay_php: number | null
           paid_at: string | null
           paid_by: string | null
           paid_on: string | null
@@ -6561,15 +6630,25 @@ export type Database = {
         }
         Insert: {
           address: string
+          amount_due_php?: number | null
+          cash_advance_php?: number
+          cash_advances?: Json
+          cash_bond_held_php?: number
+          cash_bond_released_php?: number
+          cash_bond_source_payslip_id?: string | null
           commission: Json
           commission_php: number
           created_at?: string
           date_of_birth: string
+          employee_id?: string | null
           finalized_at?: string
           finalized_by: string
+          hire_date?: string | null
           id?: string
+          is_final_pay?: boolean
           job_title?: string | null
           jpy_sent?: number | null
+          net_pay_php?: number | null
           paid_at?: string | null
           paid_by?: string | null
           paid_on?: string | null
@@ -6590,15 +6669,25 @@ export type Database = {
         }
         Update: {
           address?: string
+          amount_due_php?: number | null
+          cash_advance_php?: number
+          cash_advances?: Json
+          cash_bond_held_php?: number
+          cash_bond_released_php?: number
+          cash_bond_source_payslip_id?: string | null
           commission?: Json
           commission_php?: number
           created_at?: string
           date_of_birth?: string
+          employee_id?: string | null
           finalized_at?: string
           finalized_by?: string
+          hire_date?: string | null
           id?: string
+          is_final_pay?: boolean
           job_title?: string | null
           jpy_sent?: number | null
+          net_pay_php?: number | null
           paid_at?: string | null
           paid_by?: string | null
           paid_on?: string | null
@@ -6617,7 +6706,15 @@ export type Database = {
           voided_at?: string | null
           voided_by?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "payslips_cash_bond_source_payslip_id_fkey"
+            columns: ["cash_bond_source_payslip_id"]
+            isOneToOne: false
+            referencedRelation: "payslips"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       penalty_cap_overrides: {
         Row: {
@@ -8701,6 +8798,8 @@ export type Database = {
         Row: {
           address: string | null
           date_of_birth: string | null
+          employee_id: string | null
+          hire_date: string | null
           updated_at: string
           updated_by: string | null
           user_id: string
@@ -8708,6 +8807,8 @@ export type Database = {
         Insert: {
           address?: string | null
           date_of_birth?: string | null
+          employee_id?: string | null
+          hire_date?: string | null
           updated_at?: string
           updated_by?: string | null
           user_id: string
@@ -8715,6 +8816,8 @@ export type Database = {
         Update: {
           address?: string | null
           date_of_birth?: string | null
+          employee_id?: string | null
+          hire_date?: string | null
           updated_at?: string
           updated_by?: string | null
           user_id?: string
@@ -9137,6 +9240,45 @@ export type Database = {
           csr_net?: number
           liveadmin_net?: number
           month_key?: string
+        }
+        Relationships: []
+      }
+      timesheet_pay_settings: {
+        Row: {
+          allowance: number | null
+          basic_salary: number | null
+          created_at: string
+          created_by: string | null
+          effective_from: string
+          id: string
+          note: string | null
+          updated_at: string | null
+          updated_by: string | null
+          user_id: string
+        }
+        Insert: {
+          allowance?: number | null
+          basic_salary?: number | null
+          created_at?: string
+          created_by?: string | null
+          effective_from: string
+          id?: string
+          note?: string | null
+          updated_at?: string | null
+          updated_by?: string | null
+          user_id: string
+        }
+        Update: {
+          allowance?: number | null
+          basic_salary?: number | null
+          created_at?: string
+          created_by?: string | null
+          effective_from?: string
+          id?: string
+          note?: string | null
+          updated_at?: string | null
+          updated_by?: string | null
+          user_id?: string
         }
         Relationships: []
       }
@@ -11009,6 +11151,16 @@ export type Database = {
     }
     Functions: {
       _award_birthday_reward: { Args: { p_customer_id: string }; Returns: Json }
+      add_cash_advance: {
+        Args: {
+          p_advance_date: string
+          p_amount_php: number
+          p_note: string
+          p_pay_month: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
       add_media_cutout_test_batch: {
         Args: { p_batch: string; p_main_only?: boolean; p_skus: string[] }
         Returns: Json
@@ -11112,6 +11264,10 @@ export type Database = {
       assert_staff_caller: {
         Args: { p_permission?: string }
         Returns: undefined
+      }
+      attach_cash_advance_proof: {
+        Args: { p_id: string; p_path: string }
+        Returns: Json
       }
       attach_expense_receipt: {
         Args: { p_id: string; p_path: string }
@@ -11739,10 +11895,20 @@ export type Database = {
         }
         Returns: Json
       }
-      finalize_payslip: {
-        Args: { p_pay_month: string; p_payload: Json; p_user_id: string }
-        Returns: Json
-      }
+      finalize_payslip:
+        | {
+            Args: { p_pay_month: string; p_payload: Json; p_user_id: string }
+            Returns: Json
+          }
+        | {
+            Args: {
+              p_is_final_pay: boolean
+              p_pay_month: string
+              p_payload: Json
+              p_user_id: string
+            }
+            Returns: Json
+          }
       find_customer_matches: {
         Args: {
           p_email?: string
@@ -13099,10 +13265,25 @@ export type Database = {
       }
       ring_square_deadline_bells: { Args: { p_now?: string }; Returns: Json }
       run_ledger_check: { Args: never; Returns: Json }
-      save_staff_payroll_details: {
-        Args: { p_address: string; p_date_of_birth: string; p_user_id: string }
-        Returns: Json
-      }
+      save_staff_payroll_details:
+        | {
+            Args: {
+              p_address: string
+              p_date_of_birth: string
+              p_user_id: string
+            }
+            Returns: Json
+          }
+        | {
+            Args: {
+              p_address: string
+              p_date_of_birth: string
+              p_employee_id: string
+              p_hire_date: string
+              p_user_id: string
+            }
+            Returns: Json
+          }
       set_account_deadlines: {
         Args: {
           p_entity_id: string
@@ -13224,6 +13405,16 @@ export type Database = {
       }
       set_statement_flags: {
         Args: { p_jpy: number; p_pct: number }
+        Returns: Json
+      }
+      set_timesheet_pay_setting: {
+        Args: {
+          p_allowance: number
+          p_basic_salary: number
+          p_effective_from: string
+          p_note: string
+          p_user_id: string
+        }
         Returns: Json
       }
       set_web_checkout_mode: {
@@ -13379,6 +13570,10 @@ export type Database = {
       validate_bulk_import: { Args: { p_rows: Json }; Returns: Json }
       void_bank_import: {
         Args: { p_import: string; p_reason: string }
+        Returns: Json
+      }
+      void_cash_advance: {
+        Args: { p_id: string; p_reason: string }
         Returns: Json
       }
       void_expense: { Args: { p_id: string; p_reason: string }; Returns: Json }
