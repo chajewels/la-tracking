@@ -1,0 +1,151 @@
+{
+ "_note": "Synthetic Cris-style fixture (no live data): inactive CSR whose PM out is stored as 00:00 on the work date (the midnight rule reads it as 24:00), alternating 6.00 / 8.00 hour days, working 1-16 May 2026 then leaving. Weeks 3 and 4 (18-31 May) have >= 3 absences each, so 2 weeks are forfeited: allowance 4,000 x (1 - 2/4) = 2,000.",
+ "monthKey": "2026-05",
+ "profile": {
+  "id": "p-cris",
+  "user_id": "u-cris",
+  "template_type": "csr",
+  "job_title": "CSR",
+  "timezone": "Asia/Manila",
+  "work_days": [
+   1,
+   2,
+   3,
+   4,
+   5,
+   6
+  ],
+  "shift_start": null,
+  "shift_end": null,
+  "basic_salary": 12000,
+  "allowance": 6000,
+  "half_day_rate": null,
+  "full_day_rate": null,
+  "full_day_threshold_hours": null,
+  "dayoff_divisor": 4,
+  "active": false
+ },
+ "settings": [
+  {
+   "user_id": "u-cris",
+   "effective_from": "2026-04-01",
+   "basic_salary": null,
+   "allowance": 4000
+  },
+  {
+   "user_id": "u-cris",
+   "effective_from": "2026-06-01",
+   "basic_salary": null,
+   "allowance": 6000
+  }
+ ],
+ "entries": [
+  {
+   "work_date": "2026-05-01",
+   "am_in": "2026-05-01T18:00:00+08:00",
+   "am_out": null,
+   "pm_in": null,
+   "pm_out": "2026-05-01T00:00:00+08:00"
+  },
+  {
+   "work_date": "2026-05-02",
+   "am_in": "2026-05-02T16:00:00+08:00",
+   "am_out": null,
+   "pm_in": null,
+   "pm_out": "2026-05-02T00:00:00+08:00"
+  },
+  {
+   "work_date": "2026-05-04",
+   "am_in": "2026-05-04T18:00:00+08:00",
+   "am_out": null,
+   "pm_in": null,
+   "pm_out": "2026-05-04T00:00:00+08:00"
+  },
+  {
+   "work_date": "2026-05-05",
+   "am_in": "2026-05-05T16:00:00+08:00",
+   "am_out": null,
+   "pm_in": null,
+   "pm_out": "2026-05-05T00:00:00+08:00"
+  },
+  {
+   "work_date": "2026-05-06",
+   "am_in": "2026-05-06T18:00:00+08:00",
+   "am_out": null,
+   "pm_in": null,
+   "pm_out": "2026-05-06T00:00:00+08:00"
+  },
+  {
+   "work_date": "2026-05-07",
+   "am_in": "2026-05-07T16:00:00+08:00",
+   "am_out": null,
+   "pm_in": null,
+   "pm_out": "2026-05-07T00:00:00+08:00"
+  },
+  {
+   "work_date": "2026-05-08",
+   "am_in": "2026-05-08T18:00:00+08:00",
+   "am_out": null,
+   "pm_in": null,
+   "pm_out": "2026-05-08T00:00:00+08:00"
+  },
+  {
+   "work_date": "2026-05-09",
+   "am_in": "2026-05-09T16:00:00+08:00",
+   "am_out": null,
+   "pm_in": null,
+   "pm_out": "2026-05-09T00:00:00+08:00"
+  },
+  {
+   "work_date": "2026-05-11",
+   "am_in": "2026-05-11T18:00:00+08:00",
+   "am_out": null,
+   "pm_in": null,
+   "pm_out": "2026-05-11T00:00:00+08:00"
+  },
+  {
+   "work_date": "2026-05-12",
+   "am_in": "2026-05-12T16:00:00+08:00",
+   "am_out": null,
+   "pm_in": null,
+   "pm_out": "2026-05-12T00:00:00+08:00"
+  },
+  {
+   "work_date": "2026-05-13",
+   "am_in": "2026-05-13T18:00:00+08:00",
+   "am_out": null,
+   "pm_in": null,
+   "pm_out": "2026-05-13T00:00:00+08:00"
+  },
+  {
+   "work_date": "2026-05-14",
+   "am_in": "2026-05-14T16:00:00+08:00",
+   "am_out": null,
+   "pm_in": null,
+   "pm_out": "2026-05-14T00:00:00+08:00"
+  },
+  {
+   "work_date": "2026-05-15",
+   "am_in": "2026-05-15T18:00:00+08:00",
+   "am_out": null,
+   "pm_in": null,
+   "pm_out": "2026-05-15T00:00:00+08:00"
+  },
+  {
+   "work_date": "2026-05-16",
+   "am_in": "2026-05-16T16:00:00+08:00",
+   "am_out": null,
+   "pm_in": null,
+   "pm_out": "2026-05-16T00:00:00+08:00"
+  }
+ ],
+ "expected": {
+  "allowance": 4000,
+  "forfeited_weeks": 2,
+  "allowance_paid": 2000,
+  "hours": [
+   6,
+   8
+  ]
+ }
+}

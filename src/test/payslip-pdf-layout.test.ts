@@ -254,8 +254,8 @@ describe("payment block, payment note, signatures, footer", () => {
   });
 
   it("payment note names page 2, or says the proof could not be included", () => {
-    expect(paymentNote(payslip(PAID), true)).toBe("September 2026 salary ¥39,287 → ₱16,400 · Proof of payment attached (page 2)");
-    expect(paymentNote(payslip(PAID), false)).toBe("September 2026 salary ¥39,287 → ₱16,400 · Proof of payment could not be included");
+    expect(paymentNote(payslip(PAID), true)).toBe("September 2026 salary paid on 05 Oct 2026: ¥39,287 → ₱16,400 · Proof of payment attached (page 2)");
+    expect(paymentNote(payslip(PAID), false)).toBe("September 2026 salary paid on 05 Oct 2026: ¥39,287 → ₱16,400 · Proof of payment could not be included");
   });
 
   it("signatures: Prepared by (finalizer, blank when unknown — never an id) · Approved by · Received by", () => {

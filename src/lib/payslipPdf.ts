@@ -12,10 +12,11 @@ import { PDFDocument, StandardFonts, rgb, type PDFPage } from 'pdf-lib';
 import badgeUrl from '@/assets/brand/cha-jewels-badge-512.webp';
 import { formatDate, formatPeso, payslipFileName, type Payslip } from '@/lib/payslips';
 import {
-  assertEarningsMatch, earningsRows, footer, headerDetails, letterheadLines, letterheadSmallLines, payslipNumber,
-  paymentBlock, paymentNote,
-  proofCaption, rightBlockLayout, signatureBlock,
+  advanceProofCaption, advanceProofFallback, assertDeductionsMatch, assertEarningsMatch, deductionRows, earningsRows,
+  employeeIdLine, footer, headerDetails, letterheadLines, letterheadSmallLines, payBand, payslipNumber,
+  paymentBlock, paymentNote, proofCaption, rightBlockLayout, signatureBlock, type PageRange,
 } from '@/lib/payslipPdfLayout';
+import { advanceProofFileName } from '@/lib/payslips';
 
 /** A4 portrait in PDF points. */
 export const A4 = { width: 595.28, height: 841.89 } as const;
@@ -31,14 +32,25 @@ export interface ProofFile {
 
 export type ImageConverter = (bytes: Uint8Array, contentType: string) => Promise<Uint8Array | null>;
 
-/** Draws page 1 once the final page count (and whether the proof made it in) is known. */
-export type Page1Renderer = (pageCount: number, proofIncluded: boolean | null) => Promise<Uint8Array>;
+/** Draws page 1 once the final page count (and whether the proofs made it in) is known. */
+export type Page1Renderer = (pageCount: number, proofIncluded: boolean | null, advancePages: PageRange | null) => Promise<Uint8Array>;
+
+/** One cash advance proof to append (proof null = could not be fetched: a fallback page is added). */
+export interface AdvanceProofInput {
+  proof: ProofFile | null;
+  advanceDate: string;
+  fileName: string;
+}
 
 export interface BuiltPayslipPdf {
   bytes: Uint8Array;
   pageCount: number;
   /** null = no proof expected (unpaid); false = the fallback page was used. */
   proofIncluded: boolean | null;
+  /** The pages holding the cash advance proofs (fallback pages included); null when none. */
+  advancePages: PageRange | null;
+  /** File names of advance proofs that got the fallback page. */
+  advanceFallbacks: string[];
 }
 
 type ProofKind = 'pdf' | 'png' | 'jpeg' | 'other-image' | 'unknown';
@@ -68,10 +80,10 @@ function drawCaption(page: PDFPage, text: string, font: Awaited<ReturnType<PDFDo
   page.drawText(winAnsiSafe(text), { x: MARGIN, y: MARGIN / 2, size: 9, font, color: rgb(0.25, 0.25, 0.25), maxWidth: A4.width - MARGIN * 2 });
 }
 
-async function addFallbackPage(doc: PDFDocument, fileName: string) {
+async function addFallbackPage(doc: PDFDocument, fileName: string, text: string = proofFallbackNote(fileName)) {
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const page = doc.addPage([A4.width, A4.height]);
-  page.drawText(winAnsiSafe(`Proof of payment could not be included — open it from the Hub: ${fileName}`), {
+  page.drawText(winAnsiSafe(text), {
     x: MARGIN, y: A4.height - MARGIN - 14, size: 12, font, color: rgb(0, 0, 0), maxWidth: A4.width - MARGIN * 2, lineHeight: 16,
   });
 }
@@ -91,15 +103,29 @@ export async function buildPayslipPdf(opts: {
   paidOn: string | null;
   payslipNo?: string;
   convertImage?: ImageConverter;
+  /** Cash advance proofs, appended after the payday proof in this order. */
+  advanceProofs?: AdvanceProofInput[];
 }): Promise<BuiltPayslipPdf> {
   const doc = await PDFDocument.create();
   let proofIncluded: boolean | null = null;
   if (opts.proof) {
-    proofIncluded = await appendProof(doc, opts.proof, opts.paidOn, opts.payslipNo ?? '', opts.convertImage);
+    proofIncluded = await appendProof(doc, opts.proof, proofCaption(opts.payslipNo ?? '', opts.proof.fileName, opts.paidOn), opts.convertImage);
     if (!proofIncluded) await addFallbackPage(doc, opts.proof.fileName);
   }
+  const advanceStart = doc.getPageCount();
+  const advanceFallbacks: string[] = [];
+  for (const a of opts.advanceProofs ?? []) {
+    const ok = a.proof ? await appendProof(doc, a.proof, advanceProofCaption(a.advanceDate, a.fileName), opts.convertImage) : false;
+    if (!ok) {
+      advanceFallbacks.push(a.fileName);
+      await addFallbackPage(doc, a.fileName, advanceProofFallback(a.fileName));
+    }
+  }
+  // Page numbers count page 1, which is inserted in front last.
+  const advancePages: PageRange | null = doc.getPageCount() > advanceStart
+    ? { first: advanceStart + 2, last: doc.getPageCount() + 1 } : null;
   const pageCount = doc.getPageCount() + 1;
-  const page1Png = opts.page1Png ?? (opts.renderPage1 ? await opts.renderPage1(pageCount, proofIncluded) : null);
+  const page1Png = opts.page1Png ?? (opts.renderPage1 ? await opts.renderPage1(pageCount, proofIncluded, advancePages) : null);
   if (!page1Png) throw new Error('page1_missing');
   const png = await doc.embedPng(page1Png);
   const first = doc.insertPage(0, [A4.width, A4.height]);
@@ -107,11 +133,11 @@ export async function buildPayslipPdf(opts: {
   first.drawImage(png, { x: (A4.width - size.width) / 2, y: A4.height - MARGIN - size.height, ...size });
 
   const bytes = await doc.save();
-  return { bytes, pageCount: doc.getPageCount(), proofIncluded };
+  return { bytes, pageCount: doc.getPageCount(), proofIncluded, advancePages, advanceFallbacks };
 }
 
 async function appendProof(
-  doc: PDFDocument, proof: ProofFile, paidOn: string | null, payslipNo: string, convert?: ImageConverter,
+  doc: PDFDocument, proof: ProofFile, caption: string, convert?: ImageConverter,
 ): Promise<boolean> {
   const kind = proofKind(proof.contentType, proof.fileName);
   try {
@@ -136,7 +162,7 @@ async function appendProof(
     const size = fitInside(image.width, image.height, A4.width - MARGIN * 2, A4.height - MARGIN * 2 - 14);
     page.drawImage(image, { x: (A4.width - size.width) / 2, y: A4.height - MARGIN - size.height, ...size });
     const font = await doc.embedFont(StandardFonts.Helvetica);
-    drawCaption(page, proofCaption(payslipNo, proof.fileName, paidOn), font);
+    drawCaption(page, caption, font);
     return true;
   } catch {
     return false;
@@ -200,10 +226,13 @@ async function loadBadge(): Promise<HTMLImageElement | null> {
  */
 export async function renderPayslipPage(
   p: Payslip,
-  opts: { pageCount: number; proofIncluded: boolean | null; finalizerName?: string | null },
+  opts: { pageCount: number; proofIncluded: boolean | null; finalizerName?: string | null; advancePages?: PageRange | null },
 ): Promise<Uint8Array> {
   const rows = earningsRows(p);
   assertEarningsMatch(rows, p.total_php);
+  assertDeductionsMatch(p);
+  const deductions = deductionRows(p);
+  const empLine = employeeIdLine(p);
 
   const W = A4.width - MARGIN * 2;
   const H = A4.height - MARGIN * 2;
@@ -292,7 +321,7 @@ export async function renderPayslipPage(
   const inner = boxW - PAD * 2;
   font(400, 9);
   const addressLines = wrap(ctx, p.address || '—', inner);
-  const paidToHeight = 12 + 16 + (p.job_title ? 13 : 0) + addressLines.length * 12 + 13;
+  const paidToHeight = 12 + 16 + (p.job_title ? 13 : 0) + (empLine ? 13 : 0) + addressLines.length * 12 + 13;
   const pay = paymentBlock(p);
   const paymentHeight = 12 + (pay.paid ? pay.rows.length * 13 : 14);
   const boxH = PAD * 2 + Math.max(paidToHeight, paymentHeight);
@@ -308,6 +337,7 @@ export async function renderPayslipPage(
   font(600, 11.5);
   text(p.staff_name, PAD, py); py += 16;
   if (p.job_title) { font(400, 9); text(p.job_title, PAD, py, C.muted); py += 13; }
+  if (empLine) { font(400, 9); text(empLine, PAD, py); py += 13; }
   font(400, 9);
   for (const l of addressLines) { text(l, PAD, py); py += 12; }
   text(`Date of birth: ${formatDate(p.date_of_birth)}`, PAD, py);
@@ -353,19 +383,36 @@ export async function renderPayslipPage(
     rule(0, W, y, 0.5, C.hairline);
   }
 
-  // e. Net pay band, flush with the amounts' right edge.
+  // d2. Cash advances (negative), the summary and the cash bond — payslips issued after the migration.
+  const summaryRow = (label: string, amountText: string, bold = false, color: string = C.text) => {
+    font(bold ? 700 : 600, 9.5);
+    text(label, 8, y + 5, color);
+    font(bold ? 700 : 500, 9.5);
+    text(amountText, AMOUNT_RIGHT, y + 5, color, 'right');
+    y += 20;
+    rule(0, W, y, 0.5, C.hairline);
+  };
+  for (const r of deductions.advances) summaryRow(r.label, r.amountText);
+  if (deductions.summary.length) {
+    y += 4;
+    for (const r of deductions.summary) summaryRow(r.label, r.amountText, !!r.emphasis);
+  }
+  for (const r of deductions.bond) summaryRow(r.label, r.amountText);
+
+  // e. Amount band (AMOUNT DUE / AMOUNT PAID; NET PAY on older payslips), flush with the amounts' right edge.
   y += 10;
+  const band = payBand(p);
   const bandX = W * 0.45;
   ctx.fillStyle = C.band;
   ctx.fillRect(bandX, y, W - bandX, 30);
   font(600, 10, SERIF);
-  spaced('NET PAY', bandX + 12, y + 10, 2, C.goldPale);
+  spaced(band.label, bandX + 12, y + 10, 2, C.goldPale);
   font(700, 15, SERIF);
-  text(formatPeso(p.total_php), AMOUNT_RIGHT, y + 7, C.goldPale, 'right');
+  text(formatPeso(band.amount), AMOUNT_RIGHT, y + 7, C.goldPale, 'right');
   y += 30;
 
-  // f. Payment line (paid only).
-  const note = paymentNote(p, opts.proofIncluded);
+  // f. Payment line (paid) and the cash advance proof pages.
+  const note = paymentNote(p, opts.proofIncluded, opts.advancePages ?? null);
   if (note) {
     y += 12;
     font(400, 8.5);
@@ -441,6 +488,7 @@ export async function makePayslipPdf(
   p: Payslip,
   loadProof: () => Promise<ProofFile | null>,
   finalizerName?: string | null,
+  loadAdvanceProof?: (path: string) => Promise<ProofFile | null>,
 ): Promise<BuiltPayslipPdf & { fileName: string }> {
   let proof: ProofFile | null = null;
   const fileName = p.proof_path ? p.proof_path.slice(p.proof_path.indexOf('/') + 1) : '';
@@ -453,12 +501,26 @@ export async function makePayslipPdf(
     // a proof that cannot be fetched still gets the fallback page
     if (!proof) proof = { bytes: new Uint8Array(), contentType: '', fileName };
   }
+  // Each frozen cash advance with a proof, in the payslip's order (advance date).
+  const advanceProofs: AdvanceProofInput[] = [];
+  for (const a of p.cash_advances ?? []) {
+    if (!a.proof_path) continue;
+    let file: ProofFile | null = null;
+    try {
+      file = loadAdvanceProof ? await loadAdvanceProof(a.proof_path) : null;
+    } catch {
+      file = null;
+    }
+    advanceProofs.push({ proof: file, advanceDate: a.advance_date, fileName: advanceProofFileName(a.proof_path) });
+  }
   const built = await buildPayslipPdf({
-    renderPage1: (pageCount, proofIncluded) => renderPayslipPage(p, { pageCount, proofIncluded, finalizerName }),
+    renderPage1: (pageCount, proofIncluded, advancePages) =>
+      renderPayslipPage(p, { pageCount, proofIncluded, finalizerName, advancePages }),
     proof,
     paidOn: p.paid_on,
     payslipNo: payslipNumber(p),
     convertImage: browserImageToJpeg,
+    advanceProofs,
   });
   return { ...built, fileName };
 }
@@ -473,9 +535,14 @@ export async function downloadPayslipPdf(
   p: Payslip,
   loadProof: () => Promise<ProofFile | null>,
   finalizerName?: string | null,
+  loadAdvanceProof?: (path: string) => Promise<ProofFile | null>,
 ): Promise<{ proofNote: string | null }> {
-  const built = await makePayslipPdf(p, loadProof, finalizerName);
-  const note = built.proofIncluded === false ? proofFallbackNote(built.fileName) : null;
+  const built = await makePayslipPdf(p, loadProof, finalizerName, loadAdvanceProof);
+  const notes = [
+    ...(built.proofIncluded === false ? [proofFallbackNote(built.fileName)] : []),
+    ...built.advanceFallbacks.map(advanceProofFallback),
+  ];
+  const note = notes.length ? notes.join(' ') : null;
   saveBytes(built.bytes, payslipFileName(p.staff_name, p.pay_month, 'pdf'), 'application/pdf');
   return { proofNote: note };
 }
