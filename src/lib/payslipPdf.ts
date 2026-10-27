@@ -10,7 +10,7 @@
  */
 import { PDFDocument, StandardFonts, rgb, type PDFPage } from 'pdf-lib';
 import badgeUrl from '@/assets/brand/cha-jewels-badge-512.webp';
-import { formatDate, formatPeso, payslipFileName, type Payslip } from '@/lib/payslips';
+import { correctionLabel, formatDate, formatPeso, payslipFileName, type Payslip } from '@/lib/payslips';
 import {
   advanceProofCaption, advanceProofFallback, bonusProofCaption, bonusProofFallback, assertDeductionsMatch, assertEarningsMatch, deductionRows, earningsRows,
   employeeIdLine, footer, headerDetails, letterheadLines, letterheadSmallLines, payBand, payslipNumber,
@@ -465,6 +465,13 @@ export async function renderPayslipPage(
     y += 12;
     font(400, 8.5);
     for (const l of wrap(ctx, note, W)) { text(l, 0, y, C.muted); y += 11.5; }
+  }
+  // Figures typed by hand (Edit figures, migration 20270207100000): say so, with the reason.
+  const corrected = correctionLabel(p);
+  if (corrected) {
+    y += note ? 4 : 12;
+    font(500, 8.5);
+    for (const l of wrap(ctx, corrected, W)) { text(l, 0, y, C.text); y += 11.5; }
   }
 
   // g. Signatures.

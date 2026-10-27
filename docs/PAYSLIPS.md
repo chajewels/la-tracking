@@ -642,3 +642,61 @@ is applied (guarded by the live md5s of `finalize_payslip` (4-argument) and `get
 - Vitest `src/test/payslip-bonuses.test.tsx` (11): the row button, count and draft total; add with 2 proofs;
   void; the draft view; a finalized payslip (no false "changed", locked); helpers; Excel; PDF rows, pages
   and note; form rules and refusals.
+
+## Edit figures and the cash bond (owner 2026-10-27 15:20–15:32)
+
+Migration `supabase/migrations/20270207100000_payslip_edit_figures.sql` (frontend first; gated by
+`get_payslip_book` `features.edit_figures`). This **replaces the locked "never edited — void and re-issue"
+rule** for figures: the payslip row itself still never changes, but Edit figures voids it and issues the
+corrected one in one step.
+
+### Owner decisions (locked)
+
+- **Edit figures:** every pay line can be typed by hand — days, hours, sum of daily pay, basic salary cap,
+  allowance, weeks forfeited, Live Admin ₱500/₱300 days, commission earnings and top-sales bonus, and the
+  cash bond. A reason (3–500 characters) is required. Totals recalculate as the engines do. The payslip
+  view, Excel and PDF show "Manually corrected (replaces payslip no. PS-…) — <reason>".
+- **On a Finalized or Paid payslip, Edit = automatic void + re-issue:** the old one becomes Void
+  ("Corrected: <reason>"), the corrected one is issued in its place; history stays.
+- **A Paid payslip keeps its payment:** yen, pesos, rate, paid-on, paid by/at and both proof files are copied,
+  so the corrected payslip is Paid.
+- **Cash bond = half of the salary (timesheet net pay) only:** salary ₱10,000 → bond ₱5,000. Commission and
+  bonuses are excluded; cash advances are not taken off first. The bond can be typed in Edit figures (not on
+  final pay). It can never be more than the pay left after advances (`bond_exceeds_pay`).
+
+### Database
+
+- `payslips.correction_reason` (null, or trimmed 3–500) and `payslips.corrected_from_payslip_id` (the voided
+  one; needs a reason). Both are snapshot columns set on INSERT; `payslips_before_write` is unchanged.
+- The proof CHECKs are now by shape (`<uuid>/<file>`, no `..`): a copied proof stays in the folder of the
+  payslip it was uploaded for. `record_payslip_payment` and `attach_payslip_proof` still require `<own id>/`.
+- `payslip_issue(...)` (internal, not executable by clients) is the one issuing path. `finalize_payslip`
+  (3 and 4 arguments) is unchanged for callers; new **5-argument** `finalize_payslip(…, p_correction_reason)`
+  = finalize with typed figures (the pay-settings match is skipped, arithmetic checks stay, the payload may
+  carry `cash_bond_held_php`).
+- New `correct_payslip(p_id, p_payload, p_is_final_pay, p_reason)`: one transaction; refuses
+  `reason_required`, `not_found`, `already_void`, `bond_already_released` (its bond was released on a later
+  payslip — correct that one first) and every finalize refusal; on any refusal nothing changes. The month's
+  advances and bonuses move to the corrected payslip. Audit: the void row and a `correct_payslip` row
+  (`manual`, `corrected_from`; no figures).
+
+### Screens
+
+- Payslip view: **Edit figures** on the draft (next to Finalize) and on Finalized / Paid payslips (next to
+  Void). The dialog shows every line, the recalculated totals (earnings, advances, bond held/released,
+  amount due), "Final pay", the cash bond field ("Use half of salary"), and the reason. Save: "Save and
+  finalize" (draft) or "Save and re-issue".
+- A corrected payslip shows the "Manually corrected …" note; the held-bond line reads "Less: Cash bond held"
+  (not "50% held") on corrected payslips.
+- The "figures changed" warning and the Finalize confirmation point to Edit figures once the feature is on.
+
+### Tests
+
+- SQL harness phase 5 (`test_edit_figures.sql`, `pre7_*` snapshots, migration applied twice), E1–E9: shape
+  and existing rows unchanged; bond = half of timesheet pay and its release; 5-argument finalize (reason,
+  typed basic, typed bond, refusals); correct a Finalized payslip (one transaction, refusal rolls back,
+  advances move, audit); correct a Paid payslip twice (payment and both proofs from two folders copied, 2nd
+  proof still addable); bond already released; gate; book; direct writes.
+- Vitest `src/test/payslip-edit-figures.test.tsx` (12): recalculation (CSR, Live Admin), validation, payload,
+  salary-only bond preview, labels on screen/Excel/PDF, refusals, hidden before the migration, draft
+  finalize with a reason, paid correction with a typed bond, refusal toast, corrected view.
