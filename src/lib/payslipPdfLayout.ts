@@ -6,7 +6,7 @@
 import { ADDRESS_EN, CORPORATE_NO, EMAIL, LEGAL_NAME_JA, NAME_EN, PHONE, REPRESENTATIVE } from '@/lib/companyInfo';
 import {
   BOND_HELD_LABEL, STATUS_LABEL, advanceLabel, amountDue, bonusCategoryLabel, bondReleasedLabel, differenceLabel, figuresChanged, formatDate,
-  formatDateDD, formatPeso, formatYen, longMonthLabel, round2, storedBreakdown,
+  formatDateDD, formatPeso, formatYen, longMonthLabel, payslipNumber, round2, storedBreakdown,
   type Payslip,
 } from '@/lib/payslips';
 
@@ -21,11 +21,8 @@ function hours(n: number): string {
   return round2(n).toLocaleString('en-US', { maximumFractionDigits: 2 });
 }
 
-/** PS-YYYY-MM-XXXXXX: the pay month and the first 6 hex characters of the payslip id, uppercase. */
-export function payslipNumber(p: Pick<Payslip, 'id' | 'pay_month'>): string {
-  const hex = p.id.replace(/[^0-9a-f]/gi, '').slice(0, 6).toUpperCase();
-  return `PS-${p.pay_month.slice(0, 7)}-${hex}`;
-}
+/** PS-YYYY-MM-XXXXXX (defined in payslips.ts so the Excel and the screen can use it too). */
+export { payslipNumber };
 
 /** "October 2026" — the month, never a 1–31 range (the sheet is a 31-row window). */
 export function periodLabel(p: Pick<Payslip, 'pay_month'>): string {
@@ -245,7 +242,7 @@ export function deductionRows(p: Payslip): { advances: SummaryRow[]; summary: Su
     { label: 'Net pay', amount: b.net, amountText: formatPeso(b.net), emphasis: true },
   ];
   const bond: SummaryRow[] = [];
-  if (b.held > 0) bond.push({ label: BOND_HELD_LABEL, amount: -b.held, amountText: formatPeso(-b.held) });
+  if (b.held > 0) bond.push({ label: b.heldLabel ?? BOND_HELD_LABEL, amount: -b.held, amountText: formatPeso(-b.held) });
   if (b.released > 0) bond.push({ label: bondReleasedLabel(b.releasedFrom), amount: b.released, amountText: formatPeso(b.released) });
   return { advances, summary, bond };
 }

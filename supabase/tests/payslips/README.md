@@ -37,3 +37,14 @@ storage rules; the cash bond; corrections from April; audit. Last run 2026-10-27
 - audit.
 
 Last run 2026-10-27 on PostgreSQL 16: all groups in all four phases passed.
+
+**Phase 5** (migration 20270207100000; added 2026-10-27): on the Phase 4 database, `pre7_*` snapshots, then
+20270207 applied twice, then `test_edit_figures.sql` (E1–E9). It checks:
+- existing rows are unchanged; `payslip_issue` is not callable by clients;
+- the cash bond is half of the timesheet pay, and is released next month;
+- finalize with a reason (typed basic and bond, refusals);
+- correcting a Finalized payslip in one transaction (a refusal changes nothing; advances move);
+- correcting a Paid payslip twice (payment and both proofs copied);
+- `bond_already_released`, the gate, the book and direct writes.
+
+Last run 2026-10-27 on PostgreSQL 16: all groups in all five phases passed.

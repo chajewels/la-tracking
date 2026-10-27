@@ -7,6 +7,7 @@
 #   Phase 3: on the Phase 2 database, snapshots, then 20270205100000 applied twice -> test_second_proof.sql
 #            (a 2nd proof file on the payment and on each cash advance).
 #   Phase 4: on the Phase 3 database, snapshots, then 20270206100000 applied twice -> test_bonuses.sql.
+#   Phase 5: on the Phase 4 database, snapshots, then 20270207100000 applied twice -> test_edit_figures.sql.
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
 PGURL="${PGURL:-postgres:///postgres}"
@@ -45,3 +46,10 @@ psql "$URL2" -v ON_ERROR_STOP=1 -q \
   -c "CREATE TABLE public.pre6_audit AS SELECT count(*) AS n FROM public.audit_logs"
 psql "$URL2" -v ON_ERROR_STOP=1 -q -f $M6 -f $M6 2>&1 | grep -vE "$QUIET" || true
 psql "$URL2" -v ON_ERROR_STOP=1 -q -f $T/test_bonuses.sql 2>&1 | grep -E "NOTICE:  B|PASSED|ERROR|CONTEXT"
+
+M7=supabase/migrations/20270207100000_payslip_edit_figures.sql
+psql "$URL2" -v ON_ERROR_STOP=1 -q \
+  -c "CREATE TABLE public.pre7_payslips AS SELECT id, to_jsonb(p) AS row FROM public.payslips p" \
+  -c "CREATE TABLE public.pre7_audit AS SELECT count(*) AS n FROM public.audit_logs"
+psql "$URL2" -v ON_ERROR_STOP=1 -q -f $M7 -f $M7 2>&1 | grep -vE "$QUIET" || true
+psql "$URL2" -v ON_ERROR_STOP=1 -q -f $T/test_edit_figures.sql 2>&1 | grep -E "NOTICE:  E|PASSED|ERROR|CONTEXT"

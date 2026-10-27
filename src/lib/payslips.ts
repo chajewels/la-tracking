@@ -98,6 +98,11 @@ export interface Payslip {
   bonus_php?: number;
   /** get_payslip_book: 'YYYY-MM-DD' of the payslip whose cash bond this one releases. */
   cash_bond_source_month?: string | null;
+  // Migration 20270207100000 (Edit figures; absent before it):
+  /** Set when the figures were typed by hand: the reason. */
+  correction_reason?: string | null;
+  /** The payslip this one replaces (voided "Corrected: …" in the same step). */
+  corrected_from_payslip_id?: string | null;
   finalized_at: string;
   paid_at: string | null;
   voided_at: string | null;
@@ -186,11 +191,13 @@ export interface PayslipFeatures {
   second_proof: boolean;
   /** Migration 20270206100000: bonuses typed per month. */
   bonuses: boolean;
+  /** Migration 20270207100000: Edit figures (manual correction) and the cash bond on the timesheet pay only. */
+  edit_figures: boolean;
 }
 
 export const NO_FEATURES: PayslipFeatures = {
   cash_advances: false, employee_id: false, cash_bond: false, pay_history: false, from_april: false,
-  second_proof: false, bonuses: false,
+  second_proof: false, bonuses: false, edit_figures: false,
 };
 
 export interface PayslipBook {
@@ -333,6 +340,134 @@ export function storedFiguresTotal(p: Pick<Payslip, 'total_php' | 'bonus_php'>):
 
 export function figuresChanged(storedTotal: number, liveTotal: number): boolean {
   return Math.abs(round2(storedTotal) - round2(liveTotal)) >= 0.005;
+}
+
+// ── Edit figures (owner 2026-10-27; migration 20270207100000) ───────────────
+
+/**
+ * The lines typed in "Edit figures". The totals are recalculated from them exactly as the engines do:
+ * CSR gross = min(sum of daily pay, basic salary), allowance paid = allowance × (4 − weeks forfeited) / 4,
+ * net = gross + allowance paid; Live Admin net = ₱500 × days + ₱300 × days; commission total = earnings +
+ * top-sales bonus.
+ */
+export interface FigureInputs {
+  days_worked: string;
+  total_hours: string;
+  daily_pay_sum: string;
+  basic_salary: string;
+  monthly_allowance: string;
+  forfeited_weeks: string;
+  days_at_500: string;
+  days_at_300: string;
+  earnings: string;
+  top_sales_bonus: string;
+  /** Cash bond held, '' = as calculated. */
+  cash_bond: string;
+}
+
+const str = (v: unknown): string => (v == null ? '' : String(round2(num(v))));
+
+/** The form, filled from stored figures (issued payslip) or the live draft. */
+export function figureInputs(
+  template: TemplateType, t: Record<string, unknown>, c: Record<string, unknown>, bond: number | null = null,
+): FigureInputs {
+  const csr = template === 'csr';
+  return {
+    days_worked: csr ? str(t.days_worked) : '',
+    total_hours: str(t.total_hours),
+    daily_pay_sum: csr ? str(t.daily_pay_sum) : '',
+    basic_salary: csr ? str(t.basic_salary) : '',
+    monthly_allowance: csr ? str(t.monthly_allowance) : '',
+    forfeited_weeks: csr ? str(t.forfeited_weeks) : '',
+    days_at_500: csr ? '' : str(t.days_at_500),
+    days_at_300: csr ? '' : str(t.days_at_300),
+    earnings: str(c.earnings),
+    top_sales_bonus: str(c.top_sales_bonus),
+    cash_bond: bond == null ? '' : str(bond),
+  };
+}
+
+const MONEY_RE = /^\d+(\.\d{1,2})?$/;
+const WHOLE_RE = /^\d+$/;
+
+/** null when every typed line is valid (and the reason is 3–500 characters), else what to fix. */
+export function validateFigureInputs(template: TemplateType, f: FigureInputs, reason: string): string | null {
+  const check = (v: string, label: string, whole: boolean, max?: number): string | null => {
+    const t = v.trim();
+    if (!(whole ? WHOLE_RE : MONEY_RE).test(t)) {
+      return whole ? `${label}: enter a whole number (0 or more).` : `${label}: enter a number (0 or more, up to 2 decimals).`;
+    }
+    if (max != null && Number(t) > max) return `${label}: at most ${max}.`;
+    return null;
+  };
+  const fields: [string, string, boolean, number?][] = template === 'csr'
+    ? [[f.days_worked, 'Days worked', true, 31], [f.total_hours, 'Total hours', false],
+      [f.daily_pay_sum, 'Sum of daily pay', false], [f.basic_salary, 'Basic salary cap', false],
+      [f.monthly_allowance, 'Monthly allowance', false], [f.forfeited_weeks, 'Weeks forfeited', true, 4]]
+    : [[f.days_at_500, 'Days at ₱500', true, 31], [f.days_at_300, 'Days at ₱300', true, 31], [f.total_hours, 'Total hours', false]];
+  fields.push([f.earnings, 'Commission earnings', false], [f.top_sales_bonus, 'Top sales bonus', false]);
+  for (const [v, label, whole, max] of fields) {
+    const e = check(v, label, whole, max);
+    if (e) return e;
+  }
+  if (template !== 'csr' && Number(f.days_at_500) + Number(f.days_at_300) > 31) return 'Days at ₱500 and ₱300: at most 31 together.';
+  if (f.cash_bond.trim() !== '') {
+    const e = check(f.cash_bond, 'Cash bond', false);
+    if (e) return e;
+  }
+  const r = reason.trim();
+  if (r.length < 3) return 'Write the reason for the correction (at least 3 characters).';
+  if (r.length > 500) return 'The reason is over 500 characters.';
+  return null;
+}
+
+/** The recalculated figures from valid inputs. `base` keeps the commission role and top-sales tier. */
+export function figuresFromInputs(template: TemplateType, f: FigureInputs, base: Record<string, unknown>): PayslipFigures {
+  const n = (v: string) => round2(Number(v.trim()) || 0);
+  let timesheet: TimesheetFigures;
+  if (template === 'csr') {
+    const daily = n(f.daily_pay_sum);
+    const basic = n(f.basic_salary);
+    const allowance = n(f.monthly_allowance);
+    const weeks = Math.min(Math.trunc(n(f.forfeited_weeks)), 4);
+    const capped = round2(Math.min(daily, basic));
+    const paid = round2(allowance * (1 - weeks / 4));
+    timesheet = {
+      days_worked: Math.trunc(n(f.days_worked)), total_hours: n(f.total_hours), daily_pay_sum: daily, basic_salary: basic,
+      capped_gross: capped, monthly_allowance: allowance, forfeited_weeks: weeks, allowance_paid: paid, net: round2(capped + paid),
+    };
+  } else {
+    const a = Math.trunc(n(f.days_at_500));
+    const b = Math.trunc(n(f.days_at_300));
+    timesheet = { days_at_500: a, days_at_300: b, total_hours: n(f.total_hours), net: 500 * a + 300 * b };
+  }
+  const earnings = n(f.earnings);
+  const bonus = n(f.top_sales_bonus);
+  const baseTier = num(base.top_sales_tier);
+  const tier: 0 | 1 | 2 = bonus > 0 ? (baseTier === 2 ? 2 : 1) : 0;
+  const role = typeof base.role_won === 'string' && base.role_won.trim() ? base.role_won : null;
+  return buildFigures(timesheet, { role_won: role, earnings, top_sales_tier: tier, top_sales_bonus: bonus, total: round2(earnings + bonus) });
+}
+
+/** The payload of finalize_payslip (5 arguments) / correct_payslip: the figures and an optional typed bond. */
+export function editPayload(f: PayslipFigures, bond: string): Record<string, unknown> {
+  const out = finalizePayload(f);
+  if (bond.trim() !== '') out.cash_bond_held_php = round2(Number(bond.trim()));
+  return out;
+}
+
+/** PS-YYYY-MM-XXXXXX: the pay month and the first 6 hex characters of the payslip id, uppercase. */
+export function payslipNumber(p: Pick<Payslip, 'id' | 'pay_month'>): string {
+  const hex = p.id.replace(/[^0-9a-f]/gi, '').slice(0, 6).toUpperCase();
+  return `PS-${p.pay_month.slice(0, 7)}-${hex}`;
+}
+
+/** "Manually corrected (replaces payslip no. PS-…) — <reason>", or null for calculated figures. */
+export function correctionLabel(p: Pick<Payslip, 'pay_month' | 'correction_reason' | 'corrected_from_payslip_id'>): string | null {
+  if (!p.correction_reason) return null;
+  const replaced = p.corrected_from_payslip_id
+    ? ` (replaces payslip no. ${payslipNumber({ id: p.corrected_from_payslip_id, pay_month: p.pay_month })})` : '';
+  return `Manually corrected${replaced} — ${p.correction_reason}`;
 }
 
 // ── Lines (display + Excel) ─────────────────────────────────────────────────
@@ -572,6 +707,8 @@ export function payslipRefusal(code: string | undefined): string {
     case 'bonus_void': return 'This bonus is void.';
     case 'bonus_proofs_full': return 'This bonus already has 2 proofs.';
     case 'bonus_already_void': return 'This bonus is already void.';
+    case 'bond_exceeds_pay': return 'The cash bond is more than what is left to pay this month. Lower it with Edit figures.';
+    case 'bond_already_released': return 'This payslip\'s cash bond was already released on a later payslip. Correct that later payslip first.';
     default: return 'Something went wrong. Try again in a moment.';
   }
 }
@@ -589,6 +726,7 @@ export function bookFeatures(raw: Record<string, unknown>): PayslipFeatures {
     from_april: f.from_april === true,
     second_proof: f.second_proof === true,
     bonuses: f.bonuses === true,
+    edit_figures: f.edit_figures === true,
   };
 }
 
@@ -701,7 +839,9 @@ export interface BondPreview {
 /**
  * The cash bond finalize_payslip will decide, computed the same way for the draft preview:
  *   - the hire month holds floor(net pay / 2) to the centavo (net pay = earnings − advances; the odd
- *     centavo stays in the paid half), unless ticked "Final pay";
+ *     centavo stays in the paid half), unless ticked "Final pay". Once migration 20270207100000 is
+ *     applied (`salaryOnly`) it is floor(timesheet net / 2) instead — the salary only: commission and
+ *     bonuses excluded, advances not taken off first (owner 2026-10-27 15:31);
  *   - a pending bond is released on its month + 1, or earlier on a "Final pay" payslip;
  *   - a later month before the hire-month payslip exists is refused (cash_bond_order).
  * The hire month counts only from April 2026 (the first month a payslip can exist).
@@ -714,6 +854,10 @@ export function bondPreview(o: {
   firstMonthIssued: boolean | null | undefined;
   pending: BondPending | null | undefined;
   isFinalPay: boolean;
+  /** The timesheet net (salary), used when `salaryOnly`. */
+  timesheetNetPhp?: number;
+  /** features.edit_figures: the bond is half of the salary only. */
+  salaryOnly?: boolean;
 }): BondPreview {
   const none: BondPreview = { kind: 'none', held: 0, released: 0, releasedFrom: null, firstMonth: null };
   const first = o.hireDate ? o.hireDate.slice(0, 7) : null;
@@ -721,8 +865,8 @@ export function bondPreview(o: {
     return { ...none, kind: 'blocked', firstMonth: first };
   }
   if (first && first === o.monthKey && !o.isFinalPay) {
-    const net = cents(o.totalPhp) - cents(o.advancesPhp);
-    return { ...none, kind: 'held', held: Math.floor(Math.max(0, net) / 2) / 100 };
+    const base = o.salaryOnly ? cents(o.timesheetNetPhp ?? 0) : cents(o.totalPhp) - cents(o.advancesPhp);
+    return { ...none, kind: 'held', held: Math.floor(Math.max(0, base) / 2) / 100 };
   }
   const p = o.pending;
   if (p && p.pay_month.slice(0, 7) < o.monthKey && (o.monthKey === addMonths(p.pay_month.slice(0, 7), 1) || o.isFinalPay)) {
@@ -743,6 +887,8 @@ export interface PayBreakdown {
   released: number;
   /** 'YYYY-MM' of the payslip whose bond is released. */
   releasedFrom: string | null;
+  /** The held line's label: a typed bond (Edit figures) is not "50% held". */
+  heldLabel?: string;
   due: number;
 }
 
@@ -761,6 +907,7 @@ export function storedBreakdown(p: Payslip, sourceMonth: string | null = p.cash_
     held: p.cash_bond_held_php ?? 0,
     released: p.cash_bond_released_php ?? 0,
     releasedFrom: sourceMonth,
+    ...(p.correction_reason ? { heldLabel: BOND_HELD_TYPED_LABEL } : {}),
     due: amountDue(p),
   };
 }
@@ -801,6 +948,8 @@ export function draftBreakdown(totalPhp: number, advances: CashAdvance[], bond: 
 }
 
 export const BOND_HELD_LABEL = 'Less: Cash bond — first-month pay (50% held)';
+/** On a payslip with figures typed by hand the bond may be any amount (Edit figures). */
+export const BOND_HELD_TYPED_LABEL = 'Less: Cash bond held';
 export function bondReleasedLabel(fromMonth: string | null): string {
   return fromMonth ? `Cash bond released — ${longMonthLabel(fromMonth)}` : 'Cash bond released';
 }
@@ -820,7 +969,7 @@ export function breakdownLines(b: PayBreakdown, paid: boolean): Line[] {
     { label: 'Total cash advances', value: formatPeso(b.advancesTotal) },
     { label: 'Net pay', value: formatPeso(b.net) },
   );
-  if (b.held > 0) lines.push({ label: BOND_HELD_LABEL, value: formatPeso(-b.held) });
+  if (b.held > 0) lines.push({ label: b.heldLabel ?? BOND_HELD_LABEL, value: formatPeso(-b.held) });
   if (b.released > 0) lines.push({ label: bondReleasedLabel(b.releasedFrom), value: formatPeso(b.released) });
   lines.push({ label: paid ? 'Amount paid' : 'Amount due', value: formatPeso(b.due) });
   return lines;
@@ -929,6 +1078,7 @@ export function payslipRows(p: Payslip, generatedOn: string = todayTokyo(), sour
     ['Address', p.address],
     ['Date of birth', formatDate(p.date_of_birth)],
     ['Job title', p.job_title ?? '—'],
+    ...(correctionLabel(p) ? [[], [correctionLabel(p) as string]] : []),
     [],
     ['Timesheet'],
     ...timesheetLines(p.template_type, p.timesheet).map(l => [l.label, l.value]),
