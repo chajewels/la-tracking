@@ -520,7 +520,7 @@ Three tables back the staff Timesheet feature (pure-TS engine in `src/lib/timesh
     with a reason; never above pay after advances. Released ONLY on a "Final pay" payslip (migration
     20270208100000, owner 2026-10-27 17:54) — never automatically the next month.
   - `payslips.proof_not_on_file` (migration 20270209100000): Paid without a proof file, pay months before
-    June 2026 only. A cash bond held before the Hub is returned on a Final-pay payslip via Edit figures
+    October 2026 only (20270219100000; was June). A cash bond held before the Hub is returned on a Final-pay payslip via Edit figures
     (`cash_bond_released_php` with no source payslip). docs/PAYSLIPS.md "Proof not on file".
   - Proof paths are CHECKed by shape (`<uuid>/<file>`); a copied proof keeps its original folder.
   - `payslip_issue` is internal; `finalize_payslip` has 3-, 4- and 5-argument versions.
