@@ -1234,9 +1234,10 @@ Overview KPIs — docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
     manage_website_catalog, audited); a switched-off product is ALWAYS skipped by
     every fetch / apply / import path; never set it in a migration.
   - INVENTORY FETCH: TARGET = max(0, Page365 available − page365_web_holds −
-    page365_invoice_holds); match per VARIANT on the code, exact, never fuzzy;
-    apply is COMPARE-AND-SET on a 'ready' run only; prices reported, never
-    repriced; customer reviews never stored.
+    page365_invoice_holds); match per VARIANT on the code, exact; a code on 2+
+    listings → only the one whose 4 words after the code match the Hub name
+    (>= 3, no tie), else flagged + one bell (docs "DUPLICATE CODE");
+    COMPARE-AND-SET apply on 'ready' only; prices reported; reviews never stored.
   - AUTO-LAND: every NEW code with Page365 available > 0 lands as ONE Hub
     product, status DRAFT (NEVER published), origin UNKNOWN (never guessed);
     publishing is refused server-side until complete; sold-out codes never land.

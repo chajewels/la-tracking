@@ -237,6 +237,10 @@ export const SKIP_REASON: Record<string, string> = {
   not_a_hide: 'not a hide row',
   never_seen: 'never seen on Page365 under this code',
   product_gone: 'the Hub product no longer exists',
+  // 2026-10-27 — page365_inventory_finish (a2): a code on 2+ Page365 listings
+  matched_by_name: 'matched by name — this code is on 2 Page365 listings',
+  duplicate_other_piece: 'another piece with the same code — not the Hub product',
+  duplicate_unresolved: 'same code on 2 Page365 listings; the name did not tell them apart — give one its own code',
 };
 
 export function runStatusText(run: Pick<InventoryRun, 'status' | 'error'>): string {

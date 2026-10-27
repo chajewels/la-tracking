@@ -269,15 +269,40 @@ export async function readCatalogueList(get: GetJson): Promise<{ ok: true; items
   }
 }
 
+/** Twin of SQL public.page365_name_words (2026-10-27): the name upper-cased,
+ *  split on whitespace (JS `\s` covers U+3000 and NBSP), the code word removed,
+ *  the first 4 words. Used only to tell apart listings that share one code. */
+export function nameWords(name: string | null | undefined, code: string | null | undefined): string[] {
+  const c = String(code ?? "").trim().toUpperCase();
+  return String(name ?? "").toUpperCase().split(/\s+/).filter(w => w !== "" && w !== c).slice(0, 4);
+}
+
+/** Twin of SQL public.page365_name_score: how many of the reference name's 4
+ *  words after the code appear in the listing's 4 words (order ignored). */
+export function nameScore(reference: string | null | undefined, listing: string | null | undefined,
+  code: string | null | undefined): number {
+  const theirs = new Set(nameWords(listing, code));
+  return new Set(nameWords(reference, code).filter(w => theirs.has(w))).size;
+}
+
 /** Exactly one listing whose code (first word, F2) is `code`; otherwise why
- *  not. Never a prefix match, never a guess between two. */
-export function findListing(items: ListItem[], code: string): { id: number } | { why: string } {
+ *  not. Never a prefix match, never a guess between two. 2026-10-27 (owner
+ *  rule): when 2+ listings share the code and the caller passes the line's own
+ *  name, the listing whose 4 words after the code match it (score >= 3, no
+ *  tie) is the one — the same rule as page365_inventory_finish (a2). */
+export function findListing(items: ListItem[], code: string, lineName?: string | null): { id: number } | { why: string } {
   const want = firstWord(code);
   const hits = items.filter(it => want !== null && firstWord(it.name) === want);
   if (hits.length === 1) return { id: hits[0].id };
-  return hits.length === 0
-    ? { why: `no webstore listing has the code ${code}` }
-    : { why: `${hits.length} webstore listings share the code ${code}, so none was guessed` };
+  if (hits.length === 0) return { why: `no webstore listing has the code ${code}` };
+  if (lineName && lineName.trim()) {
+    const scored = hits.map(it => ({ id: it.id, score: nameScore(lineName, it.name, want) }));
+    const top = Math.max(...scored.map(s => s.score));
+    const best = scored.filter(s => s.score === top);
+    if (top >= 3 && best.length === 1) return { id: best[0].id };
+    return { why: `${hits.length} webstore listings share the code ${code} and the name did not tell them apart, so none was guessed` };
+  }
+  return { why: `${hits.length} webstore listings share the code ${code}, so none was guessed` };
 }
 
 /** Where a copied photo lives: promotions/website/page365/<pid>/<photo>-<version>.<ext>.
