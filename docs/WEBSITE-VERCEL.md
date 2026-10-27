@@ -38,7 +38,7 @@ them to `PRODUCT_FIELDS`.
 |---|---|---|
 | `GET /catalog/products` | Listing grid | `?limit=` 1–5000, default 8. Active only, newest first. |
 | `GET /catalog/products?fields=…` | Sitemap feed | Allowed fields: `slug`, `updated_at`, `sku`, `name`, `status`. Anything else is dropped, not errored. Use `?fields=slug,updated_at&limit=5000`. |
-| `GET /catalog/products/:slug` | Product page | Active only; 404 otherwise. Every product (here and in the listing) carries `name_en` / `name_ja` / `description_en` / `description_ja`; `name` remains as the English alias. |
+| `GET /catalog/products/:slug` | Product page | Active only; 404 otherwise. Every product (here and in the listing) carries `name_en` / `name_ja` / `description_en` / `description_ja`; `name` remains as the English alias. Every product also carries `collection_slugs` (2026-10-27, the "Kind" filter; `supabase/contracts/api.md` "Product shape"). |
 | `GET /catalog/collections` | The seven jewelry types | Ordered by name. Bilingual: `name_en` / `name_ja` / `description_en` / `description_ja` (`name` and `description` remain as English aliases). |
 | `GET /catalog/collections/:slug` | Collection + its active products | Ordered by the link table's `sort`. Same bilingual fields as the list. |
 | `GET /paidy/widget` | `{ enabled }` | Paidy N-Pay widget on product pages (2026-10-03, owner W3): `true` ONLY while `paidy_mode = 'on'`; `test` and `off` answer `false`. Storefront caches 1 h. |
