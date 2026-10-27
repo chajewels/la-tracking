@@ -17,6 +17,7 @@ Firebase deploy green):
 | `20270206100000_payslip_bonuses.sql` | Bonuses (Performance / KPI, Holiday / Christmas) | applied |
 | `20270207100000_payslip_edit_figures.sql` | Edit figures + cash bond on salary only | applied 2026-10-27 JST; 17 payslips unchanged |
 | `20270208100000_payslip_bond_final_pay_only.sql` | Cash bond released only on Final pay | applied 2026-10-27 JST after release #642; 24 payslips unchanged |
+| `20270209100000_payslip_proof_not_on_file_bond_returned.sql` | Proof not on file (before June 2026) + cash bond returned on Final pay | NOT applied yet |
 
 April and May 2026 timesheets loaded 2026-10-27 (207 entries); with the release, April totals ₱79,020.55 and
 May ₱74,541.48. The "NOT applied" notes in the sections below describe each migration at the time it was written.
@@ -660,6 +661,31 @@ is applied (guarded by the live md5s of `finalize_payslip` (4-argument) and `get
 - Vitest `src/test/payslip-bonuses.test.tsx` (11): the row button, count and draft total; add with 2 proofs;
   void; the draft view; a finalized payslip (no false "changed", locked); helpers; Excel; PDF rows, pages
   and note; form rules and refusals.
+
+## Proof not on file and the returned cash bond (owner 2026-10-28 00:22-00:27)
+
+Migration `supabase/migrations/20270209100000_payslip_proof_not_on_file_bond_returned.sql`. No edge function.
+
+- **Proof not on file:** the owner could not locate the payment proofs for April and May 2026. A payslip of
+  a month BEFORE June 2026 may be Paid with `proof_not_on_file = true` and no proof file; the screen, Excel
+  and PDF say "Paid outside the Hub — proof not on file". From June 2026 a proof is required (CHECK
+  `payslips_proof_not_on_file`; `payslips_paid_fields` requires a proof file OR the flag, never both).
+  `record_payslip_payment` is unchanged (always a proof). The April–May payslips are marked Paid by a
+  one-time owner-approved data step ("apply"), July–September style: paid on the 5th of the next month,
+  pesos received = amount due, yen = pesos ÷ 0.405932 rounded, `paid_by` = the owner.
+- **Cash bond returned:** on a payslip ticked **Final pay**, Edit figures shows "Cash bond returned (₱)" —
+  a bond held BEFORE the Hub, added to the amount due, shown as "Add: Cash bond returned (held before the
+  Hub)". Needs the correction reason; refused `bond_pending_in_hub` while a Hub-held bond is waiting (that
+  one is released by itself on Final pay). Stored as `cash_bond_released_php` with no source payslip; the
+  CHECK `payslips_cash_bond_released` allows that only on a final-pay payslip with a correction reason.
+- **First use:** Maria Cris de Guzman, May 2026 (her last pay): + ₱7,333.33.
+- **Database:** `payslips.proof_not_on_file` (default false); `payslips_before_write` treats it as a payment
+  field and refuses it on INSERT; `payslip_issue` reads `cash_bond_returned_php`; `correct_payslip` copies
+  the flag with the payment; `get_payslip_book` features `proof_not_on_file`, `bond_returned`. Guarded by
+  the live prosrc md5s (before_write `c04525d9…`, payslip_issue `4356ec35…`, correct_payslip `58f14c84…`,
+  get_payslip_book `67448501…`).
+- **Tests:** vitest `payslip-proof-not-on-file`; SQL harness phase 7 `test_proof_not_on_file.sql` (G1 shape
+  + rows unchanged, G2 returned bond, G3 `bond_pending_in_hub`, G4 the flag's CHECKs, G5 correct keeps it).
 
 ## Cash bond release: Final pay only (owner 2026-10-27 17:54)
 
