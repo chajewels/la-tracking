@@ -170,7 +170,11 @@ none — never an error.
 ### GET /reviews?product=<slug>&limit=<n<=50>&lang=<en|ja>
 Approved product reviews only (`status = 'approved'`), newest approved first
 (`reviewed_at DESC`); `limit` defaults to 20, capped at 50; `product=<slug>`
-narrows to one active product (an unknown or inactive slug is an empty result).
+narrows to one active product (an unknown or inactive slug is an empty result):
+the reviews linked to it in `product_review_products` — every product of the
+review's order, linked automatically on approval (owner 2026-10-27). One review
+can appear under several products; without `product` every approved review is
+returned (Customer stories).
 Response `{ reviews, count, average }` — `count` and `average` (one decimal,
 `null` when there is no review) cover the same filter, not just the page. Each
 review: `{ id, rating, body, display_name, piece_name, product, photos,

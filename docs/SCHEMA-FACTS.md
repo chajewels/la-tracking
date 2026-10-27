@@ -1597,6 +1597,22 @@ migrations; the storage policies below are live (checked 2026-10-18).
   approved ↔ hidden. `upload_paths` = private bucket paths; `photo_urls` = public
   copies, filled only on approval, emptied on hide. `body_ja` required to approve;
   `body_en` only when `original_language = 'ja'`. Public API returns approved only.
+- `product_review_products` (migration 20270217100000, owner 2026-10-27) —
+  EVERY product a review belongs to (PK review_id + website_product_id, both
+  ON DELETE CASCADE). Owner rule: a review approved for Customer stories also
+  lands on the page of every product of that order; no staff field decides it
+  (the Review link box's "Website piece (optional)" picker is removed).
+  Filled ONLY by `link_review_products(review)` (SECURITY DEFINER, EXECUTE
+  revoked from PUBLIC/anon/authenticated) from trigger
+  `trg_product_reviews_link_products` when a review becomes approved, and once
+  for the reviews approved before: the order's item lines (cash_order_items /
+  layaway_account_items) → `website_product_id`, else the variant's product,
+  else the website product whose `sku` equals the line's code (trimmed,
+  case-insensitive); plus any `website_product_id` on the review or invite.
+  Additive and idempotent; never deletes a link. An order with no product lines
+  (most hand-made Hub orders) links to nothing, so its review shows in Customer
+  stories only. Staff may read the table (Website → Reviews shows one label per
+  linked product); GET /reviews?product=<slug> reads it.
 - `message_lines` — random Copy Message lines (message_type, part
   opening|closing|full). Seeded: 8 'review_invite' / 'full' lines with
   {first_name}, {piece}, {link}.
