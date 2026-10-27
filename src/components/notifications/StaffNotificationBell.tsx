@@ -92,6 +92,7 @@ function iconForType(type: string) {
       return <Wrench className="h-3.5 w-3.5 text-sky-400" />;
     case 'page365_stock_flag':
     case 'page365_inventory_run_failed':
+    case 'page365_duplicate_code':
     case 'media_cutout_cap_near':
       return <AlertTriangle className="h-3.5 w-3.5 text-warning" />;
     case 'page365_inventory_auto_applied':
@@ -206,7 +207,7 @@ export default function StaffNotificationBell() {
     // A Page365 stock flag is dealt with on Website → Page365 stock (resolve
     // with a note), not on the order, so this comes before the account branch.
     if (n.type === 'page365_stock_flag' || n.type === 'page365_inventory_run_failed' || n.type === 'page365_inventory_auto_applied'
-        || n.type === 'page365_inventory_hidden') {
+        || n.type === 'page365_inventory_hidden' || n.type === 'page365_duplicate_code') {
       navigate(`${ROUTES.WEBSITE}?tab=page365-stock`);
       return;
     }

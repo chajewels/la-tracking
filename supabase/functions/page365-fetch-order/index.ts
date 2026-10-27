@@ -516,7 +516,8 @@ Deno.serve(async (req) => {
           if (!list.ok) {
             tried.push(`catalogue could not be read (${list.why})`);
           } else {
-            const hit = findListing(list.items, sku);
+            // 2026-10-27: two listings with the same code are told apart by the line's own name.
+            const hit = findListing(list.items, sku, items[n].name);
             if ("why" in hit) tried.push(hit.why);
             else pid = String(hit.id);
           }

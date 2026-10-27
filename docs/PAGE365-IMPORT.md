@@ -1021,6 +1021,62 @@ Moved out of CLAUDE.md on 2026-10-02 to keep it under 100 KB. Text is verbatim (
   シルバー; product metal only, not in the upload template); "0.750ct" is
   no stamp.
 
+## DUPLICATE CODE — a code on 2+ Page365 listings is told apart by the name (added 2026-10-27)
+
+Migration `20270215100000_page365_duplicate_code_by_name.sql` (applied with the owner's
+approval after release; **no stock, product or setting changes** — its self-check proves it).
+Local SQL tests: `docs/sql/20270215_page365_duplicate_code_local_tests.sql` (46 checks).
+Unit and pins: `src/test/page365-duplicate-code.test.tsx`.
+
+**Why.** N5245 went to 0 in Page365 at 23 Oct 00:32 JST but stayed 1 in the Hub and on the
+website. Page365 lists two different pieces coded N5245 (82590102 PT850/950 Square Halo — the
+Hub's piece; 80537105 K18 Ruby Venetian). `page365_inventory_finish` step (a) flagged every row
+of a code seen twice `duplicate_in_page365` and skipped it: never matched, never proposed, never
+auto-applied, never hidden (the code is in the read, so not Hub-only), and no bell — silent.
+N1045 had the same problem until its pearl listing was renamed in Page365.
+
+**Owner rule (2026-10-27).** When 2–3 listings start with the same code, counter-check the next
+words of the description; the Hub name was copied from Page365, so it tells the pieces apart.
+
+**The rule (SQL and TS twins).**
+- `page365_name_words(name, code)` / `nameWords`: the name upper-cased, split on whitespace
+  (incl. U+3000 / NBSP), the code word removed, the first 4 words.
+- `page365_name_score(hub, listing, code)` / `nameScore`: how many of the Hub's 4 words appear in
+  the listing's 4 words, order ignored (0–4).
+- Follow a listing only when it alone scores **≥ 3**. ≥ 3 of 4, order-free, tolerates one staff
+  edit to the Hub name: on the full read of 27 Oct, 443 of 450 matched products had the same 4
+  words; the 7 others had one word edited in the Hub (Sapp → Sapphire, 750YG/WG → 750 YG/WG, …).
+- `page365_listing_text(item)`: the listing text the Hub name was copied from — the same choice
+  `page365_inventory_land_run` makes (a multi-variant listing's variant name when it has 2+
+  words, else the product name).
+
+**Step (a2) in `page365_inventory_finish`** (every other line is the previous live body):
+- Only a duplicated code with exactly ONE Hub product (`page365_match_line` gives a product).
+- Winner → `match_result 'pending'`, `result_note 'matched_by_name'`, then step (b) matches it like
+  any other row: proposal, scheduled auto-apply (decreases and increases), photos, hide-follow.
+  The other listings stay flagged, `result_note 'duplicate_other_piece'`.
+- No clear winner (tie, low score, variant-only code like "DV1 12.0mm") → all flagged,
+  `result_note 'duplicate_unresolved'`, and ONE `staff_notifications` bell
+  `page365_duplicate_code` ("Page365: same code on two listings", metadata: code, product, the
+  listings with name and quantity) — only from a COMPLETE read, and only when the previous ready
+  read did not already have that code unresolved. It rings again only if the code was resolved
+  in between and then collided again.
+- A duplicated code with no Hub product stays flagged, no note, no bell (nothing on the website
+  depends on it), and never lands.
+- "Don't sync with Page365" is unchanged: a resolved winner becomes `not_synced` and is never
+  proposed.
+
+**Invoice import.** `findListing(items, code, lineName?)` (`_shared/page365-inventory.ts`) — used
+only by `page365-fetch-order` to find a missing photo for a line without a product id — applies
+the same rule to the catalogue list names when the line's own name is passed. Without a name, or
+with a tie/weak match, it answers "…share the code…, none was guessed" as before.
+
+**Hub.** The bell is a warning and opens Website → Page365 stock. Review rows explain the three
+notes (`SKIP_REASON` in `src/lib/page365-inventory.ts`).
+
+**Fix for an unresolved bell.** Give one of the Page365 listings its own code (or correct the Hub
+name so it matches its listing). The next read resolves it.
+
 ## Void sync — Page365 voided → Hub cancel, renewed → Hub restore (added 2026-10-21)
 
 Owner decisions 2026-10-21; plan in the project doc

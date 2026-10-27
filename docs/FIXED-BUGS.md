@@ -6509,3 +6509,16 @@ KNOWN LIMIT (owner chose to keep it, 2026-10-27): loyalty_transactions is immuta
 history cannot be deleted — today only test orders (TEST-900059, TEST-004); 0 deletable real orders have
 loyalty history. Cancel those instead. Do not loosen the loyalty guard to delete test data.
 
+
+## Page365 stock did not follow a code that is on two Page365 listings (2026-10-27)
+Owner report: N5245 was 0 in Page365 (from 23 Oct 00:32 JST) but stayed qty 1 in the Hub and on the
+website. Cause: Page365 lists two different pieces starting with N5245 (82590102 PT850/950 Square Halo =
+the Hub's piece; 80537105 K18 Ruby Venetian). page365_inventory_finish step (a) flagged every row of a code
+seen twice as duplicate_in_page365 and skipped it — never matched, proposed, auto-applied or hidden, and no
+bell. Schedule, cron, auto-apply switch and website wiring were all verified working (~140 complete reads a
+day). Same for N1045 (owner fixed it by hand; its pearl listing was renamed in Page365 17:37 JST 27 Oct).
+Fix (owner rule: counter-check the next words of the description): migration
+20270215100000_page365_duplicate_code_by_name.sql (base live md5 e4476249…), new step (a2) — the listing
+whose 4 words after the code match the Hub name (>= 3 of 4, no tie) is matched normally; otherwise flagged +
+one bell page365_duplicate_code. findListing in page365-fetch-order uses the same rule for invoice photos.
+Docs: docs/PAGE365-IMPORT.md "DUPLICATE CODE".
