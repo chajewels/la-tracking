@@ -38,6 +38,7 @@ import {
 } from "../_shared/checkout-choice.ts";
 import { attachHeroCutouts, attachHeroPlaces, handleHeroCutouts } from "../_shared/hero-cutouts.ts";
 import { newestFirst } from "../_shared/catalog-order.ts";
+import { listReceipts, receiptPdf, updateReceiptDetails, verifyReceipt } from "../_shared/website-receipts.ts";
 import { COMMENT_DAILY_LIMIT, cleanCommentBody, commentsOpen, isCommentLang, toPublicComment } from "../_shared/post-comments.ts";
 import { webLayawaySubmissionIsDeposit, type DepositPaymentRow, type PendingSubmissionRow } from "../_shared/layaway-deposit-rules.ts";
 import { INVALID_PROOF_URL, isOwnProofUrl } from "../_shared/proof-url.ts";
@@ -2500,6 +2501,33 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       const result = (data ?? {}) as AnyRec;
       if (result.error) return jsonResponse({ error: result.error }, 400);
       return jsonResponse(result);
+    }
+
+    // ============================================== website receipts (領収書)
+    // docs/RECEIPTS.md; supabase/contracts/api.md "Receipts". Every write is a
+    // service-role RPC; the layaway filter for the Japanese site is the
+    // storefront's (layawayOffered), the Hub returns every receipt she owns.
+    if (segments[0] === "me" && segments[1] === "receipts") {
+      const who = await requireCustomerUser(req, supabase);
+      if (who instanceof Response) return who;
+      const customer = await customerForAuthUser(supabase, who.id);
+      if (!customer) return jsonResponse({ error: "not_linked" }, 404);
+      const customerId = String(customer.id);
+      if (req.method === "GET" && !segments[2]) return await listReceipts(supabase, customerId);
+      if (req.method === "PATCH" && segments[2] && !segments[3]) {
+        const body = (await req.json().catch(() => ({}))) as AnyRec;
+        return await updateReceiptDetails(supabase, customerId, segments[2], body);
+      }
+      if (req.method === "GET" && segments[2] && segments[3] === "pdf" && !segments[4]) {
+        return await receiptPdf(supabase, customerId, segments[2], url.searchParams.get("lang"));
+      }
+      return notFound();
+    }
+
+    // GET /receipts/verify?code=… — public (x-api-key only): the storefront's
+    // /receipts/verify page calls it from its server. Minimal answer only.
+    if (req.method === "GET" && segments[0] === "receipts" && segments[1] === "verify" && !segments[2]) {
+      return await verifyReceipt(supabase, req, url.searchParams.get("code"));
     }
 
     // ======================================================= checkout (step 2)
