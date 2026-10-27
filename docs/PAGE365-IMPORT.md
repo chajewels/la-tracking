@@ -31,8 +31,18 @@
   basis of a stored figure: it reads `localStorage` with a hardcoded 0.42
   fallback, so it is per-browser and not auditable.
 
-  A RESIZE FEE IS A SERVICE, NOT A PRODUCT LINE. The parser flags it
-  `kind: 'service'`. A service belongs in `account_services` (already inside
+  EVERY SERVICE LINE IS A SERVICE, NOT A PRODUCT LINE (widened from "a resize
+  fee" on 2026-10-27, owner: "left out all kinds of services"). The parser flags
+  it `kind: 'service'` through ONE rule, `_shared/page365-service-lines.ts`:
+  resize / sizing, certificate, polish(ing), colour change, engraving, repair,
+  appraisal, (re-)plating, cleaning, service / labour fee. Guard: a line whose
+  FIRST word contains a digit (a product code — N4032, E8JS, 7DLY) is always a
+  product, so "R2117 Ring … with GIA Certificate" stays a product; adjectives
+  ("polished", "engraved") do not count. Before the widening, "Certificate Mini
+  Booklet (A5 Size)" (¥880) was booked as a product on 19855, 19857, 19869 and
+  19901 — no customer's points changed (¥880 never crossed a ¥10,000 step).
+  Tested against every line name ever imported (src/test/page365-service-lines.test.ts).
+  Staff can still switch a line between Product and Service on the review screen. A service belongs in `account_services` (already inside
   `total_amount`) and must never reach `loyalty_jpy_amount`, which is the
   product amount alone — booking one as a product inflates the customer's tier
   progress with a fee paid for labour.
