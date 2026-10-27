@@ -4489,7 +4489,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
 
       let listQ = supabase
         .from("product_reviews")
-        .select("id, rating, body_original, body_en, body_ja, original_language, display_name, piece_name, photo_urls, reviewed_at, product:website_products(slug, name, status), customer:customers(location, city, country)")
+        .select("id, rating, body_original, body_en, body_ja, original_language, display_name, piece_name, photo_urls, reviewed_at, product:website_products!product_reviews_website_product_id_fkey(slug, name, status), customer:customers(location, city, country)")
         .eq("status", "approved")
         .order("reviewed_at", { ascending: false })
         .limit(limit);
