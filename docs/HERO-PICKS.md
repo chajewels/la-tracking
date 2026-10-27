@@ -100,7 +100,9 @@ Owner decisions (2026-09-29):
 - b. Untick then tick again = **back of the queue** (a new `picked_at`).
 - c. Carry-over ticks share one `picked_at`; ties are broken by the category's
   **current Hub order** (`website_category_products.sort_order`, then product
-  name — the order `GET /catalog/categories/:slug` returns).
+  name, inside `hero_lineup_rows`). Since 2026-10-27 that is NOT the order
+  `GET /catalog/categories/:slug` lists products in (newest first); the hero's
+  tie-break did not change.
 - d. A sold piece back in stock **keeps its original place** (it may move a
   waiting piece back to waiting).
 
