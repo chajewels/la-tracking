@@ -11050,6 +11050,153 @@ export type Database = {
         }
         Relationships: []
       }
+      website_receipt_issues: {
+        Row: {
+          addressee: string | null
+          id: string
+          is_reissue: boolean
+          issue_no: number
+          issued_at: string
+          language: string
+          purpose: string
+          receipt_id: string
+        }
+        Insert: {
+          addressee?: string | null
+          id?: string
+          is_reissue: boolean
+          issue_no: number
+          issued_at?: string
+          language: string
+          purpose: string
+          receipt_id: string
+        }
+        Update: {
+          addressee?: string | null
+          id?: string
+          is_reissue?: boolean
+          issue_no?: number
+          issued_at?: string
+          language?: string
+          purpose?: string
+          receipt_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "website_receipt_issues_receipt_id_fkey"
+            columns: ["receipt_id"]
+            isOneToOne: false
+            referencedRelation: "website_receipts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      website_receipts: {
+        Row: {
+          addressee: string | null
+          cancel_reason: string | null
+          cancelled_at: string | null
+          cash_order_id: string | null
+          created_at: string
+          currency: Database["public"]["Enums"]["account_currency"]
+          customer_id: string
+          email_attempts: number
+          email_last_error: string | null
+          email_sent_at: string | null
+          fx_rate_used: number | null
+          id: string
+          issued_at: string
+          layaway_account_id: string | null
+          lines: Json
+          order_number: string
+          penalty_total: number
+          purpose: string
+          receipt_number: string
+          status: string
+          subtotal: number
+          tax_amount: number
+          taxable_total: number
+          total_paid: number
+          verify_code: string
+        }
+        Insert: {
+          addressee?: string | null
+          cancel_reason?: string | null
+          cancelled_at?: string | null
+          cash_order_id?: string | null
+          created_at?: string
+          currency: Database["public"]["Enums"]["account_currency"]
+          customer_id: string
+          email_attempts?: number
+          email_last_error?: string | null
+          email_sent_at?: string | null
+          fx_rate_used?: number | null
+          id?: string
+          issued_at?: string
+          layaway_account_id?: string | null
+          lines: Json
+          order_number: string
+          penalty_total?: number
+          purpose?: string
+          receipt_number: string
+          status?: string
+          subtotal: number
+          tax_amount: number
+          taxable_total: number
+          total_paid: number
+          verify_code: string
+        }
+        Update: {
+          addressee?: string | null
+          cancel_reason?: string | null
+          cancelled_at?: string | null
+          cash_order_id?: string | null
+          created_at?: string
+          currency?: Database["public"]["Enums"]["account_currency"]
+          customer_id?: string
+          email_attempts?: number
+          email_last_error?: string | null
+          email_sent_at?: string | null
+          fx_rate_used?: number | null
+          id?: string
+          issued_at?: string
+          layaway_account_id?: string | null
+          lines?: Json
+          order_number?: string
+          penalty_total?: number
+          purpose?: string
+          receipt_number?: string
+          status?: string
+          subtotal?: number
+          tax_amount?: number
+          taxable_total?: number
+          total_paid?: number
+          verify_code?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "website_receipts_cash_order_id_fkey"
+            columns: ["cash_order_id"]
+            isOneToOne: false
+            referencedRelation: "cash_orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "website_receipts_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "website_receipts_layaway_account_id_fkey"
+            columns: ["layaway_account_id"]
+            isOneToOne: false
+            referencedRelation: "layaway_accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       website_settings: {
         Row: {
           key: string
@@ -12115,6 +12262,10 @@ export type Database = {
       }
       finish_web_payment_reminder: {
         Args: { p_detail: string; p_id: string; p_status: string }
+        Returns: undefined
+      }
+      finish_website_receipt_email: {
+        Args: { p_error: string; p_id: string; p_sent: boolean }
         Returns: undefined
       }
       generate_recurring_now: {
@@ -13254,6 +13405,14 @@ export type Database = {
         }
         Returns: Json
       }
+      record_website_receipt_issue: {
+        Args: {
+          p_customer_id: string
+          p_language: string
+          p_receipt_id: string
+        }
+        Returns: Json
+      }
       recurring_first_due: {
         Args: { p_due_day: number; p_starts_on: string }
         Returns: string
@@ -13623,6 +13782,10 @@ export type Database = {
         }
         Returns: Json
       }
+      set_web_receipts_mode: {
+        Args: { p_expected_mode?: string; p_mode: string }
+        Returns: Json
+      }
       set_website_coupon_active: {
         Args: { p_active: boolean; p_id: string }
         Returns: Json
@@ -13753,6 +13916,15 @@ export type Database = {
         Args: { p_user_email: string; p_user_id: string; p_waiver_id: string }
         Returns: Json
       }
+      update_website_receipt_details: {
+        Args: {
+          p_addressee: string
+          p_customer_id: string
+          p_purpose: string
+          p_receipt_id: string
+        }
+        Returns: Json
+      }
       upsert_customer_addresses: {
         Args: { p_addresses: Json; p_customer_id: string }
         Returns: Json
@@ -13762,6 +13934,7 @@ export type Database = {
       upsert_recurring_bill: { Args: { p: Json }; Returns: Json }
       upsert_website_coupon: { Args: { p: Json }; Returns: Json }
       validate_bulk_import: { Args: { p_rows: Json }; Returns: Json }
+      verify_website_receipt: { Args: { p_code: string }; Returns: Json }
       void_bank_import: {
         Args: { p_import: string; p_reason: string }
         Returns: Json
@@ -13847,6 +14020,16 @@ export type Database = {
         }[]
       }
       web_payment_reminder_mode: { Args: never; Returns: string }
+      web_receipt_snapshot: {
+        Args: { p_id: string; p_kind: string }
+        Returns: Json
+      }
+      web_receipt_sync: {
+        Args: { p_id: string; p_kind: string }
+        Returns: Json
+      }
+      web_receipts_live_at: { Args: never; Returns: string }
+      web_receipts_mode: { Args: never; Returns: string }
       web_reservation_expiring_bells: { Args: never; Returns: number }
       website_coupon_quote: {
         Args: {
@@ -13874,6 +14057,35 @@ export type Database = {
       website_publish_products: {
         Args: { p_product_ids: string[] }
         Returns: Json
+      }
+      website_receipt_email_candidates: {
+        Args: { p_limit: number }
+        Returns: {
+          attempts: number
+          customer_id: string
+          id: string
+          kind: string
+          order_id: string
+          receipt_number: string
+        }[]
+      }
+      website_receipts_for_customer: {
+        Args: { p_customer_id: string }
+        Returns: {
+          addressee: string
+          cancelled_at: string
+          currency: string
+          id: string
+          issue_count: number
+          issued_at: string
+          kind: string
+          order_id: string
+          order_number: string
+          purpose: string
+          receipt_number: string
+          status: string
+          total_paid: number
+        }[]
       }
       website_set_cart: {
         Args: {
