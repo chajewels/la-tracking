@@ -477,6 +477,41 @@ it must belong to the signed-in customer (404 otherwise). Inserts with status
 
 See the function source for exact request/response shapes of these routes.
 
+## Receipts (領収書) — website orders only (2026-10-27, docs/RECEIPTS.md)
+
+One final receipt per WEBSITE order (cash order or plan, `source_channel = 'web'`), issued by the Hub
+when the order is fully paid, while the Hub switch `web_receipts_mode` allows it. A receipt is never
+edited: a change to the order cancels it and a new number is issued. The Hub returns every receipt
+the customer owns, plans included — **the storefront must hide `kind: "layaway"` receipts on the
+Japanese site** (`layawayOffered`). The PDF itself carries no layaway wording.
+
+### GET /me/receipts (customer JWT)
+`{ receipts: [{ id, receipt_number, kind: "cash"|"layaway", order_id, order_number, status:
+"issued"|"cancelled", currency: "JPY"|"PHP", total, issued_at, cancelled_at, addressee, purpose,
+downloads }] }`, newest first. `total` = the money received (tax included). `order_id` is the
+`/orders/:id` or `/layaway/:id` id.
+
+### PATCH /me/receipts/:id (customer JWT)
+Body `{ addressee?, purpose? }`. Trimmed; `addressee` 0–60 characters (empty = none), `purpose`
+0–40 (empty = お品代として); no control characters. Only while `issued`.
+→ `{ ok: true, addressee, purpose }`. Errors: 404 `not_found` (not hers), 409 `receipt_cancelled`,
+400 `addressee_too_long` | `purpose_too_long` | `invalid_characters`.
+
+### GET /me/receipts/:id/pdf?lang=ja|en (customer JWT)
+`application/pdf` (attachment, `CJR-YYYY-NNNNNN.pdf`; `-reissue` from the second download),
+`Cache-Control: no-store`, header `X-Receipt-Issue-No`. Japanese by default. Every call records a
+download; from the second on the PDF is marked 再発行 / REISSUED. Errors: 404 `not_found`,
+409 `receipt_cancelled`, 503 `receipt_unavailable` (the Hub's receipt font is not uploaded; nothing
+was recorded). The storefront proxies the bytes from its server; the PDF is ~3.4 MB.
+
+### GET /receipts/verify?code=… (x-api-key only — no customer JWT)
+For the storefront's public `/receipts/verify` page (the QR on every receipt opens
+`https://chajewelsjp.com/receipts/verify?code=<40 hex>`), called from its server; forward the
+visitor's IP in `x-forwarded-for`.
+→ `{ receipt_number, issued_at, total, currency, status: "valid"|"cancelled" }` — nothing else
+(no name, address or items). 404 `not_found` for an unknown or malformed code. 429 `rate_limited`
+after 30 lookups per IP per 10 minutes (per Hub instance).
+
 ## Newsletter campaigns (staff JWT + `manage_website_content`)
 
 These are Hub endpoints, not storefront routes: they take a staff session, not
