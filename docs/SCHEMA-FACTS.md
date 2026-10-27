@@ -505,6 +505,13 @@ Three tables back the staff Timesheet feature (pure-TS engine in `src/lib/timesh
     `attach_payslip_proof`.
   - `record_payslip_payment` has 5- and 6-argument versions (the 5-argument one is a wrapper).
   - Full text: docs/PAYSLIPS.md "Second proof file".
+- **Bonuses (migration 20270206100000):**
+  - `payslip_bonuses` (`performance | holiday`; up to 2 proofs at `bonuses/<id>/<file>`) is locked once the
+    month has a non-void payslip.
+  - `payslips.total_php = timesheet_net_php + commission_php + bonus_php`, and `payslips.bonuses` holds the
+    frozen snapshot.
+  - `finalize_payslip` sums active bonuses on the server.
+  - Full text: docs/PAYSLIPS.md "Bonuses".
 - Full text: docs/PAYSLIPS.md "Cash advances, employee ID, cash bond and April–May";
   docs/TIMESHEET-SPEC.md "Pay settings history".
 

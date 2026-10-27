@@ -5,7 +5,7 @@
  */
 import { ADDRESS_EN, CORPORATE_NO, EMAIL, LEGAL_NAME_JA, NAME_EN, PHONE, REPRESENTATIVE } from '@/lib/companyInfo';
 import {
-  BOND_HELD_LABEL, STATUS_LABEL, advanceLabel, amountDue, bondReleasedLabel, differenceLabel, figuresChanged, formatDate,
+  BOND_HELD_LABEL, STATUS_LABEL, advanceLabel, amountDue, bonusCategoryLabel, bondReleasedLabel, differenceLabel, figuresChanged, formatDate,
   formatDateDD, formatPeso, formatYen, longMonthLabel, round2, storedBreakdown,
   type Payslip,
 } from '@/lib/payslips';
@@ -170,7 +170,7 @@ function money(label: string, details: string, amount: number): EarningsRow {
 }
 
 /** The earnings table from the STORED timesheet / commission breakdowns. */
-export function earningsRows(p: Pick<Payslip, 'template_type' | 'timesheet' | 'commission'>): EarningsRow[] {
+export function earningsRows(p: Pick<Payslip, 'template_type' | 'timesheet' | 'commission' | 'bonuses'>): EarningsRow[] {
   const t = p.timesheet;
   const rows: EarningsRow[] = [];
   if (p.template_type === 'csr') {
@@ -200,6 +200,10 @@ export function earningsRows(p: Pick<Payslip, 'template_type' | 'timesheet' | 'c
     rows.push(money('Commission', `Role won: ${role}`, num(c.earnings)));
     const tier = num(c.top_sales_tier);
     if (tier > 0) rows.push(money(`Top Sales ${tier} bonus`, '', num(c.top_sales_bonus)));
+  }
+  // Bonuses typed per month (owner 2026-10-27): earnings, in the frozen order.
+  for (const b of p.bonuses ?? []) {
+    rows.push(money(bonusCategoryLabel(b.category), `${formatDateDD(b.bonus_date)} · ${b.note}`, b.amount_php));
   }
   return rows;
 }
@@ -276,6 +280,14 @@ export function advanceProofCaption(advanceDate: string, fileName: string): stri
   return `Cha Jewels Co., Ltd. — Cash advance — ${formatDateDD(advanceDate)} — ${fileName}`;
 }
 
+export function bonusProofCaption(category: string, bonusDate: string, fileName: string): string {
+  return `Cha Jewels Co., Ltd. — ${bonusCategoryLabel(category)} — ${formatDateDD(bonusDate)} — ${fileName}`;
+}
+
+export function bonusProofFallback(fileName: string): string {
+  return `Bonus proof could not be included — open it from the Hub: ${fileName}`;
+}
+
 export function advanceProofFallback(fileName: string): string {
   return `Cash advance proof could not be included — open it from the Hub: ${fileName}`;
 }
@@ -313,10 +325,18 @@ export function paymentBlock(p: Payslip): PaymentBlock {
  */
 export function paymentNote(
   p: Payslip, proofIncluded: boolean | null, advancePages: PageRange | null = null, proofPages: PageRange | null = null,
+  bonusPages: PageRange | null = null,
 ): string | null {
-  const advances = advancePages ? `cash advance proofs ${pagesText(advancePages)}` : null;
+  const parts = [
+    ...(advancePages ? [`cash advance proofs ${pagesText(advancePages)}`] : []),
+    ...(bonusPages ? [`bonus proofs ${pagesText(bonusPages)}`] : []),
+  ];
+  const advances = parts.length ? parts.join(', ') : null;
   if (p.status !== 'paid' || p.jpy_sent == null || p.php_received == null) {
-    return advances ? `Cash advance proofs attached (${pagesText(advancePages as PageRange)})` : null;
+    if (!advancePages && !bonusPages) return null;
+    if (advancePages && !bonusPages) return `Cash advance proofs attached (${pagesText(advancePages)})`;
+    if (bonusPages && !advancePages) return `Bonus proofs attached (${pagesText(bonusPages)})`;
+    return `Proofs attached: ${advances}`;
   }
   const proof = proofIncluded === false
     ? 'Proof of payment could not be included'

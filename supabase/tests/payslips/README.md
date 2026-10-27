@@ -24,4 +24,16 @@ storage rules; the cash bond; corrections from April; audit. Last run 2026-10-27
 - advance proof slots 1 and 2 (never 3), and the finalize snapshot;
 - audit.
 
-Last run 2026-10-27 on PostgreSQL 16: all groups in all three phases passed.
+**Phase 4** (migration 20270206100000; added 2026-10-27): on the Phase 3 database, `pre6_*` snapshots, then
+20270206 applied twice, then `test_bonuses.sql` (B1–B9). It checks:
+- existing rows are unchanged, and the total rule now includes bonuses;
+- add, every refusal, and void;
+- proof slots;
+- the gate;
+- finalize with bonuses, including void + re-issue;
+- the cash bond including bonuses;
+- advances covered by bonuses;
+- direct writes;
+- audit.
+
+Last run 2026-10-27 on PostgreSQL 16: all groups in all four phases passed.

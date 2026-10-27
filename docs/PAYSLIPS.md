@@ -549,3 +549,96 @@ migration's version).
   - S7: audit.
 - Vitest `src/test/payslip-second-proof.test.tsx` (16): Record payment with 1 or 2 files and before the
   update, Add 2nd proof, two-file view, advance slots, helpers, refusals, Excel, PDF pages and fallback.
+
+## Bonuses (owner 2026-10-27 14:04)
+
+Migration `20270206100000_payslip_bonuses.sql`.
+
+### Owner decisions (locked)
+
+- **Categories:**
+  - **Performance / KPI bonus** (`performance`)
+  - **Holiday / Christmas bonus** (`holiday`)
+
+  The commission **Top Sales bonus** stays as it is: automatic, from the commission.
+- **Entry:** typed per month, like cash advances. Admin or Brenda enter each bonus on the Payslips tab before
+  Finalize, with a category, date, amount and note. A month can have several. A mistake is voided with a
+  reason, never deleted. Bonuses lock once the month's payslip is finalized.
+- **Earnings:** bonuses are earnings. Total earnings = timesheet pay + commission + bonuses.
+  Net pay = total earnings − cash advances.
+- **Cash bond:** a new hire's first-month cash bond is half of that net pay, so it **includes** bonuses.
+- **Proof:** each bonus has up to **2** optional proof or approval files (photo or PDF). They are added to the
+  payslip PDF.
+
+### Database
+
+- **`payslip_bonuses`:**
+  - Columns: `category`, `bonus_date` (2026-04-01 .. today Japan time), `amount_php` (> 0, 2 decimals),
+    `note` (1–200), `proof_path`/`proof_path_2` (`bonuses/<id>/<file>`), `active | void`, `payslip_id`.
+  - The before-write trigger allows only a proof slot being filled, void, or linking to a payslip. DELETE
+    and TRUNCATE are refused.
+  - Read RLS = `can_manage_payslips`; there are no write policies.
+- **`payslips`:**
+  - New columns: `bonuses` (the frozen snapshot) and `bonus_php`.
+  - **`payslips_total` is replaced** with `total_php = timesheet_net_php + commission_php + bonus_php`.
+    Every existing row has `bonus_php = 0`.
+  - `payslips_before_write` is unchanged: the new columns are snapshot columns, so they stay frozen.
+- **RPCs:**
+  - `add_payslip_bonus(p_user_id, p_pay_month, p_bonus_date, p_category, p_amount_php, p_note)`.
+  - `attach_payslip_bonus_proof(p_id, p_path)`: slot 1, then slot 2.
+  - `void_payslip_bonus(p_id, p_reason)`.
+  - Refusals:
+    - adding: `invalid_bonus_date`, `invalid_category`, `bonus_note_required`;
+    - month and status: `bonus_month_finalized`, `bonus_void`, `bonus_already_void`;
+    - proofs: `bonus_proofs_full`;
+    - the same codes as cash advances for the gate, amount, note length, month and proof path.
+  - Audit rows carry no amounts or notes.
+- **`finalize_payslip` (4-argument):**
+  - It sums the month's **active** bonuses on the server. The client payload still carries timesheet +
+    commission only.
+  - It stores `total_php` = payload total + bonuses, `bonus_php` and the snapshot, and links the bonuses.
+  - `advance_exceeds_pay` and the first-month cash bond use earnings including bonuses.
+- **`get_payslip_book`:** the month's `bonuses` (all statuses) and `features.bonuses`.
+- **Storage:** the policy "Payslip managers can upload bonus proofs" allows an upload while the bonus is
+  active, a slot is free and the month is open.
+
+### Screens, Excel, PDF
+
+- **Payslips tab:**
+  - Each row has a **Bonuses** button with the active count.
+  - The dialog has a list (Open proof 1/2, Attach proof / Attach 2nd proof, Void with a reason) and an
+    **Add bonus** form: category, date, amount, note, proof and 2nd proof.
+  - A row's draft total includes its active bonuses.
+- **Payslip view:**
+  - Each bonus appears as "Add: Performance / KPI bonus — 30 Sep 2026 · note" in "Bonuses, deductions and
+    cash bond", and Total earnings includes it.
+  - The "figures changed" warning compares live timesheet + commission with `total_php − bonus_php`
+    (`storedFiguresTotal`).
+- **Excel:** the same "Add: …" rows.
+- **PDF:**
+  - Each bonus is an earnings row (category, then "date · note", then the amount).
+  - Bonus proofs follow the cash advance proofs, captioned with the category and date.
+  - The page note names "bonus proofs pages x–y".
+  - A file that cannot be included gets a fallback page and a warning.
+
+### Release order
+
+Frontend first: the Bonuses button appears only when the book reports `features.bonuses`. Then the migration
+is applied (guarded by the live md5s of `finalize_payslip` (4-argument) and `get_payslip_book`).
+
+### Tests
+
+- SQL harness phase 4 (`supabase/tests/payslips/test_bonuses.sql`, after phase 3 and the `pre6_*` snapshots;
+  the migration applied twice), groups B1–B9:
+  - B1: shape, with existing rows unchanged;
+  - B2: add, every refusal, and void;
+  - B3: proof slots, paths and storage;
+  - B4: the gate and RLS;
+  - B5: finalize with bonuses, the month lock, and void + re-issue relinking;
+  - B6: the cash bond including bonuses (odd centavo);
+  - B7: advances covered by bonuses;
+  - B8: direct writes;
+  - B9: audit.
+- Vitest `src/test/payslip-bonuses.test.tsx` (11): the row button, count and draft total; add with 2 proofs;
+  void; the draft view; a finalized payslip (no false "changed", locked); helpers; Excel; PDF rows, pages
+  and note; form rules and refusals.

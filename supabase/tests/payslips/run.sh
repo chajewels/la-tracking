@@ -6,6 +6,7 @@
 #            -> test_bond_payhistory.sql (cash advances, employee ID, cash bond, pay history, April-May).
 #   Phase 3: on the Phase 2 database, snapshots, then 20270205100000 applied twice -> test_second_proof.sql
 #            (a 2nd proof file on the payment and on each cash advance).
+#   Phase 4: on the Phase 3 database, snapshots, then 20270206100000 applied twice -> test_bonuses.sql.
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
 PGURL="${PGURL:-postgres:///postgres}"
@@ -16,6 +17,7 @@ M=supabase/migrations/20270201100000_staff_payslips.sql
 M2=supabase/migrations/20270202100000_timesheet_corrections.sql
 M4=supabase/migrations/20270204100000_payslip_bond_payhistory.sql
 M5=supabase/migrations/20270205100000_payslip_second_proof.sql
+M6=supabase/migrations/20270206100000_payslip_bonuses.sql
 URL="$(printf '%s' "$PGURL" | sed -E "s#/[^/?]*(\?|\$)#/$DB\1#")"
 URL2="$(printf '%s' "$PGURL" | sed -E "s#/[^/?]*(\?|\$)#/$DB2\1#")"
 trap 'psql "$PGURL" -qc "DROP DATABASE IF EXISTS $DB" -qc "DROP DATABASE IF EXISTS $DB2"' EXIT
@@ -37,3 +39,9 @@ psql "$URL2" -v ON_ERROR_STOP=1 -q \
   -c "CREATE TABLE public.pre5_audit AS SELECT count(*) AS n FROM public.audit_logs"
 psql "$URL2" -v ON_ERROR_STOP=1 -q -f $M5 -f $M5 2>&1 | grep -vE "$QUIET" || true
 psql "$URL2" -v ON_ERROR_STOP=1 -q -f $T/test_second_proof.sql 2>&1 | grep -E "NOTICE:  S|PASSED|ERROR|CONTEXT"
+
+psql "$URL2" -v ON_ERROR_STOP=1 -q \
+  -c "CREATE TABLE public.pre6_payslips AS SELECT id, to_jsonb(p) AS row FROM public.payslips p" \
+  -c "CREATE TABLE public.pre6_audit AS SELECT count(*) AS n FROM public.audit_logs"
+psql "$URL2" -v ON_ERROR_STOP=1 -q -f $M6 -f $M6 2>&1 | grep -vE "$QUIET" || true
+psql "$URL2" -v ON_ERROR_STOP=1 -q -f $T/test_bonuses.sql 2>&1 | grep -E "NOTICE:  B|PASSED|ERROR|CONTEXT"
