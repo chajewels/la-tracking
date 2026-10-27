@@ -7,6 +7,7 @@ import { regionForCurrency, transferMethods } from "../_shared/transfer-methods.
 import { jpyToPhpHalfUp, settleFullPaymentInPhp } from "../_shared/settlement.ts";
 import { attachDownPayments, effectivePriceJpy, planLayawayQuote, variantPricePhp } from "../_shared/website-down-payments.ts";
 import { chunk } from "../_shared/chunk.ts";
+import { attachCollectionSlugs } from "../_shared/collection-slugs.ts";
 import { sendDraftReservedEmail, sendOrderReadyEmail } from "../_shared/reservation-emails.ts";
 import { DECISION_FIELDS, DECIDED_STATUSES, latestDecision, newestDecided, switchedSinceDecision, type DecisionRow } from "../_shared/latest-decision.ts";
 import { type CustomerMethod, type SwitchInput, canCustomerSwitch, customerSwitchEmailKey, switchTargets } from "../_shared/method-switch-rules.ts";
@@ -1467,7 +1468,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         .filter((p): p is AnyRec => p !== null);
       await attachHeroCutouts(supabase, shaped);
       await attachDownPayments(supabase, shaped, fx);
-      const products = await attachCategorySlugs(supabase, shaped);
+      const products = await attachCollectionSlugs(supabase, await attachCategorySlugs(supabase, shaped));
 
       return jsonResponse(scrub({ ...shapeCollection(collection as AnyRec), products }));
     }
@@ -1520,7 +1521,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       // Hero order (20261016100000): hero_place, only while the hero uses ticked cut-outs.
       await attachHeroPlaces(supabase, shaped, (category as AnyRec).id);
       await attachDownPayments(supabase, shaped, fx);
-      const products = await attachCategorySlugs(supabase, shaped);
+      const products = await attachCollectionSlugs(supabase, await attachCategorySlugs(supabase, shaped));
 
       return jsonResponse(scrub({ ...(category as AnyRec), products }));
     }
@@ -1540,7 +1541,8 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       const product = shapeProduct(data as AnyRec, fx);
       await attachHeroCutouts(supabase, [product]);
       await attachDownPayments(supabase, [product], fx);
-      return jsonResponse(scrub(product));
+      const [withCollections] = await attachCollectionSlugs(supabase, [product as AnyRec]);
+      return jsonResponse(scrub(withCollections));
     }
 
     // GET /catalog/products?featured=1&limit=8 | ?fields=slug,updated_at&limit=5000
@@ -1581,6 +1583,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       try { await attachDownPayments(supabase, shaped, fx); } catch (e) { console.error("[website] catalog list: attachDownPayments failed", (e as Error)?.message ?? e); }
       let products = shaped;
       try { products = await attachCategorySlugs(supabase, shaped); } catch (e) { console.error("[website] catalog list: attachCategorySlugs failed; category_slugs omitted", (e as Error)?.message ?? e); products = shaped.map((p) => ({ ...p, category_slugs: [] })); }
+      products = await attachCollectionSlugs(supabase, products);
       console.log("[website] catalog list", { products: shaped.length, ms: Date.now() - t0 });
       return jsonResponse(scrub(products));
     }
