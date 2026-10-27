@@ -7117,6 +7117,39 @@ export type Database = {
         }
         Relationships: []
       }
+      product_review_products: {
+        Row: {
+          created_at: string
+          review_id: string
+          website_product_id: string
+        }
+        Insert: {
+          created_at?: string
+          review_id: string
+          website_product_id: string
+        }
+        Update: {
+          created_at?: string
+          review_id?: string
+          website_product_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "product_review_products_review_id_fkey"
+            columns: ["review_id"]
+            isOneToOne: false
+            referencedRelation: "product_reviews"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "product_review_products_website_product_id_fkey"
+            columns: ["website_product_id"]
+            isOneToOne: false
+            referencedRelation: "website_products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       product_reviews: {
         Row: {
           body_en: string | null
@@ -12609,6 +12642,7 @@ export type Database = {
         }
         Returns: Json
       }
+      link_review_products: { Args: { p_review_id: string }; Returns: number }
       list_hero_cutouts: {
         Args: {
           p_filter: string
@@ -12951,6 +12985,7 @@ export type Database = {
         Args: { p_category: string; p_name: string }
         Returns: string
       }
+      page365_listing_text: { Args: { p_item_id: string }; Returns: string }
       page365_match_line: {
         Args: { p_name: string }
         Returns: {
@@ -12962,6 +12997,14 @@ export type Database = {
         }[]
       }
       page365_metals_from_text: { Args: { p_text: string }; Returns: string[] }
+      page365_name_score: {
+        Args: { p_code: string; p_hub_name: string; p_listing_name: string }
+        Returns: number
+      }
+      page365_name_words: {
+        Args: { p_code: string; p_name: string }
+        Returns: string[]
+      }
       page365_record_check_error: {
         Args: { p_error: string; p_page365_no: number }
         Returns: undefined
