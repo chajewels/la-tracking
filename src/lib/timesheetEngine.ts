@@ -142,6 +142,13 @@ export function profilesForMonth(
 
 export const TIMESHEET_ROWS = 31;
 
+/**
+ * First month the allowance ABSENCE rule applies (owner 2026-10-27). April and May 2026 come
+ * from the paper sheets, where the allowance was set by hand per month: those months pay the
+ * allowance in force (timesheet_pay_settings, else the profile) with no forfeited weeks.
+ */
+export const ALLOWANCE_ABSENCE_RULE_FROM = '2026-06';
+
 const LIVE_ADMIN_HALF = 300;
 const LIVE_ADMIN_FULL = 500;
 const CSR_HALF = 400;
@@ -390,12 +397,15 @@ export function computeMonth(
     // flagged isAbsence above. A Mon–Sun bucket with >= 3 absences forfeits
     // its quarter. Buckets span the full window, so a fully-empty month
     // forfeits all 4 → allowance 0.
-    const absenceByDate = new Map<string, boolean>();
-    for (const d of days) absenceByDate.set(d.date, d.isAbsence);
-    const buckets = weekBuckets(monthKey);
-    for (const bucket of buckets) {
-      const absences = bucket.reduce((n, date) => n + (absenceByDate.get(date) ? 1 : 0), 0);
-      if (absences >= 3) forfeitedWeeks += 1;
+    // Before ALLOWANCE_ABSENCE_RULE_FROM (the paper-sheet months) nothing is forfeited.
+    if (monthKey >= ALLOWANCE_ABSENCE_RULE_FROM) {
+      const absenceByDate = new Map<string, boolean>();
+      for (const d of days) absenceByDate.set(d.date, d.isAbsence);
+      const buckets = weekBuckets(monthKey);
+      for (const bucket of buckets) {
+        const absences = bucket.reduce((n, date) => n + (absenceByDate.get(date) ? 1 : 0), 0);
+        if (absences >= 3) forfeitedWeeks += 1;
+      }
     }
     const allowance = profile.allowance ?? 0;
     allowance_paid = Math.round(allowance * (1 - Math.min(forfeitedWeeks, 4) / 4) * 100) / 100;

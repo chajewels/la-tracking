@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import cholita from "@/test/fixtures/april-2026-cholita.json";
 import cris from "@/test/fixtures/may-2026-cris-midnight.json";
 import {
-  computeAllMonthsSummary, computeMonth, dailyHours, isoDowOf, payProfileForMonth, paySettingFor, profilesForMonth,
+  ALLOWANCE_ABSENCE_RULE_FROM, computeAllMonthsSummary, computeMonth, dailyHours, isoDowOf, payProfileForMonth, paySettingFor, profilesForMonth,
   timesheetDatesOf,
   type PaySetting, type TimesheetEntry, type TimesheetProfile,
 } from "@/lib/timesheetEngine";
@@ -101,7 +101,7 @@ describe("engine fidelity fixtures (no live data)", () => {
     expect(f.days_worked).toBe(cholita.expected.days_worked);
   });
 
-  it("Cris-style May: 00:00 PM out reads as midnight (6.00 / 8.00 h); 2 forfeited weeks → ₱2,000", () => {
+  it("Cris-style May: 00:00 PM out reads as midnight (6.00 / 8.00 h); a paper-sheet month forfeits nothing", () => {
     const p = cris.profile as TimesheetProfile;
     const entries = cris.entries as TimesheetEntry[];
     expect(dailyHours(entries[0], "Asia/Manila")).toBe(6);
@@ -109,6 +109,24 @@ describe("engine fidelity fixtures (no live data)", () => {
     const m = computeMonth(cris.monthKey, entries, p, cris.settings as PaySetting[]);
     expect(m.forfeitedWeeks).toBe(cris.expected.forfeited_weeks);
     expect(m.allowance_paid).toBe(cris.expected.allowance_paid);
+    // The owner's real May allowance (₱2,000) is a May pay setting, paid as is.
+    const withMay = [...(cris.settings as PaySetting[]), { user_id: "u-cris", effective_from: "2026-05-01", basic_salary: null, allowance: 2000 }];
+    const may = computeMonth(cris.monthKey, entries, p, withMay);
+    expect(may.forfeitedWeeks).toBe(0);
+    expect(may.allowance_paid).toBe(2000);
+  });
+
+  it("the absence rule starts in June 2026: the same pattern a month later forfeits 2 weeks", () => {
+    expect(ALLOWANCE_ABSENCE_RULE_FROM).toBe("2026-06");
+    const p = cris.profile as TimesheetProfile;
+    // Shift the May pattern to June (1-16 June worked, then nothing).
+    const june = (cris.entries as TimesheetEntry[]).map(e => {
+      const shift = (s: string | null) => (s ? s.replace("2026-05-", "2026-06-") : s);
+      return { ...e, work_date: shift(e.work_date)!, am_in: shift(e.am_in), am_out: shift(e.am_out), pm_in: shift(e.pm_in), pm_out: shift(e.pm_out) };
+    }).filter(e => e.work_date <= "2026-06-30");
+    const m = computeMonth("2026-06", june, { ...p, allowance: 4000 }, []);
+    expect(m.forfeitedWeeks).toBeGreaterThanOrEqual(cris.expected.rule_forfeited_weeks);
+    expect(m.allowance_paid).toBeLessThan(4000);
   });
 });
 
