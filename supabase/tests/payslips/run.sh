@@ -12,6 +12,8 @@
 #            (the cash bond is released only on a Final pay payslip).
 #   Phase 7: on the Phase 6 database, snapshots, then 20270209100000 applied twice -> test_proof_not_on_file.sql
 #            (proof not on file before June 2026; cash bond returned on Final pay).
+#   Phase 8: on the Phase 7 database, snapshots, then 20270219100000 applied twice
+#            -> test_proof_not_on_file_to_september.sql (proof not on file before October 2026).
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
 PGURL="${PGURL:-postgres:///postgres}"
@@ -71,3 +73,9 @@ psql "$URL2" -v ON_ERROR_STOP=1 -q \
   -c "CREATE TABLE public.pre9_audit AS SELECT count(*) AS n FROM public.audit_logs"
 psql "$URL2" -v ON_ERROR_STOP=1 -q -f $M9 -f $M9 2>&1 | grep -vE "$QUIET" || true
 psql "$URL2" -v ON_ERROR_STOP=1 -q -f $T/test_proof_not_on_file.sql 2>&1 | grep -E "NOTICE:  G|PASSED|ERROR|CONTEXT"
+
+M10=supabase/migrations/20270219100000_payslip_proof_not_on_file_to_september.sql
+psql "$URL2" -v ON_ERROR_STOP=1 -q \
+  -c "CREATE TABLE public.pre10_payslips AS SELECT id, to_jsonb(p) AS row FROM public.payslips p"
+psql "$URL2" -v ON_ERROR_STOP=1 -q -f $M10 -f $M10 2>&1 | grep -vE "$QUIET" || true
+psql "$URL2" -v ON_ERROR_STOP=1 -q -f $T/test_proof_not_on_file_to_september.sql 2>&1 | grep -E "NOTICE:  H|PASSED|ERROR|CONTEXT"
