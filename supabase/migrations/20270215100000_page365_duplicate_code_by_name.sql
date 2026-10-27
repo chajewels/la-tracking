@@ -47,7 +47,7 @@
 --
 -- FUNCTION CHANGES START FROM LIVE (CLAUDE.md, Bug #280). md5(pg_proc.prosrc):
 --   replaced   page365_inventory_finish   e44762490fc64019a4cadfd9496fcbc6 -> a697a6d379ec69f3cac25cd8241cef2f
---   new        page365_name_words                                         -> 705121c5e64a3d0673aca885a65f14bd
+--   new        page365_name_words                                         -> 95ce02b0ce70b692ce08f2f366ce1a08
 --              page365_name_score                                         -> e441174cdbed966f9611a6c9f57aaf48
 --              page365_listing_text                                       -> 7608a3ccc02ec141038ea88dd6b25a67
 --   relied on, proved unchanged after:
@@ -94,7 +94,7 @@ BEGIN
   -- New here: absent, or already this file's body (a re-run).
   FOR r IN
     SELECT * FROM (VALUES
-      ('page365_name_words(text,text)',      '705121c5e64a3d0673aca885a65f14bd'),
+      ('page365_name_words(text,text)',      '95ce02b0ce70b692ce08f2f366ce1a08'),
       ('page365_name_score(text,text,text)', 'e441174cdbed966f9611a6c9f57aaf48'),
       ('page365_listing_text(uuid)',         '7608a3ccc02ec141038ea88dd6b25a67')
     ) AS t(fn, want)
@@ -127,7 +127,7 @@ RETURNS text[]
 LANGUAGE sql IMMUTABLE PARALLEL SAFE SET search_path TO 'public'
 AS $fn$
   SELECT coalesce((array_agg(u.w ORDER BY u.ord))[1:4], ARRAY[]::text[])
-    FROM unnest(regexp_split_to_array(upper(coalesce(p_name, '')), '[\s\u3000\u00a0]+')) WITH ORDINALITY AS u(w, ord)
+    FROM unnest(regexp_split_to_array(upper(coalesce(p_name, '')), '[\s' || chr(12288) || chr(160) || ']+')) WITH ORDINALITY AS u(w, ord)
    WHERE u.w <> '' AND u.w IS DISTINCT FROM upper(btrim(coalesce(p_code, '')))
 $fn$;
 REVOKE ALL ON FUNCTION public.page365_name_words(text, text) FROM PUBLIC, anon, authenticated;
@@ -429,7 +429,7 @@ BEGIN
   FOR r IN
     SELECT * FROM (VALUES
       ('page365_inventory_finish(uuid)',         'a697a6d379ec69f3cac25cd8241cef2f'),
-      ('page365_name_words(text,text)',          '705121c5e64a3d0673aca885a65f14bd'),
+      ('page365_name_words(text,text)',          '95ce02b0ce70b692ce08f2f366ce1a08'),
       ('page365_name_score(text,text,text)',     'e441174cdbed966f9611a6c9f57aaf48'),
       ('page365_listing_text(uuid)',             '7608a3ccc02ec141038ea88dd6b25a67'),
       ('page365_match_line(text)',               '4bec82da4f6af03df8f0827d78f42001'),
@@ -476,7 +476,7 @@ COMMIT;
 --   SELECT proname, md5(prosrc) FROM pg_proc
 --    WHERE proname IN ('page365_inventory_finish','page365_name_words','page365_name_score','page365_listing_text')
 --    ORDER BY 1;
---   -- finish a697a6d379ec69f3cac25cd8241cef2f · words 705121c5e64a3d0673aca885a65f14bd · score e441174cdbed966f9611a6c9f57aaf48 · text 7608a3ccc02ec141038ea88dd6b25a67
+--   -- finish a697a6d379ec69f3cac25cd8241cef2f · words 95ce02b0ce70b692ce08f2f366ce1a08 · score e441174cdbed966f9611a6c9f57aaf48 · text 7608a3ccc02ec141038ea88dd6b25a67
 -- (2) after the next ready read, N5245 is matched by name and proposed 0:
 --   SELECT i.code, i.page365_product_id, i.match_result, i.category, i.result_note, i.seen_stock, i.proposed_stock, i.status
 --     FROM public.page365_inventory_items i
