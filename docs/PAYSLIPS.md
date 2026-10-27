@@ -4,6 +4,23 @@ Owner-confirmed plan 2026-10-26. Migration `supabase/migrations/20270201100000_s
 No edge function. UI: `src/components/timesheet/PayslipsTab.tsx`; rules: `src/lib/payslips.ts`;
 tests: `src/test/payslips.test.ts`, `src/test/payslips-tab.test.tsx`, SQL harness `supabase/tests/payslips/`.
 
+## Live status (2026-10-27)
+
+All payslip migrations are applied on the live database and the frontend is released (PR #637, main `09d79b02`,
+Firebase deploy green):
+
+| Migration | Feature | Live |
+|---|---|---|
+| `20270201100000_staff_payslips.sql` | Payslips tab, finalize, payment, PDF/Excel | applied |
+| `20270204100000_payslip_bond_payhistory.sql` | Cash advances, employee ID, cash bond, pay history, April–May | applied |
+| `20270205100000_payslip_second_proof.sql` | 2nd proof file (payment, cash advances) | applied |
+| `20270206100000_payslip_bonuses.sql` | Bonuses (Performance / KPI, Holiday / Christmas) | applied |
+| `20270207100000_payslip_edit_figures.sql` | Edit figures + cash bond on salary only | applied 2026-10-27 JST; 17 payslips unchanged |
+| `20270208100000_payslip_bond_final_pay_only.sql` | Cash bond released only on Final pay | NOT applied yet |
+
+April and May 2026 timesheets loaded 2026-10-27 (207 entries); with the release, April totals ₱79,020.55 and
+May ₱74,541.48. The "NOT applied" notes in the sections below describe each migration at the time it was written.
+
 ## Owner decisions (locked)
 
 - **Who:** admin, or a timesheet user flagged `timesheet_profiles.can_view_all` (today only Brenda). This is
@@ -250,12 +267,12 @@ payslip view and the Excel file are unchanged. Frontend only: no migration, no e
   - row locks (figure edits, snapshot edits, mixed updates, un-void, DELETE, TRUNCATE, insert-as-paid)
   - direct writes refused
   - audit rows (one per write, real uuids, no figures or personal details)
-- Not applied to any live database. The owner applies it through the Lovable DB connection after release.
+- Applied on live (see "Live status").
 
 ## Cash advances, employee ID, cash bond and April–May (owner 2026-10-27)
 
 Owner-confirmed 2026-10-27 12:05–12:20. Migration `supabase/migrations/20270204100000_payslip_bond_payhistory.sql`
-(**NOT applied** — the owner applies it through the Lovable DB connection after the frontend release). No edge
+(applied on live — see "Live status"). No edge
 function. Pay settings history and the timesheet side: docs/TIMESHEET-SPEC.md "Pay settings history" and
 "Inactive staff in past months".
 
@@ -276,8 +293,9 @@ function. Pay settings history and the timesheet side: docs/TIMESHEET-SPEC.md "P
 - **H. Cash bond:** the first-month payslip holds HALF OF NET PAY (after advances):
   `cash_bond_held_php = floor((net_pay_php / 2) to the centavo)`, so an odd centavo stays in the paid half.
   Nothing is held when the payslip is ticked **"Final pay (staff leaving)"**.
-- **I. Release:** on the SECOND month's payslip (first month + 1), or earlier on a payslip ticked
-  "Final pay (staff leaving)".
+- **I. Release:** ONLY on a payslip ticked "Final pay (staff leaving)" (owner 2026-10-27 17:54,
+  migration 20270208100000). Until then the bond stays held, month after month. (Before that migration it
+  was released on the second month's payslip — retired.)
 - **J. Paying in arrears:** a month's work is paid the following month (September's work → the September
   payslip → paid on in October). Already supported (`paid_on ≥ pay_month`).
 - **K. Pay settings history:** each month uses the CSR basic salary and allowance IN FORCE for that month
@@ -368,13 +386,13 @@ PG 16. The new frontend always passes all four.
 7. The bond is decided:
    - In the hire month and not final pay: `held = floor((total − advances) × 50) / 100`.
    - Otherwise: the latest non-void payslip with `held > 0` and no non-void payslip releasing it is
-     released when this month is its month + 1, or when final pay is ticked.
+     released ONLY when final pay is ticked (migration 20270208100000; the month + 1 release is retired).
 8. `employee_id`, `hire_date` and `is_final_pay` are snapshotted, and `payslip_id` is set on the advances.
    One audit row records `is_final_pay`, the number of advances and the bond kind (no amounts).
 
 Voiding the first-month payslip removes its bond (nothing pending). Voiding the releasing payslip makes
 the bond pending again, and a re-issue releases it again. Voiding a first-month payslip AFTER its bond was
-released leaves the release on the second-month payslip, so void that one too and re-issue both.
+released leaves the release on the final-pay payslip, so void that one too and re-issue both.
 
 ### Storage
 
@@ -642,6 +660,24 @@ is applied (guarded by the live md5s of `finalize_payslip` (4-argument) and `get
 - Vitest `src/test/payslip-bonuses.test.tsx` (11): the row button, count and draft total; add with 2 proofs;
   void; the draft view; a finalized payslip (no false "changed", locked); helpers; Excel; PDF rows, pages
   and note; form rules and refusals.
+
+## Cash bond release: Final pay only (owner 2026-10-27 17:54)
+
+Migration `supabase/migrations/20270208100000_payslip_bond_final_pay_only.sql`. No edge function.
+
+- **Rule:** the hire-month bond stays held while the staff member works. It is added back ONLY on her last
+  salary — the payslip ticked **"Final pay (staff leaving)"**. It is never released automatically in the
+  month after the hire month.
+- **Database:** one line in `payslip_issue` (the release condition becomes `IF FOUND AND v_final`); the
+  COMMENTs of `payslip_issue` and `finalize_payslip` (4 arguments) reworded. Guarded by the live prosrc md5
+  of `payslip_issue` (`333273fbbe594689dc7c1127e238772b`). Existing payslips are not touched.
+- **Screen:** `bondPreview` (src/lib/payslips.ts) shows "Cash bond released" only when Final pay is ticked.
+- **Unchanged:** hire-month hold (half of the timesheet net), typed bond (Edit figures), `bond_exceeds_pay`,
+  `bond_already_released`, `cash_bond_pending` in the book.
+- **Live data at the change (2026-10-27):** Gay Marie June Paid holds ₱7,778 (both July payslips Void);
+  Richell Rivera June Paid holds ₱9,000, July Paid with nothing released. Both bonds stay held until Final pay.
+- **Tests:** vitest `payslip-advances-bond` ("released ONLY on Final pay"); SQL harness phase 6
+  `test_bond_final_pay.sql` (F1 shape + rows unchanged, F2 no automatic release, F3 final pay releases).
 
 ## Edit figures and the cash bond (owner 2026-10-27 15:20–15:32)
 
