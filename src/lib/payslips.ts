@@ -593,6 +593,14 @@ export function currentPayslip(payslips: Payslip[], userId: string): Payslip | n
   return mine.sort((a, b) => b.created_at.localeCompare(a.created_at))[0] ?? null;
 }
 
+/** A staff member hired after this month (hire_date's month is later) is not on that month's
+ *  book, unless a live (non-void) payslip already exists for them — owner 2026-10-28. */
+export function hiredAfterMonth(hireDate: string | null | undefined, monthKey: string, payslip: Payslip | null): boolean {
+  if (!hireDate) return false;
+  if (payslip && payslip.status !== 'void') return false;
+  return hireDate.slice(0, 7) > monthKey;
+}
+
 // ── Staff details ───────────────────────────────────────────────────────────
 
 /** Address + date of birth, and (once the database has employee IDs) the employee ID. */
