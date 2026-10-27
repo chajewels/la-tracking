@@ -4495,8 +4495,15 @@ async function handle(req: Request, requestId: string): Promise<Response> {
         .limit(limit);
       let statsQ = supabase.from("product_reviews").select("rating").eq("status", "approved");
       if (productId) {
-        listQ = listQ.eq("website_product_id", productId);
-        statsQ = statsQ.eq("website_product_id", productId);
+        // A review belongs to EVERY product of its order (owner 2026-10-27):
+        // product_review_products, filled by link_review_products on approval.
+        const { data: links, error: kErr } = await supabase
+          .from("product_review_products").select("review_id").eq("website_product_id", productId);
+        if (kErr) throw kErr;
+        const reviewIds = ((links ?? []) as AnyRec[]).map((l) => String(l.review_id));
+        if (reviewIds.length === 0) return jsonResponse({ reviews: [], count: 0, average: null });
+        listQ = listQ.in("id", reviewIds);
+        statsQ = statsQ.in("id", reviewIds);
       }
       const [{ data: rows, error: lErr }, { data: ratings, error: sErr }] = await Promise.all([listQ, statsQ]);
       if (lErr) throw lErr;
