@@ -16,8 +16,12 @@ All collections, ordered by name. Each: `{ id, slug, name, name_en, name_ja,
 description_en, description_ja, hero_media }`.
 
 ### GET /catalog/collections/:slug
-One collection plus `products`: active products in
-`website_collection_products.sort` order, shaped as products below.
+One collection plus `products`: active products shaped as products below,
+**newest first** (owner 2026-10-27): `website_products.created_at` descending —
+when the piece was added to the Hub's website catalog — ties by product `id`
+ascending. The order is total, so "Oldest" is exactly this list reversed.
+`created_at` itself is not sent. (Was `website_collection_products.sort`, which
+was only the type's position in each product's own list.)
 
 ### GET /catalog/categories
 Published categories only (`published = true`), ordered by `sort_order` then
@@ -27,8 +31,10 @@ hero_media, cta_label, cta_label_ja, sort_order }`.
 ### GET /catalog/categories/:slug
 The published category (404 `{ "error": "not_found" }` when missing or
 unpublished) plus `products`: active products shaped exactly as
-`/catalog/collections/:slug`, ordered by `website_category_products.sort_order`
-then product name.
+`/catalog/collections/:slug`, in the same **newest-first** order
+(`website_products.created_at` descending, ties by `id` ascending; not sent).
+(Was `website_category_products.sort_order` then product name.) The hero's
+running order is separate and unchanged: `hero_place` below.
 
 **`hero_place`** (2026-09-29, hero order; docs/HERO-PICKS.md "Running order")
 — on this route only, and ONLY while the Hub's hero uses ticked product
