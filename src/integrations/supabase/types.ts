@@ -6540,6 +6540,7 @@ export type Database = {
           pay_month: string
           payslip_id: string | null
           proof_path: string | null
+          proof_path_2: string | null
           status: string
           user_id: string
           void_reason: string | null
@@ -6556,6 +6557,7 @@ export type Database = {
           pay_month: string
           payslip_id?: string | null
           proof_path?: string | null
+          proof_path_2?: string | null
           status?: string
           user_id: string
           void_reason?: string | null
@@ -6572,6 +6574,7 @@ export type Database = {
           pay_month?: string
           payslip_id?: string | null
           proof_path?: string | null
+          proof_path_2?: string | null
           status?: string
           user_id?: string
           void_reason?: string | null
@@ -6617,6 +6620,7 @@ export type Database = {
           php_per_jpy: number | null
           php_received: number | null
           proof_path: string | null
+          proof_path_2: string | null
           staff_name: string
           status: string
           template_type: string
@@ -6656,6 +6660,7 @@ export type Database = {
           php_per_jpy?: number | null
           php_received?: number | null
           proof_path?: string | null
+          proof_path_2?: string | null
           staff_name: string
           status?: string
           template_type: string
@@ -6695,6 +6700,7 @@ export type Database = {
           php_per_jpy?: number | null
           php_received?: number | null
           proof_path?: string | null
+          proof_path_2?: string | null
           staff_name?: string
           status?: string
           template_type?: string
@@ -11273,6 +11279,10 @@ export type Database = {
         Args: { p_id: string; p_path: string }
         Returns: Json
       }
+      attach_payslip_proof: {
+        Args: { p_id: string; p_path: string }
+        Returns: Json
+      }
       audit_account: { Args: { p_invoice_number: string }; Returns: Json }
       audit_all_accounts: {
         Args: never
@@ -13018,16 +13028,28 @@ export type Database = {
         }
         Returns: Json
       }
-      record_payslip_payment: {
-        Args: {
-          p_id: string
-          p_jpy_sent: number
-          p_paid_on: string
-          p_php_received: number
-          p_proof_path: string
-        }
-        Returns: Json
-      }
+      record_payslip_payment:
+        | {
+            Args: {
+              p_id: string
+              p_jpy_sent: number
+              p_paid_on: string
+              p_php_received: number
+              p_proof_path: string
+            }
+            Returns: Json
+          }
+        | {
+            Args: {
+              p_id: string
+              p_jpy_sent: number
+              p_paid_on: string
+              p_php_received: number
+              p_proof_path: string
+              p_proof_path_2: string
+            }
+            Returns: Json
+          }
       record_portal_seen: {
         Args: { p_customer_id: string; p_token_id?: string }
         Returns: undefined
