@@ -3,7 +3,6 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { RefreshCw, Link2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
-import { usePermissions } from '@/contexts/PermissionsContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -30,10 +29,10 @@ import {
  *
  * Renders nothing for an order not imported from Page365, a website order, or
  * while the migration is not applied (the status function is missing).
- * Permission: "Re-read Page365" is open to EVERY staff user (owner 2026-10-27;
- * the edge function checks is_staff). "Add / Replace Page365 link" keeps
- * layaway forfeit_account / cash cancel_cash_order (the Cancel Plan / Cancel
- * Order keys); the edge function checks them again.
+ * Permission: "Re-read Page365" and "Add / Replace Page365 link" are open to
+ * EVERY staff user (owner 2026-10-27: "all staff should be able to use, they
+ * are exactly the user"); the edge function checks is_staff. The page itself
+ * is internal-only.
  */
 async function readFnErrorMessage(error: unknown, fallback: string): Promise<{ message: string; code?: string }> {
   const err = error as { message?: string; context?: { body?: ReadableStream } };
@@ -51,9 +50,6 @@ async function readFnErrorMessage(error: unknown, fallback: string): Promise<{ m
 
 export default function Page365SyncPanel({ kind, orderId }: { kind: 'cash' | 'layaway'; orderId: string | undefined }) {
   const qc = useQueryClient();
-  const { can } = usePermissions();
-  // Re-read: any staff user (the page itself is internal-only). Add link: cancel permission.
-  const canAddLink = can(kind === 'layaway' ? 'forfeit_account' : 'cancel_cash_order');
   const [checking, setChecking] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [url, setUrl] = useState('');
@@ -99,8 +95,7 @@ export default function Page365SyncPanel({ kind, orderId }: { kind: 'cash' | 'la
       if (error) {
         const { message, code } = await readFnErrorMessage(error, 'Could not read Page365');
         if (code === 'no_link') {
-          if (canAddLink) setAddOpen(true);
-          else toast.error('No Page365 link is saved for this order. Ask a manager to add it.');
+          setAddOpen(true);
           return;
         }
         toast.error(message);
@@ -183,22 +178,20 @@ export default function Page365SyncPanel({ kind, orderId }: { kind: 'cash' | 'la
         </p>
       )}
 
-      {(status.has_link || canAddLink) && (
-        <div className="mt-3 flex flex-wrap gap-2">
-          {status.has_link && (
-            <Button size="sm" variant="outline" onClick={reRead} disabled={checking} data-testid="page365-reread">
-              <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${checking ? 'animate-spin' : ''}`} />
-              {checking ? 'Reading Page365…' : 'Re-read Page365'}
-            </Button>
-          )}
-          {canAddLink && (!status.has_link || errorText) && (
-            <Button size="sm" variant="outline" onClick={() => { setAddError(null); setAddOpen(true); }} data-testid="page365-add-link">
-              <Link2 className="mr-1.5 h-3.5 w-3.5" />
-              {status.has_link ? 'Replace Page365 link' : 'Add Page365 link'}
-            </Button>
-          )}
-        </div>
-      )}
+      <div className="mt-3 flex flex-wrap gap-2">
+        {status.has_link && (
+          <Button size="sm" variant="outline" onClick={reRead} disabled={checking} data-testid="page365-reread">
+            <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${checking ? 'animate-spin' : ''}`} />
+            {checking ? 'Reading Page365…' : 'Re-read Page365'}
+          </Button>
+        )}
+        {(!status.has_link || errorText) && (
+          <Button size="sm" variant="outline" onClick={() => { setAddError(null); setAddOpen(true); }} data-testid="page365-add-link">
+            <Link2 className="mr-1.5 h-3.5 w-3.5" />
+            {status.has_link ? 'Replace Page365 link' : 'Add Page365 link'}
+          </Button>
+        )}
+      </div>
 
       <Dialog open={addOpen} onOpenChange={(o) => { setAddOpen(o); if (!o) { setUrl(''); setAddError(null); } }}>
         <DialogContent className="sm:max-w-lg">

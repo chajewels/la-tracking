@@ -15,9 +15,10 @@
  *                link was kept: { kind, order_id, url }. Saves the link and
  *                reports the stage; it does not cancel or restore by itself.
  *
- * PERMISSION: "check" (Re-read) → ANY staff user, is_staff (admin / staff /
- * finance / csr; owner 2026-10-27). "add_link" → layaway forfeit_account
- * (same as Cancel Plan); cash cancel_cash_order (same as Cancel Order).
+ * PERMISSION: "check" (Re-read) and "add_link" (Add / Replace Page365 link) →
+ * ANY staff user, is_staff (admin / staff / finance / csr; owner 2026-10-27:
+ * "all staff should be able to use, they are exactly the user"). A portal
+ * customer is also an authenticated user and gets 403.
  *
  * THE SIG IS A CAPABILITY: read from page365_invoice_links (server-only) and
  * used for the outbound GET only. It is never logged and never returned.
@@ -32,7 +33,6 @@
  */
 import { corsPreflight, jsonResponse } from "../_shared/cors.ts";
 import { requireAuth, type AuthContext } from "../_shared/handler.ts";
-import { checkPermission } from "../_shared/check-permission.ts";
 import { fetchWithRetryOnRateLimit } from "../_shared/fetch-retry.ts";
 import { emitNotification } from "../_shared/emit-notification.ts";
 import { sendLayawayCancelledEmail } from "../_shared/layaway-cancel-email.ts";
@@ -163,18 +163,14 @@ async function loadOrder(supabase: Db, kind: Kind, orderId: string): Promise<Any
   return data ?? null;
 }
 
-async function staffGate(ctx: AuthContext, kind: Kind, action: string): Promise<Response | null> {
+async function staffGate(ctx: AuthContext): Promise<Response | null> {
   if (ctx.isService || !ctx.user) return jsonResponse({ error: "Unauthorized" }, 401);
-  if (action === "check") {
-    // Re-read is open to every internal user — never a portal customer, who is
-    // also an authenticated user. is_staff = a user_roles row (admin/staff/finance/csr).
-    const { data: isStaff, error } = await ctx.supabase.rpc("is_staff", { _user_id: ctx.user.id });
-    if (error) return jsonResponse({ error: "Could not check your access." }, 500);
-    return isStaff === true ? null : jsonResponse({ error: "Access denied" }, 403);
-  }
-  const key = kind === "layaway" ? "forfeit_account" : "cancel_cash_order";
-  const allowed = await checkPermission(ctx.supabase, ctx.user.id, key);
-  return allowed ? null : jsonResponse({ error: "Access denied" }, 403);
+  // Re-read and Add link are open to every internal user — never a portal
+  // customer, who is also an authenticated user. is_staff = a user_roles row
+  // (admin/staff/finance/csr).
+  const { data: isStaff, error } = await ctx.supabase.rpc("is_staff", { _user_id: ctx.user.id });
+  if (error) return jsonResponse({ error: "Could not check your access." }, 500);
+  return isStaff === true ? null : jsonResponse({ error: "Access denied" }, 403);
 }
 
 function parseLink(raw: string): { slug: string; sig: string } | { error: string } {
@@ -234,7 +230,7 @@ Deno.serve(async (req) => {
     const kind = body?.kind === "cash" ? "cash" : body?.kind === "layaway" ? "layaway" : null;
     const orderId = typeof body?.order_id === "string" ? body.order_id : "";
     if (!kind || !orderId) return jsonResponse({ error: "kind ('layaway' | 'cash') and order_id are required" }, 400);
-    const denied = await staffGate(ctx, kind, action);
+    const denied = await staffGate(ctx);
     if (denied) return denied;
 
     const order = await loadOrder(supabase, kind, orderId);
