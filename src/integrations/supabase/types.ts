@@ -6529,6 +6529,71 @@ export type Database = {
           },
         ]
       }
+      payslip_bonuses: {
+        Row: {
+          amount_php: number
+          bonus_date: string
+          category: string
+          created_at: string
+          created_by: string
+          id: string
+          note: string
+          pay_month: string
+          payslip_id: string | null
+          proof_path: string | null
+          proof_path_2: string | null
+          status: string
+          user_id: string
+          void_reason: string | null
+          voided_at: string | null
+          voided_by: string | null
+        }
+        Insert: {
+          amount_php: number
+          bonus_date: string
+          category: string
+          created_at?: string
+          created_by: string
+          id?: string
+          note: string
+          pay_month: string
+          payslip_id?: string | null
+          proof_path?: string | null
+          proof_path_2?: string | null
+          status?: string
+          user_id: string
+          void_reason?: string | null
+          voided_at?: string | null
+          voided_by?: string | null
+        }
+        Update: {
+          amount_php?: number
+          bonus_date?: string
+          category?: string
+          created_at?: string
+          created_by?: string
+          id?: string
+          note?: string
+          pay_month?: string
+          payslip_id?: string | null
+          proof_path?: string | null
+          proof_path_2?: string | null
+          status?: string
+          user_id?: string
+          void_reason?: string | null
+          voided_at?: string | null
+          voided_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payslip_bonuses_payslip_id_fkey"
+            columns: ["payslip_id"]
+            isOneToOne: false
+            referencedRelation: "payslips"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       payslip_cash_advances: {
         Row: {
           advance_date: string
@@ -6595,6 +6660,8 @@ export type Database = {
         Row: {
           address: string
           amount_due_php: number | null
+          bonus_php: number
+          bonuses: Json
           cash_advance_php: number
           cash_advances: Json
           cash_bond_held_php: number
@@ -6635,6 +6702,8 @@ export type Database = {
         Insert: {
           address: string
           amount_due_php?: number | null
+          bonus_php?: number
+          bonuses?: Json
           cash_advance_php?: number
           cash_advances?: Json
           cash_bond_held_php?: number
@@ -6675,6 +6744,8 @@ export type Database = {
         Update: {
           address?: string
           amount_due_php?: number | null
+          bonus_php?: number
+          bonuses?: Json
           cash_advance_php?: number
           cash_advances?: Json
           cash_bond_held_php?: number
@@ -11171,6 +11242,17 @@ export type Database = {
         Args: { p_batch: string; p_main_only?: boolean; p_skus: string[] }
         Returns: Json
       }
+      add_payslip_bonus: {
+        Args: {
+          p_amount_php: number
+          p_bonus_date: string
+          p_category: string
+          p_note: string
+          p_pay_month: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
       address_snapshot: { Args: { p_address_id: string }; Returns: Json }
       admin_correct_birthday: {
         Args: { p_birthday: string; p_customer_id: string }
@@ -11276,6 +11358,10 @@ export type Database = {
         Returns: Json
       }
       attach_expense_receipt: {
+        Args: { p_id: string; p_path: string }
+        Returns: Json
+      }
+      attach_payslip_bonus_proof: {
         Args: { p_id: string; p_path: string }
         Returns: Json
       }
@@ -13604,6 +13690,10 @@ export type Database = {
         Returns: Json
       }
       void_payslip: { Args: { p_id: string; p_reason: string }; Returns: Json }
+      void_payslip_bonus: {
+        Args: { p_id: string; p_reason: string }
+        Returns: Json
+      }
       void_provider_settlement: {
         Args: { p_id: string; p_reason: string }
         Returns: Json
