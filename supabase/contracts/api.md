@@ -62,7 +62,8 @@ description_en, description_ja, status, condition, origin, brand,
 item_type, video_url, video_poster_url, updated_at,
 product_variants: [{ id, size, stone, price_jpy, price_php, full_price_jpy,
 on_sale, stock_qty, down_payment_jpy?, down_payment_php?, down_payment_pct?,
-product_media: [{ url, alt }] }], category_slugs: string[] }`
+product_media: [{ url, alt }] }], category_slugs: string[],
+collection_slugs: string[] }`
 
 - `item_type` (2026-09-29, D2-1): `"Jewelry" | "Watch" | "Accessory"`, from
   `website_products.item_kind`; `null` if the Hub holds anything else. The
@@ -138,6 +139,16 @@ product_media: [{ url, alt }] }], category_slugs: string[] }`
 - `category_slugs` lists the published categories the product belongs to;
   empty array when uncategorised. Present on `/catalog/products` and
   `/catalog/collections/:slug` (and `/catalog/categories/:slug`) results.
+- `collection_slugs` (2026-10-27, storefront "Kind" filter): the slugs of the
+  collections (jewelry types: rings, necklaces, pendants, earrings, bracelets,
+  anklets …) the product belongs to, in collection-name order (the order
+  `GET /catalog/collections` lists them). `[]` when the product is in no
+  collection, and `[]` on every product if the Hub could not read the links
+  (logged; the response still succeeds). Collections have no published flag —
+  every collection is public, as `GET /catalog/collections` already serves
+  them all. Present on every product the API returns: `/catalog/products`
+  (the full list, not the `?fields=` projection), `/catalog/products/:slug`,
+  `/catalog/collections/:slug` and `/catalog/categories/:slug`.
 
 ## Testimonials
 

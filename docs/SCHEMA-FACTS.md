@@ -2149,3 +2149,17 @@ looks like an anon write path. `extension_requests.portal_token` stays.
 - `get_ledger_status` re-stated: + `last_check`; periods carry `reconciled_accounts` / `unreconciled_accounts`.
 - Client: Ledger tabs `bankrec`, `checks` (URL `?tab=ledger&view=…&month=&account=`), readiness dialog on Months, `ledger_check` bell route in StaffNotificationBell.
 
+## Website collections carry collection_slugs (2026-10-27)
+
+- `website_collections` (the jewelry types) has NO `published` column and NO
+  `sort_order` column (migrations 20260908030829, 20260912054724; generated
+  types). `GET /catalog/collections` serves every row ordered by name, and
+  `/catalog/collections/:slug` serves any slug — every collection is public.
+- Every product the `website` function returns carries `collection_slugs`,
+  built by `attachCollectionSlugs` (`supabase/functions/_shared/collection-slugs.ts`):
+  one batched read of `website_collection_products` (150 ids per `.in()`),
+  slugs in collection-name order, `[]` on a failed read (logged, never fails
+  the response). If a published flag is ever added to collections, filter on
+  it in that helper too. Contract: `supabase/contracts/api.md` "Product shape".
+- `item_type` "Accessory" on the wire comes only from
+  `website_products.item_kind = 'accessory'` (ITEM_TYPE_OF in website/index.ts).
