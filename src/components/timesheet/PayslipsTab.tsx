@@ -190,8 +190,9 @@ export default function PayslipsTab({
   );
 
   const rows: StaffRow[] = useMemo(() => {
-    // Active staff, plus inactive staff with entries in this month (decision M).
-    const shown = profilesForMonth(profiles, entriesByUser, monthKey);
+    // Active staff only (owner 2026-10-28: inactive staff are not on the payslip list;
+    // their payslips stay on record).
+    const shown = profilesForMonth(profiles, entriesByUser, monthKey).filter(p => p.active);
     return shown.map((base): StaffRow => {
       const p = payProfileForMonth(base, monthKey, settings);
       const name = nameByUser.get(p.user_id) ?? p.user_id;
