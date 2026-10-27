@@ -191,3 +191,38 @@ Moved out of CLAUDE.md on 2026-10-02 to keep it under 100 KB. Text is verbatim (
   is OMITTED, never estimated. /layaway/quote takes { price_jpy, currency }
   and converts in the Hub; peso term minimums are min_amount_php. Full text:
   docs/WEB-LAYAWAY.md "DISPLAYED DOWN PAYMENTS".
+
+## Rules moved from CLAUDE.md (2026-10-28)
+
+Moved verbatim from CLAUDE.md on 2026-10-28 (Option A split); CLAUDE.md keeps a one-line pointer and every money rule.
+
+## WEB LAYAWAY — NON-NEGOTIABLE (added 2026-09-14)
+  - THE DEPOSIT DEADLINE IS A FIELD (transfer_due_at), moved ONLY through
+    set_account_deadlines / set-account-deadlines (edit_account, audited). A
+    REASON IS REQUIRED (400 reason_required); creation is exempt. On a cash
+    order it writes transfer_due_at AND expires_at together. Web default:
+    24 h for a new customer, 72 h (3 days) for a returning one — public.web_deposit_deadline_hours(); returning = has a non-cancelled cash order or layaway in the Hub (an old Hub customer matched by email counts), owner confirmed 2026-10-18.
+    No violation predicate, no automatic violator classification.
+  - A DEADLINE IS MOVED, NEVER REMOVED: null → deadline_required. Backdating is
+    legal but returns deadline_in_past: true and the Hub warns.
+  - What a deadline does depends on the channel (web layaway expires; Hub
+    layaway: reminder only; cash: cancelled, stock back for web only). Any
+    surface stating a consequence must state the one for THAT order.
+  - THERE IS ONE DEADLINE: never re-add settlement_due_at or any settlement
+    date to layaway_accounts, set_account_deadlines or the creation forms.
+  - EXTENSION is a later deadline and only while the order is live. An expired
+    or cancelled order is NEVER revived (exception: cash-order revive, Bug #217;
+    on a WEB cash order it is ONE RPC, revive_web_cash_order_atomic — never
+    revive a web order with client-side writes).
+  - A forfeit of a web layaway (staff or automatic) returns its stock in the
+    same transaction/statement (stock_released_at); reactivation re-holds it or
+    fails with web_layaway_stock_unavailable (trigger
+    trg_release_forfeited_web_layaway_stock covers automatic forfeits, so
+    auto-forfeit-settlement stays LOCKED). Both paths send the storefront
+    layaway-forfeited email. Reactivation is all-or-nothing
+    (reactivate_layaway_atomic).
+  - WEB ORDER DRAFTS are THE ONLY CHECKOUT PATH (PR 10, 2026-10-01): written
+    ONLY by the *_web_draft_atomic functions; page365_web_holds MUST count held
+    draft lines; web_checkout_mode is 'draft' and stays so (never change it in
+    SQL); never re-add a checkout that writes an order or plan directly.
+    docs/WEB-ORDER-DRAFTS.md "Rules moved from CLAUDE.md".

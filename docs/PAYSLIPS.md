@@ -18,6 +18,7 @@ Firebase deploy green):
 | `20270207100000_payslip_edit_figures.sql` | Edit figures + cash bond on salary only | applied 2026-10-27 JST; 17 payslips unchanged |
 | `20270208100000_payslip_bond_final_pay_only.sql` | Cash bond released only on Final pay | applied 2026-10-27 JST after release #642; 24 payslips unchanged |
 | `20270209100000_payslip_proof_not_on_file_bond_returned.sql` | Proof not on file (before June 2026) + cash bond returned on Final pay | NOT applied yet |
+| `20270219100000_payslip_proof_not_on_file_to_september.sql` | Proof not on file widened to months before October 2026 (Brenda June–September) | NOT applied yet |
 
 April and May 2026 timesheets loaded 2026-10-27 (207 entries); with the release, April totals ₱79,020.55 and
 May ₱74,541.48. The "NOT applied" notes in the sections below describe each migration at the time it was written.
@@ -679,6 +680,10 @@ Migration `supabase/migrations/20270209100000_payslip_proof_not_on_file_bond_ret
   one is released by itself on Final pay). Stored as `cash_bond_released_php` with no source payslip; the
   CHECK `payslips_cash_bond_released` allows that only on a final-pay payslip with a correction reason.
 - **First use:** Maria Cris de Guzman, May 2026 (her last pay): + ₱7,333.33.
+- **Widened to before October 2026** (migration 20270219100000, owner 2026-10-28 01:08): Brenda's
+  April–September 2026 pay was part of the total payroll sent to her to distribute, so it has no separate
+  proof. One-time catch-up: from October 2026 every payslip, Brenda's included, needs a proof. Only the CHECK
+  `payslips_proof_not_on_file` changes; the flag is still set only by the one-time owner-approved data step.
 - **Database:** `payslips.proof_not_on_file` (default false); `payslips_before_write` treats it as a payment
   field and refuses it on INSERT; `payslip_issue` reads `cash_bond_returned_php`; `correct_payslip` copies
   the flag with the payment; `get_payslip_book` features `proof_not_on_file`, `bond_returned`. Guarded by

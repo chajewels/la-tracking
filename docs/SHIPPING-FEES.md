@@ -109,3 +109,11 @@ The 代引手数料 is NOT a shipping rate and is not on this card. It has its o
 column (`cash_orders.cod_fee`, …) and its own line in every total. It is bracketed on the amount the
 courier collects — pieces after points + this card's shipping (+ services − discount) — so a
 shipping change can move the COD fee to another bracket. docs/COD.md.
+
+## Rules moved from CLAUDE.md (2026-10-28)
+
+Moved verbatim from CLAUDE.md on 2026-10-28 (Option A split); CLAUDE.md keeps a one-line pointer and every money rule.
+
+## SHIPPING FEES & COURIERS — NON-NEGOTIABLE (2026-09-27; docs/SHIPPING-FEES.md)
+  - planned_shipping_method_id has NO DB default; only PH is preselected
+    (Pabitbit, LBC number + LBC template) by the confirmation screen.

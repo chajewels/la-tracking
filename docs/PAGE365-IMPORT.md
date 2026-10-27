@@ -1147,3 +1147,46 @@ revoked" + the layaway-cancelled email; cash → `emitCancellationFollowups`.
 The importer (`page365-fetch-order`) saves the link through
 `page365_invoice_link_upsert` once the draft is saved (non-blocking; response
 field `page365_link_saved`).
+
+## Rules moved from CLAUDE.md (2026-10-28)
+
+Moved verbatim from CLAUDE.md on 2026-10-28 (Option A split); CLAUDE.md keeps a one-line pointer and every money rule.
+
+## PAGE365 IMPORT — NON-NEGOTIABLE (added 2026-09-19)
+  - THE ?sig= IS A CAPABILITY: kept ONLY in page365_invoice_links (RLS, no
+    policy); never on an order table, logged or returned to any browser.
+  - ITEM NOTES ARE DISPLAYED, NEVER APPLIED. Page365's OWN stock is never read;
+    origin is never auto-set.
+  - PHOTOS ARE COPIED, NEVER HOTLINKED; a photo that cannot be copied is null.
+  - The double-import guard is uq_*_page365_no + 409 already_imported;
+    consume_page365_draft is a courtesy. One invoice_number across BOTH order
+    tables (public.invoice_numbers); registry triggers are trg_zz_* and must
+    keep sorting after enforce_test_invoice_prefix.
+  - THE UI IS THE ONLY WAY IN AND NEVER AUTO-DECIDES: every field editable, the
+    customer is SUGGESTED never auto-selected, notes never parsed. The route is
+    permissioned on create_cash_order OR create_account.
+  - LINE ITEMS ARE WRITTEN INSIDE THE CREATING FUNCTION (_shared/order-extras.ts);
+    a failure rolls the order back.
+  - STOCK: PAGE365 IS THE STOCK MASTER (page365_stock_mode 'inventory_sync'); an
+    import NEVER changes website stock; a flag, never a guess; never edit
+    page365_stock_follow_order's body; never write page365_stock_lines by hand.
+  - "DON'T SYNC WITH PAGE365": website_products.page365_sync_disabled (Catalog,
+    manage_website_catalog, audited); a switched-off product is ALWAYS skipped by
+    every fetch / apply / import path; never set it in a migration.
+  - AUTO-LAND: every NEW code with Page365 available > 0 lands as ONE Hub
+    product, status DRAFT (NEVER published), origin UNKNOWN (never guessed);
+    publishing is refused server-side until complete; sold-out codes never land.
+  - INTERVAL: page365_inventory_interval_minutes ONLY 5/10/20/30, changed ONLY by
+    set_page365_inventory_interval (never in a migration); never change the cron
+    schedule to change the cadence; the 30-min auto-apply window is not the cadence.
+  - HIDE-FOLLOW: SEEN then missing from 2 COMPLETE reads in a row (last seen
+    >= 30 min before) → stock 0 + status 'draft'; never a never-seen / Hub-only,
+    switched-off or unpublished product, never from a partial read; NEVER
+    re-published automatically.
+  - QUICK FETCH: scheduled reads and the default button are QUICK; the first
+    scheduled read after 02:00 PHT is FULL; never a second reader
+    (page365_inventory_reader lease).
+  - ITEM TYPES + METAL STAMP: item_kind is EXACTLY jewelry | watch | accessory;
+    a metal stamp is required for JEWELRY only, and only to PUBLISH (never re-add
+    an every-product or creation-time stamp rule); kind and stamps are read ONLY
+    from what Page365 prints.

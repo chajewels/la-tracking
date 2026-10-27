@@ -92,3 +92,69 @@ rule is now stricter:
   pull the 34 function files from origin/main before the assertions passed.
   That is the "mirror can lag" rule working as designed — the assertions are
   what made it visible.
+
+## Rules moved from CLAUDE.md (2026-10-28)
+
+Moved verbatim from CLAUDE.md on 2026-10-28 (Option A split); CLAUDE.md keeps a one-line pointer and every money rule.
+
+## Git Workflow — NON-NEGOTIABLE (changed 2026-09-11)
+
+**`main` is production.** A push to `main` deploys the Hub frontend to live
+Firebase Hosting (`chajewelslayaway`). It is changed only by a PR from
+`develop`, merged by Cynthia — plus Lovable, see the exception below.
+
+**`develop` is where work lands.** All Claude Code work goes to `develop`, or to
+a short-lived feature branch merged into `develop`. Never push to `main`
+directly. A push to `develop` deploys to the `develop` Firebase Hosting preview
+channel; every PR gets its own `pr-<number>` channel, and the workflow posts the
+URL as a single sticky comment on the PR.
+
+History, rationale and the incidents behind every rule in this section:
+docs/GIT-WORKFLOW.md "Rules moved from CLAUDE.md". The same workflow is in force
+on the storefront repo (`chajewels/cha-jewels-web`).
+
+### THE LOVABLE EXCEPTION — main is not protected against Lovable
+
+Lovable mirrors `main` and commits its own work to `main`; it does not use
+`develop`. **This is accepted, not a gap** — an approved Lovable message *is*
+the review (docs/GIT-WORKFLOW.md).
+
+Two consequences to work with rather than around:
+
+- **Never assume `main` equals `develop`.** Lovable may have moved `main` since
+  `develop` branched. Before opening a `develop` -> `main` PR, and before any
+  work that reads `main`, fetch it: `git fetch origin main`. Merge `main` into
+  `develop` when it has moved; never rebase `develop` onto it (other branches
+  are cut from `develop`).
+- **Do not "clean up" Lovable's direct commits to `main`.** They are legitimate.
+- **After EVERY squash-merge of a release PR into `main`, merge `main` back into
+  `develop` immediately** (`git fetch origin main && git checkout develop &&
+  git merge origin/main && git push origin develop`). A squash creates a commit
+  `develop` does not have, so the next `develop` -> `main` PR conflicts on any
+  file both sides touched since (2026-09-13: #35 was not merged back and #38
+  conflicted on docs/FIXED-BUGS.md). "Main and develop have identical content"
+  is NOT the same as "develop contains main"; only the merge-back makes the
+  next release PR clean.
+
+### MIGRATIONS MUST BE ON `main` BEFORE A LOVABLE APPLY MESSAGE
+
+Lovable deploys and applies migrations from its mirror of `main`; a migration on
+`develop` is invisible to it and the apply message's source assertions fail — by
+design, never to be weakened.
+
+So a step's Hub work is merged **once, at the end of the step**: the migration
+and the Hub frontend that depends on it go `develop` -> `main` in the same PR,
+and only then is the Lovable apply-and-deploy message sent. Never merge a
+migration to `main` ahead of the frontend that needs it, and never send an apply
+message for a migration that is still on `develop`.
+
+### ONE SENDER PER LOVABLE MESSAGE — AND THAT SENDER IS CLAUDE CODE
+
+Every Lovable apply/deploy message is sent exactly once, by Claude Code, from
+this session, after Cynthia's OK. Nobody else sends it — not Claude chat, not a
+second session, not Cynthia pasting it herself. Claude Code checks the Lovable
+message queue before every send and never resends after a transport timeout.
+
+Why: the 2026-09-11 transfer_payment_methods message was sent twice — docs/GIT-WORKFLOW.md.
+
+- Versioning: package.json version is the app version (shown in the sidebar with the build commit). Bump MINOR when a feature ships, PATCH for fixes — only when a prompt explicitly says to bump.

@@ -115,3 +115,22 @@ backup that nothing reconciled.
 - Incident context: see `docs/FIXED-BUGS.md` Bug #163 entry, including
   the architecture rationale in the Resolution & catch-up notes
 
+## Rules moved from CLAUDE.md (2026-10-28)
+
+Moved verbatim from CLAUDE.md on 2026-10-28 (Option A split); CLAUDE.md keeps a one-line pointer and every money rule.
+
+## LOYALTY GOOGLE SHEET SYNC — NON-NEGOTIABLE
+
+  Full taxonomy, column layout and architecture: docs/LOYALTY-SHEET-SYNC.md (moved verbatim 2026-09-24).
+
+  - Canonical event_type values ONLY — Members tab: enrolled, tier_changed,
+    status_changed, admin_edited; Transactions tab: earned, bonus, redeemed,
+    expired, adjusted, refunded, revoked, birthday_bonus. Every emission carries
+    member_id and is fire-and-forget (never blocks the caller).
+  - Never change sheet column order without the matching header change; never
+    remove the activity_status derivation (Members col I).
+  - Fast path (writer POSTs sync-loyalty-to-sheet and sets synced_to_sheet_at)
+    + hourly recovery (loyalty-sheet-reconcile, cron :07, Vault auth).
+    INVARIANTS: every loyalty_transactions row eventually reaches the sheet;
+    synced_to_sheet_at is write-once (NULL → timestamp); loyalty-sheet-reconcile
+    is intentionally unauthenticated; award-loyalty-points keeps its strict auth.
