@@ -6518,7 +6518,7 @@ seen twice as duplicate_in_page365 and skipped it — never matched, proposed, a
 bell. Schedule, cron, auto-apply switch and website wiring were all verified working (~140 complete reads a
 day). Same for N1045 (owner fixed it by hand; its pearl listing was renamed in Page365 17:37 JST 27 Oct).
 Fix (owner rule: counter-check the next words of the description): migration
-20270208100000_page365_duplicate_code_by_name.sql (base live md5 e4476249…), new step (a2) — the listing
+20270215100000_page365_duplicate_code_by_name.sql (base live md5 e4476249…), new step (a2) — the listing
 whose 4 words after the code match the Hub name (>= 3 of 4, no tie) is matched normally; otherwise flagged +
 one bell page365_duplicate_code. findListing in page365-fetch-order uses the same rule for invoice photos.
 Docs: docs/PAGE365-IMPORT.md "DUPLICATE CODE".

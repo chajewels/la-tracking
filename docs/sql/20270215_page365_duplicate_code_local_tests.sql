@@ -4,9 +4,9 @@
 -- migration, then this one (no new stub is needed):
 --
 --   (the auto-land sequence from docs/sql/20261005_page365_auto_land_local_tests.sql, then)
---   $P supabase/migrations/20270208100000_page365_duplicate_code_by_name.sql
---   $P supabase/migrations/20270208100000_page365_duplicate_code_by_name.sql   # re-run is safe
---   $P docs/sql/20270208_page365_duplicate_code_local_tests.sql
+--   $P supabase/migrations/20270215100000_page365_duplicate_code_by_name.sql
+--   $P supabase/migrations/20270215100000_page365_duplicate_code_by_name.sql   # re-run is safe
+--   $P docs/sql/20270215_page365_duplicate_code_local_tests.sql
 --
 -- Every check RAISEs on failure; the last line prints ALL DUPLICATE-CODE CHECKS PASSED.
 --

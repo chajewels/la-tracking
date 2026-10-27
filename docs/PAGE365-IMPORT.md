@@ -1023,9 +1023,9 @@ Moved out of CLAUDE.md on 2026-10-02 to keep it under 100 KB. Text is verbatim (
 
 ## DUPLICATE CODE — a code on 2+ Page365 listings is told apart by the name (added 2026-10-27)
 
-Migration `20270208100000_page365_duplicate_code_by_name.sql` (applied with the owner's
+Migration `20270215100000_page365_duplicate_code_by_name.sql` (applied with the owner's
 approval after release; **no stock, product or setting changes** — its self-check proves it).
-Local SQL tests: `docs/sql/20270208_page365_duplicate_code_local_tests.sql` (46 checks).
+Local SQL tests: `docs/sql/20270215_page365_duplicate_code_local_tests.sql` (46 checks).
 Unit and pins: `src/test/page365-duplicate-code.test.tsx`.
 
 **Why.** N5245 went to 0 in Page365 at 23 Oct 00:32 JST but stayed 1 in the Hub and on the

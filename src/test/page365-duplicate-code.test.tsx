@@ -10,7 +10,7 @@ import { SKIP_REASON } from "@/lib/page365-inventory";
  * listings start with N5245, and every row of a duplicated code was skipped.
  * Now the 4 words after the code decide (score >= 3 of 4, no tie); the SQL
  * side is page365_inventory_finish (a2) — local tests in
- * docs/sql/20270208_page365_duplicate_code_local_tests.sql.
+ * docs/sql/20270215_page365_duplicate_code_local_tests.sql.
  */
 const src = (p: string) => readFileSync(resolve(__dirname, "../..", p), "utf8");
 
@@ -68,7 +68,7 @@ describe("wiring", () => {
     expect(src("supabase/functions/page365-fetch-order/index.ts")).toContain("findListing(list.items, sku, items[n].name)");
   });
   it("the migration starts from the live finish body and adds step (a2) only", () => {
-    const m = src("supabase/migrations/20270208100000_page365_duplicate_code_by_name.sql");
+    const m = src("supabase/migrations/20270215100000_page365_duplicate_code_by_name.sql");
     expect(m).toContain("'page365_inventory_finish(uuid)',         'e44762490fc64019a4cadfd9496fcbc6'");
     expect(m).toContain("(a2) 2026-10-27, owner rule");
     expect(m).toContain("SET match_result = 'pending', category = 'pending', result_note = 'matched_by_name'");
