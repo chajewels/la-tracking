@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Star, Copy } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
@@ -46,13 +45,12 @@ export function ReviewLinkDialog({ open, onOpenChange, kind, orderId, customerId
   const qc = useQueryClient();
   const orderCol = kind === "cash" ? "cash_order_id" : "layaway_account_id";
   const [piece, setPiece] = useState("");
-  const [productId, setProductId] = useState<string | null>(null);
-  const [productLabel, setProductLabel] = useState("");
-  const [search, setSearch] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
-  // First item line → prefill piece + website product.
+  // First item line → prefill the piece name. Which products the review lands
+  // on is decided by the database on approval (link_review_products: every
+  // product of the order, owner 2026-10-27); staff never pick one here.
   const { data: firstLine } = useQuery({
     queryKey: ["review-first-line", kind, orderId],
     enabled: open,
@@ -80,28 +78,11 @@ export function ReviewLinkDialog({ open, onOpenChange, kind, orderId, customerId
     },
   });
 
-  const { data: products } = useQuery({
-    queryKey: ["review-product-search", search],
-    enabled: open && search.trim().length >= 2,
-    queryFn: async () => {
-      const q = search.trim().replace(/[%,()]/g, " ");
-      const { data, error } = await supabase.from("website_products")
-        .select("id, sku, name").or(`sku.ilike.%${q}%,name.ilike.%${q}%`).limit(10);
-      if (error) throw error;
-      return data ?? [];
-    },
-  });
-
   useEffect(() => {
     if (!open) return;
     setMessage(null);
     const firstNote = (fallbackPiece ?? "").split(/\r?\n/)[0]?.trim() ?? "";
     setPiece((firstLine?.title ?? firstNote).slice(0, 200));
-    if (firstLine?.website_product_id) {
-      setProductId(firstLine.website_product_id);
-      supabase.from("website_products").select("sku, name").eq("id", firstLine.website_product_id).maybeSingle()
-        .then(({ data }) => { if (data) setProductLabel(`${data.sku} — ${data.name}`); });
-    } else { setProductId(null); setProductLabel(""); }
   }, [open, firstLine, fallbackPiece]);
 
   const used = invites?.find((i) => i.used_at);
@@ -141,7 +122,7 @@ export function ReviewLinkDialog({ open, onOpenChange, kind, orderId, customerId
       const { data: inserted, error: iErr } = await reviewDb.from("review_invites").insert({
         customer_id: customerId,
         [orderCol]: orderId,
-        website_product_id: productId,
+        website_product_id: firstLine?.website_product_id ?? null,
         piece_name: pieceName,
         token_hash: await sha256Hex(token),
         expires_at: new Date(Date.now() + 30 * 86_400_000).toISOString(),
@@ -184,31 +165,6 @@ export function ReviewLinkDialog({ open, onOpenChange, kind, orderId, customerId
               <Label htmlFor="review-piece">Piece name</Label>
               <Input id="review-piece" className="w-full min-w-0" value={piece} maxLength={200} onChange={(e) => setPiece(e.target.value)} />
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="review-product">Website piece (optional)</Label>
-              {productId ? (
-                <div className="flex min-w-0 items-center justify-between gap-2 rounded-md border border-border px-3 py-2 text-sm">
-                  <span className="min-w-0 flex-1 truncate">{productLabel || productId}</span>
-                  <Button size="sm" variant="ghost" className="shrink-0" onClick={() => { setProductId(null); setProductLabel(""); }}>Clear</Button>
-                </div>
-              ) : (
-                <>
-                  <Input id="review-product" className="w-full min-w-0" placeholder="Search by SKU or name" value={search} onChange={(e) => setSearch(e.target.value)} />
-                  {!!products?.length && (
-                    <div className="max-h-40 overflow-y-auto rounded-md border border-border">
-                      {products.map((p) => (
-                        <button key={p.id} type="button"
-                          className="block w-full truncate px-3 py-1.5 text-left text-sm hover:bg-muted"
-                          onClick={() => { setProductId(p.id); setProductLabel(`${p.sku} — ${p.name}`); setSearch(""); }}>
-                          {p.sku} — {p.name}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-
             {openInvite && !message && (
               <div className="rounded-md border border-border bg-muted/40 p-3 text-sm space-y-2">
                 <p>An open link exists — created {fmt(openInvite.created_at)}, expires {fmt(openInvite.expires_at)}.</p>

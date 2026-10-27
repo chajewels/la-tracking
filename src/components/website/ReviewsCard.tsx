@@ -23,6 +23,8 @@ import { reviewDb, type ProductReviewRow, type ReviewStatus } from "@/components
 type Row = ProductReviewRow & {
   customer: { full_name: string | null } | null;
   product: { slug: string; name: string } | null;
+  /** Every product page the review lands on (product_review_products, filled on approval). */
+  links: { product: { slug: string; name: string } | null }[] | null;
 };
 
 const STATUSES: ReviewStatus[] = ["pending", "approved", "rejected", "hidden"];
@@ -56,11 +58,16 @@ export function ReviewsCard() {
   const { data: rows, isLoading } = useQuery({
     queryKey: ["product-reviews", status],
     queryFn: async () => {
-      const { data, error } = await reviewDb.from("product_reviews")
-        .select("*, customer:customers(full_name), product:website_products(slug, name)")
+      const read = (cols: string) => reviewDb.from("product_reviews")
+        .select(cols)
         .eq("status", status)
         .order(status === "pending" ? "created_at" : "reviewed_at", { ascending: false })
         .limit(100);
+      const base = "*, customer:customers(full_name), product:website_products(slug, name)";
+      let { data, error } = await read(`${base}, links:product_review_products(product:website_products(slug, name))`);
+      // Until migration 20270217100000 is applied the links table does not
+      // exist; the list still loads, without the per-product labels.
+      if (error) ({ data, error } = await read(base));
       if (error) throw error;
       return (data ?? []) as Row[];
     },
@@ -290,7 +297,11 @@ function ReviewItem({ row, invoice }: { row: Row; invoice?: string }) {
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
         <Stars n={row.rating} />
         <span className="font-medium">{row.piece_name}</span>
-        {row.product && <Badge variant="outline">{row.product.name}</Badge>}
+        {/* Where it lands: every product of the order (read-only). */}
+        {(row.links ?? []).map((l) => l.product && (
+          <Badge key={l.product.slug} variant="outline">{l.product.name}</Badge>
+        ))}
+        {!(row.links ?? []).some((l) => l.product) && row.product && <Badge variant="outline">{row.product.name}</Badge>}
         <Link className="text-primary underline" to={`/customers/${row.customer_id}`}>{row.customer?.full_name ?? row.display_name}</Link>
         <Link className="text-primary underline" to={orderPath}>Inv #{invoice ?? "—"}</Link>
         <span className="text-muted-foreground">{new Date(row.created_at).toLocaleString()}</span>

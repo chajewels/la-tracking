@@ -31,6 +31,7 @@ import { LayawayDepositDueEmail, layawayDepositDueSubject } from '../supabase/fu
 import { LayawayExpiredEmail, layawayExpiredSubject } from '../supabase/functions/_shared/email-templates/layaway-expired.tsx'
 import { LayawayForfeitedEmail, layawayForfeitedSubject } from '../supabase/functions/_shared/email-templates/layaway-forfeited.tsx'
 import { LayawayCancelledEmail, layawayCancelledSubject } from '../supabase/functions/_shared/email-templates/layaway-cancelled.tsx'
+import { LayawayReceiptReadyEmail, layawayReceiptReadySubject } from '../supabase/functions/_shared/email-templates/layaway-receipt-ready.tsx'
 import { LayawayPaymentReceivedEmail, layawayPaymentReceivedSubject } from '../supabase/functions/_shared/email-templates/layaway-payment-received.tsx'
 import { LayawayUpdateEmail, layawayUpdateSubject } from '../supabase/functions/_shared/email-templates/layaway-update.tsx'
 
@@ -96,6 +97,8 @@ function cases(): Case[] {
       out.push({ file: 'layaway-forfeited.tsx', name: `forfeited ${currency} final=${final}`, subject: layawayForfeitedSubject(ref), element: el(LayawayForfeitedEmail, { reference: ref, currency, totalAmount: 120000, totalPaid: 36000, planUrl, final }) })
     for (const pointsReversed of [false, true])
       out.push({ file: 'layaway-cancelled.tsx', name: `cancelled ${currency} points=${pointsReversed}`, subject: layawayCancelledSubject(ref), element: el(LayawayCancelledEmail, { reference: ref, currency, totalAmount: 120000, totalPaid: 36000, planUrl, pointsReversed }) })
+    // Website receipts (docs/RECEIPTS.md): the plan's receipt-ready email.
+    out.push({ file: 'layaway-receipt-ready.tsx', name: `receipt-ready ${currency}`, subject: layawayReceiptReadySubject(ref), element: el(LayawayReceiptReadyEmail, { reference: ref, receiptNumber: 'CJR-2026-000001', currency, total: 120000, planUrl }) })
   }
   for (const kind of ['declined', 'lapsed'] as const)
     out.push({ file: 'layaway-declined.tsx', name: `declined ${kind}`, subject: layawayDeclinedSubject(ref, kind), element: el(LayawayDeclinedEmail, { reference: ref, kind, reason: 'The piece did not pass our final inspection.', shopUrl }) })
