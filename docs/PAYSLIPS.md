@@ -16,7 +16,7 @@ Firebase deploy green):
 | `20270205100000_payslip_second_proof.sql` | 2nd proof file (payment, cash advances) | applied |
 | `20270206100000_payslip_bonuses.sql` | Bonuses (Performance / KPI, Holiday / Christmas) | applied |
 | `20270207100000_payslip_edit_figures.sql` | Edit figures + cash bond on salary only | applied 2026-10-27 JST; 17 payslips unchanged |
-| `20270208100000_payslip_bond_final_pay_only.sql` | Cash bond released only on Final pay | NOT applied yet |
+| `20270208100000_payslip_bond_final_pay_only.sql` | Cash bond released only on Final pay | applied 2026-10-27 JST after release #642; 24 payslips unchanged |
 
 April and May 2026 timesheets loaded 2026-10-27 (207 entries); with the release, April totals ₱79,020.55 and
 May ₱74,541.48. The "NOT applied" notes in the sections below describe each migration at the time it was written.
