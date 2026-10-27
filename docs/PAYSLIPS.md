@@ -4,6 +4,22 @@ Owner-confirmed plan 2026-10-26. Migration `supabase/migrations/20270201100000_s
 No edge function. UI: `src/components/timesheet/PayslipsTab.tsx`; rules: `src/lib/payslips.ts`;
 tests: `src/test/payslips.test.ts`, `src/test/payslips-tab.test.tsx`, SQL harness `supabase/tests/payslips/`.
 
+## Live status (2026-10-27)
+
+All payslip migrations are applied on the live database and the frontend is released (PR #637, main `09d79b02`,
+Firebase deploy green):
+
+| Migration | Feature | Live |
+|---|---|---|
+| `20270201100000_staff_payslips.sql` | Payslips tab, finalize, payment, PDF/Excel | applied |
+| `20270204100000_payslip_bond_payhistory.sql` | Cash advances, employee ID, cash bond, pay history, April–May | applied |
+| `20270205100000_payslip_second_proof.sql` | 2nd proof file (payment, cash advances) | applied |
+| `20270206100000_payslip_bonuses.sql` | Bonuses (Performance / KPI, Holiday / Christmas) | applied |
+| `20270207100000_payslip_edit_figures.sql` | Edit figures + cash bond on salary only | applied 2026-10-27 JST; 17 payslips unchanged |
+
+April and May 2026 timesheets loaded 2026-10-27 (207 entries); with the release, April totals ₱79,020.55 and
+May ₱74,541.48. The "NOT applied" notes in the sections below describe each migration at the time it was written.
+
 ## Owner decisions (locked)
 
 - **Who:** admin, or a timesheet user flagged `timesheet_profiles.can_view_all` (today only Brenda). This is
@@ -250,12 +266,12 @@ payslip view and the Excel file are unchanged. Frontend only: no migration, no e
   - row locks (figure edits, snapshot edits, mixed updates, un-void, DELETE, TRUNCATE, insert-as-paid)
   - direct writes refused
   - audit rows (one per write, real uuids, no figures or personal details)
-- Not applied to any live database. The owner applies it through the Lovable DB connection after release.
+- Applied on live (see "Live status").
 
 ## Cash advances, employee ID, cash bond and April–May (owner 2026-10-27)
 
 Owner-confirmed 2026-10-27 12:05–12:20. Migration `supabase/migrations/20270204100000_payslip_bond_payhistory.sql`
-(**NOT applied** — the owner applies it through the Lovable DB connection after the frontend release). No edge
+(applied on live — see "Live status"). No edge
 function. Pay settings history and the timesheet side: docs/TIMESHEET-SPEC.md "Pay settings history" and
 "Inactive staff in past months".
 
