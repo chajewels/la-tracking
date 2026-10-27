@@ -483,7 +483,8 @@ One final receipt per WEBSITE order (cash order or plan, `source_channel = 'web'
 when the order is fully paid, while the Hub switch `web_receipts_mode` allows it. A receipt is never
 edited: a change to the order cancels it and a new number is issued. The Hub returns every receipt
 the customer owns, plans included — **the storefront must hide `kind: "layaway"` receipts on the
-Japanese site** (`layawayOffered`). The PDF itself carries no layaway wording.
+Japanese site** (`layawayOffered`). The PDF itself carries no layaway wording. Peso orders get no receipt yet
+(owner decision pending, docs/RECEIPTS.md "Peso orders").
 
 ### GET /me/receipts (customer JWT)
 `{ receipts: [{ id, receipt_number, kind: "cash"|"layaway", order_id, order_number, status:

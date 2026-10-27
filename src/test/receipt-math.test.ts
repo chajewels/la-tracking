@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   cancelReason, cleanReceiptDetails, includedTax, isReissue, methodLabel, normaliseVerifyCode, purposeFor,
-  readReceiptSwitch, receiptDate, receiptMinus, receiptMoney, receiptNumber, receiptTotals, showItemAmounts, switchAllowsIssue,
+  readReceiptSwitch, receiptDate, receiptMinus, receiptMoney, receiptNumber, receiptTotals, switchAllowsIssue, unitPriceExTax,
   DEFAULT_PURPOSE,
 } from "../../supabase/functions/_shared/receipt-math.ts";
 
@@ -25,41 +25,61 @@ describe("消費税（10%） = round(product amount × 10 / 110), every amount a
   ])("%s → %s", (taxable, tax) => expect(includedTax(taxable)).toBe(tax));
 });
 
-describe("the totals block (owner 2026-10-27: tax on the products, discount after tax, shipping after tax)", () => {
-  const zero = { discount: 0, points: 0, shipping: 0, codFee: 0, penalties: 0 };
+describe("item rows excl. tax and the totals block (owner 2026-10-27, generate-invoice's rule)", () => {
+  const none = { discount: 0, points: 0, shipping: 0, codFee: 0, penalties: 0 };
+  const item = (unitPrice: number, quantity = 1) => ({ unitPrice, quantity, lineTotal: unitPrice * quantity });
 
-  it("owner example: ¥100,000, no discount, no shipping", () => {
-    expect(receiptTotals({ ...zero, productAmount: 100000, received: 100000 })).toEqual({
-      subtotal: 90909, tax: 9091, discount: 0, shipping: 0, codFee: 0, penalties: 0, total: 100000, addsUp: true,
-    });
+  it("unit price excl. tax = Math.round(÷ 1.1)", () => {
+    expect(unitPriceExTax(100000)).toBe(90909);
+    expect(unitPriceExTax(60000)).toBe(54545);  // 54,545.45
+    expect(unitPriceExTax(40000)).toBe(36364);  // 36,363.6
+    expect(unitPriceExTax(19000)).toBe(17273);  // 17,272.7
+    expect(unitPriceExTax(11)).toBe(10);
+    expect(unitPriceExTax(5.5)).toBe(5);        // 5.0 exactly
+    expect(unitPriceExTax(0.55)).toBe(1);       // 0.5 → up
   });
 
-  it("discount (coupon 5,000 + points 3,000), shipping 800, COD fee 1,150 on ¥98,000 of products", () => {
-    // 89,091 + 8,909 − 8,000 + 800 + 1,150 = 91,950
-    expect(receiptTotals({ productAmount: 98000, discount: 5000, points: 3000, shipping: 800, codFee: 1150, penalties: 0, received: 91950 }))
-      .toEqual({ subtotal: 89091, tax: 8909, discount: 8000, shipping: 800, codFee: 1150, penalties: 0, total: 91950, addsUp: true });
+  it("1 item ¥100,000: unit/amount ¥90,909, subtotal ¥90,909, tax ¥9,091, total ¥100,000", () => {
+    const t = receiptTotals({ currency: "JPY", items: [item(100000)], ...none, received: 100000 });
+    expect(t.lines).toEqual([{ unitPriceEx: 90909, lineEx: 90909 }]);
+    expect([t.subtotal, t.tax, t.discount, t.shipping, t.total, t.addsUp]).toEqual([90909, 9091, 0, 0, 100000, true]);
   });
 
-  it("layaway with a late fee: the fee is its own line, no tax on it", () => {
-    expect(receiptTotals({ ...zero, productAmount: 100000, penalties: 1000, received: 101000 }))
-      .toEqual({ subtotal: 90909, tax: 9091, discount: 0, shipping: 0, codFee: 0, penalties: 1000, total: 101000, addsUp: true });
+  it("owner example, 2 items: K18 ¥54,545 + PT900 ¥36,364 = ¥90,909; tax ¥9,091; total ¥100,000", () => {
+    const t = receiptTotals({ currency: "JPY", items: [item(60000), item(40000)], ...none, received: 100000 });
+    expect(t.lines).toEqual([{ unitPriceEx: 54545, lineEx: 54545 }, { unitPriceEx: 36364, lineEx: 36364 }]);
+    expect([t.subtotal, t.tax, t.total, t.addsUp]).toEqual([90909, 9091, 100000, true]);
   });
 
-  it("peso order: every figure in pesos, no yen", () => {
-    expect(receiptTotals({ ...zero, productAmount: 42000, shipping: 3500, received: 45500 }))
-      .toEqual({ subtotal: 38182, tax: 3818, discount: 0, shipping: 3500, codFee: 0, penalties: 0, total: 45500, addsUp: true });
+  it("3 items, qty 2 on one line, discount (coupon + points), shipping, COD fee", () => {
+    // 30,000 + 2 × 19,000 + 30,000 = 98,000 incl. → excl. 27,273 + 34,546 + 27,273 = 89,092; tax 8,908
+    // 89,092 + 8,908 − (5,000 + 3,000) + 800 + 1,150 = 91,950
+    const t = receiptTotals({ currency: "JPY", items: [item(30000), item(19000, 2), item(30000)],
+      discount: 5000, points: 3000, shipping: 800, codFee: 1150, penalties: 0, received: 91950 });
+    expect(t.lines).toEqual([{ unitPriceEx: 27273, lineEx: 27273 }, { unitPriceEx: 17273, lineEx: 34546 }, { unitPriceEx: 27273, lineEx: 27273 }]);
+    expect([t.subtotal, t.tax, t.discount, t.shipping, t.codFee, t.total, t.addsUp]).toEqual([89092, 8908, 8000, 800, 1150, 91950, true]);
   });
 
-  it("does not add up → flagged, never forced (an overpayment, lines edited at Confirm, no item lines)", () => {
-    expect(receiptTotals({ ...zero, productAmount: 42000, received: 43000 }).addsUp).toBe(false);
-    expect(receiptTotals({ ...zero, productAmount: 45000, received: 50000 }).addsUp).toBe(false);
-    expect(receiptTotals({ ...zero, productAmount: 0, received: 0 }).addsUp).toBe(false);
+  it("layaway with a late fee: its own line, outside the 10%", () => {
+    const t = receiptTotals({ currency: "JPY", items: [item(100000)], ...none, penalties: 1000, received: 101000 });
+    expect([t.subtotal, t.tax, t.penalties, t.total, t.addsUp]).toEqual([90909, 9091, 1000, 101000, true]);
+  });
+
+  it("peso multi-item: HELD — item lines are yen only and checkout never derived per-line pesos (owner decision pending)", () => {
+    const t = receiptTotals({ currency: "PHP", items: [item(60000), item(40000)], ...none, received: 42000 });
+    expect(t.addsUp).toBe(false);
+    expect(t.problem).toBe("peso_pending_owner_decision");
+  });
+
+  it("does not add up → flagged, never forced", () => {
+    expect(receiptTotals({ currency: "JPY", items: [item(45000)], ...none, received: 50000 }).problem).toBe("block_mismatch");
+    expect(receiptTotals({ currency: "JPY", items: [{ unitPrice: 50000, quantity: 1, lineTotal: 45000 }], ...none, received: 50000 }).problem).toBe("lines_mismatch");
+    expect(receiptTotals({ currency: "JPY", items: [], ...none, received: 0 }).problem).toBe("no_items");
   });
 
   it("the discount line is always a minus, even at zero", () => {
     expect(receiptMinus(0, "JPY")).toBe("\u2212¥0");
     expect(receiptMinus(8000, "JPY")).toBe("\u2212¥8,000");
-    expect(receiptMinus(1000, "PHP")).toBe("\u2212PHP 1,000");
   });
 });
 
@@ -158,11 +178,5 @@ describe("printing", () => {
     expect(methodLabel("store_credit", "ja")).toBe("ストアクレジット");
     expect(methodLabel("bdo", "en")).toBe("Bank transfer");
     expect(methodLabel("Some Bank", "en")).toBe("Some Bank");
-  });
-  it("item amounts only on a yen receipt whose lines add up to the goods total", () => {
-    const items = [{ title: "A", quantity: 1, line_total_jpy: 60000 }, { title: "B", quantity: 2, line_total_jpy: 38000 }];
-    expect(showItemAmounts(items, 98000, "JPY")).toBe(true);
-    expect(showItemAmounts(items, 99000, "JPY")).toBe(false);
-    expect(showItemAmounts(items, 98000, "PHP")).toBe(false);
   });
 });

@@ -27,7 +27,7 @@ import { PDFDocument, rgb, degrees, type PDFFont, type PDFImage, type PDFPage } 
 import fontkit from "npm:@pdf-lib/fontkit@1.1.1";
 import QRCode from "npm:qrcode@1.5.4";
 import {
-  methodLabel, purposeFor, receiptDate, receiptMinus, receiptMoney, showItemAmounts,
+  methodLabel, purposeFor, receiptDate, receiptMinus, receiptMoney,
   type ReceiptCurrency, type ReceiptLang,
 } from "./receipt-math.ts";
 
@@ -97,7 +97,7 @@ const W = {
     stamp: "電子発行のため収入印紙の貼付はありません。",
     issuer: "発行者", registration: "登録番号",
     verify: "この領収書の確認", verifyAt: "chajewelsjp.com/receipts/verify",
-    qty: (n: number) => `× ${n}`,
+    item: "品名", quantity: "数量", unitEx: "単価（税抜）", amountEx: "金額（税抜）",
   },
   en: {
     title: "RECEIPT", reissue: "REISSUED", honorific: "", amountLabel: "Amount received", taxIncl: " (tax included)",
@@ -108,23 +108,28 @@ const W = {
     stamp: "Issued electronically; no revenue stamp is affixed.",
     issuer: "Issued by", registration: "Registration No.",
     verify: "Verify this receipt", verifyAt: "chajewelsjp.com/receipts/verify",
-    qty: (n: number) => `× ${n}`,
+    item: "Item", quantity: "Qty", unitEx: "Unit price (excl. tax)", amountEx: "Amount (excl. tax)",
   },
 } as const;
 
-/** The item lines. Amounts only on a yen receipt whose lines add up to the product amount. */
-export function itemRows(r: ReceiptPayload, lang: ReceiptLang): ReceiptRow[] {
+export interface ItemTable {
+  header: [string, string, string, string];
+  rows: [string, string, string, string][];
+}
+
+/** The item table, EXCLUDING tax (stored unit_price_ex / line_ex). Pure: unit-tested. */
+export function itemTable(r: ReceiptPayload, lang: ReceiptLang): ItemTable {
   const w = W[lang];
   const items = (Array.isArray(r.lines?.items) ? r.lines.items : []) as AnyRec[];
-  const withAmounts = showItemAmounts(
-    items.map((i) => ({ title: String(i.title ?? ""), quantity: num(i.quantity), line_total_jpy: num(i.line_total_jpy) })),
-    num(r.taxable_total), r.currency,
-  );
-  return items.map((i) => ({
-    label: `${String(i.title ?? "").trim()}　${w.qty(num(i.quantity) || 1)}`,
-    value: withAmounts ? receiptMoney(num(i.line_total_jpy), r.currency) : "",
-    indent: true,
-  }));
+  return {
+    header: [w.item, w.quantity, w.unitEx, w.amountEx],
+    rows: items.map((i) => [
+      String(i.title ?? "").trim(),
+      String(num(i.quantity) || 1),
+      receiptMoney(num(i.unit_price_ex), r.currency),
+      receiptMoney(num(i.line_ex), r.currency),
+    ]),
+  };
 }
 
 /** The totals block, in print order, from the stored figures. Pure: unit-tested. */
@@ -144,10 +149,6 @@ export function totalsRows(r: ReceiptPayload, lang: ReceiptLang): ReceiptRow[] {
   return rows;
 }
 
-/** Item lines then the totals block. */
-export function receiptRows(r: ReceiptPayload, lang: ReceiptLang): ReceiptRow[] {
-  return [...itemRows(r, lang), ...totalsRows(r, lang)];
-}
 
 /** One line per payment method actually used (points excluded; store credit included). */
 export function paymentRows(r: ReceiptPayload, lang: ReceiptLang): ReceiptRow[] {
@@ -277,12 +278,34 @@ export async function renderReceiptPdf(input: RenderInput, fontBytes: Uint8Array
   y -= 6;
   page.drawLine({ start: { x: M, y }, end: { x: xr, y }, thickness: 0.6, color: GOLD });
   y -= 15;
-  const rows = receiptRows(r, lang);
-  const maxRows = 26;
-  const printed = rows.length > maxRows ? [...rows.filter((x) => !x.indent).slice(0, maxRows)] : rows;
-  for (const row of printed) {
+  // Item table (excl. tax): 品名 | 数量 | 単価（税抜） | 金額（税抜）.
+  const table = itemTable(r, lang);
+  const colQty = xr - 230;
+  const colUnit = xr - 110;
+  const hs = 8.5;
+  page.drawText(table.header[0], { x: M, y, size: hs, font, color: MUTED });
+  right(page, font, table.header[1], colQty, y, hs, MUTED);
+  right(page, font, table.header[2], colUnit, y, hs, MUTED);
+  right(page, font, table.header[3], xr, y, hs, MUTED);
+  y -= 15;
+  const maxItems = 14;
+  for (const [title, qty, unit, amount] of table.rows.slice(0, maxItems)) {
+    page.drawText(fit(font, title, 9.5, colQty - M - 40), { x: M, y, size: 9.5, font, color: INK });
+    right(page, font, qty, colQty, y, 9.5);
+    right(page, font, unit, colUnit, y, 9.5);
+    right(page, font, amount, xr, y, 9.5);
+    y -= 14;
+  }
+  if (table.rows.length > maxItems) {
+    page.drawText(`… +${table.rows.length - maxItems}`, { x: M, y, size: 9, font, color: MUTED });
+    y -= 14;
+  }
+
+  // Totals block.
+  const rows = totalsRows(r, lang);
+  for (const row of rows) {
     const size = row.emphasis ? 11 : 9.5;
-    if (row.rule && row !== printed[0]) {
+    if (row.rule) {
       y -= 2;
       page.drawLine({ start: { x: M, y: y + 12 }, end: { x: xr, y: y + 12 }, thickness: 0.3, color: MUTED });
     }
@@ -290,8 +313,8 @@ export async function renderReceiptPdf(input: RenderInput, fontBytes: Uint8Array
       y -= 4;
       page.drawLine({ start: { x: M, y: y + 13 }, end: { x: xr, y: y + 13 }, thickness: 0.4, color: MUTED });
     }
-    const x = row.indent ? M + 12 : M;
-    page.drawText(fit(font, row.label, size, xr - x - 110), { x, y, size, font, color: row.indent ? MUTED : INK });
+    const x = colQty - 60;
+    page.drawText(fit(font, row.label, size, xr - x - 110), { x, y, size, font, color: INK });
     if (row.value) right(page, font, row.value, xr, y, size);
     y -= row.emphasis ? 18 : 14;
   }

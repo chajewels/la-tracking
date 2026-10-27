@@ -238,8 +238,8 @@ Reference docs (read the relevant one when a task touches that area):
 
 ## WEBSITE RECEIPTS (領収書) — NON-NEGOTIABLE (owner 2026-10-27; docs/RECEIPTS.md)
   - source_channel 'web' only; written ONLY by web_receipt_sync (deferred triggers) + the receipt RPCs.
-  - Totals = Hub invoice: 小計（税抜） + 消費税（10%）[round(products × 10/110)] − 割引 + 送料
-    (+代引手数料, +延滞金) = 合計 = money received; must add up exactly or no receipt. Pesos: PHP only.
+  - generate-invoice rule: items excl. tax (round(unit ÷ 1.1) × qty) = 小計; 消費税 = incl. − 小計;
+    − 割引 + 送料 (+代引手数料, +延滞金) = 合計 = money received, exactly, or no receipt. Peso: held.
   - Never edit or delete a receipt: cancel (reason kept) and issue a NEW number. Switch
     web_receipts_mode off|test|on ONLY via set_web_receipts_mode. Font/seal: private receipt-assets.
 

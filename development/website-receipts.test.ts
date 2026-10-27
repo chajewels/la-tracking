@@ -8,7 +8,7 @@ import * as React from 'npm:react@18.3.1'
 import { renderEmail } from '../supabase/functions/_shared/render-email.ts'
 import { COMPANY_NAME } from '../supabase/functions/_shared/transactional-email-templates/brand.ts'
 import {
-  ISSUER, RECEIPT_FONT_PATH, RECEIPT_SEAL_PATH, paymentRows, receiptRows, renderReceiptPdf, verifyUrl,
+  ISSUER, RECEIPT_FONT_PATH, RECEIPT_SEAL_PATH, itemTable, paymentRows, renderReceiptPdf, totalsRows, verifyUrl,
   type ReceiptPayload,
 } from '../supabase/functions/_shared/receipt-pdf.ts'
 import { receiptPdf, updateReceiptDetails, verifyReceipt, verifyRateLimited } from '../supabase/functions/_shared/website-receipts.ts'
@@ -24,74 +24,72 @@ function ok(c: unknown, what: string) {
   if (!c) throw new Error(what)
 }
 
+const it = (title: string, unit: number, ex: number, quantity = 1) =>
+  ({ title, quantity, unit_price_jpy: unit, line_total_jpy: unit * quantity, unit_price_ex: ex, line_ex: ex * quantity })
+// 3 items, qty 2 on one line, coupon + points, shipping, COD fee (owner case)
 const yen: ReceiptPayload = {
   receipt_number: 'CJR-2026-000042', order_number: 'CJ-W-900501', currency: 'JPY',
   lines: {
-    items: [{ title: 'K18 ネックレス', quantity: 1, line_total_jpy: 60000 }, { title: 'Earrings', quantity: 2, line_total_jpy: 38000 }],
-    goods_total: 98000, discount: 5000, coupon_code: 'WELCOME', points: 3000, shipping: 800, cod_fee: 1150, penalties: 0, refunds: 0,
+    items: [it('K18 ネックレス', 30000, 27273), it('Earrings', 19000, 17273, 2), it('PT900 リング', 30000, 27273)],
+    discount: 5000, coupon_code: 'WELCOME', points: 3000, shipping: 800, cod_fee: 1150, penalties: 0, refunds: 0,
     payments: [{ method: 'cod', amount: 81950 }, { method: 'store_credit', amount: 10000 }],
-    product_amount: 98000, subtotal: 89091, tax: 8909, discount_total: 8000, received: 91950, adds_up: true,
+    product_amount: 98000, subtotal: 89092, tax: 8908, discount_total: 8000, received: 91950, adds_up: true,
   },
-  total_paid: 91950, penalty_total: 0, taxable_total: 98000, subtotal: 89091, tax_amount: 8909, fx_rate_used: null,
+  total_paid: 91950, penalty_total: 0, taxable_total: 98000, subtotal: 89092, tax_amount: 8908, fx_rate_used: null,
   addressee: '株式会社テスト', purpose: 'お品代として', verify_code: '0123456789abcdef0123456789abcdef01234567',
   issued_at: '2026-10-27T03:00:00Z',
 }
-const php: ReceiptPayload = {
-  ...yen, receipt_number: 'CJR-2026-000043', order_number: 'CJ-W-900701', currency: 'PHP',
-  lines: {
-    items: [{ title: 'Bracelet', quantity: 1, line_total_jpy: 100000 }],
-    goods_total: 42000, discount: 0, points: 0, shipping: 0, cod_fee: 0, penalties: 1000, refunds: 0,
-    payments: [{ method: 'bdo', amount: 12600 }, { method: 'gcash', amount: 30400 }],
-    product_amount: 42000, subtotal: 38182, tax: 3818, discount_total: 0, received: 43000, adds_up: true,
-  },
-  total_paid: 43000, penalty_total: 1000, taxable_total: 42000, subtotal: 38182, tax_amount: 3818, fx_rate_used: 0.42,
-  addressee: null,
+// layaway with a late fee
+const lay: ReceiptPayload = {
+  ...yen, receipt_number: 'CJR-2026-000043', order_number: 'CJ-W-900701',
+  lines: { items: [it('Bracelet', 100000, 90909)], discount_total: 0, shipping: 0, cod_fee: 0, payments: [{ method: 'transfer', amount: 101000 }] },
+  total_paid: 101000, penalty_total: 1000, taxable_total: 100000, subtotal: 90909, tax_amount: 9091, addressee: null,
 }
 
 const M = '\u2212'
-Deno.test('yen totals block (owner layout): subtotal, 10% tax, discount = coupon + points, shipping, COD fee, total', () => {
-  eq(receiptRows(yen, 'ja').map((r) => [r.label, r.value]), [
-    ['K18 ネックレス　× 1', '¥60,000'],
-    ['Earrings　× 2', '¥38,000'],
-    ['小計（税抜）', '¥89,091'],
-    ['消費税（10%）', '¥8,909'],
+Deno.test('item table excl. tax: 品名 / 数量 / 単価（税抜） / 金額（税抜）, lines add up to the subtotal', () => {
+  const t = itemTable(yen, 'ja')
+  eq(t.header, ['品名', '数量', '単価（税抜）', '金額（税抜）'], 'ja header')
+  eq(t.rows, [
+    ['K18 ネックレス', '1', '¥27,273', '¥27,273'],
+    ['Earrings', '2', '¥17,273', '¥34,546'],
+    ['PT900 リング', '1', '¥27,273', '¥27,273'],
+  ], 'rows')
+  eq(itemTable(yen, 'en').header, ['Item', 'Qty', 'Unit price (excl. tax)', 'Amount (excl. tax)'], 'en header')
+  eq(27273 + 34546 + 27273, 89092, 'lines = subtotal')
+})
+
+Deno.test('totals block: subtotal, 10% tax, discount = coupon + points, shipping, COD fee, total', () => {
+  eq(totalsRows(yen, 'ja').map((r) => [r.label, r.value]), [
+    ['小計（税抜）', '¥89,092'],
+    ['消費税（10%）', '¥8,908'],
     ['割引', `${M}¥8,000`],
     ['送料', '¥800'],
     ['代引手数料', '¥1,150'],
     ['合計（税込）', '¥91,950'],
-  ], 'yen rows ja')
-  eq(receiptRows(yen, 'en').slice(2).map((r) => r.label), ['Subtotal (excl. tax)', '10% Tax', 'Discount', 'Shipping fee', 'COD fee', 'Total (tax incl.)'], 'yen labels en')
+  ], 'yen totals ja')
+  eq(totalsRows(yen, 'en').map((r) => r.label), ['Subtotal (excl. tax)', '10% Tax', 'Discount', 'Shipping fee', 'COD fee', 'Total (tax incl.)'], 'en labels')
   eq(paymentRows(yen, 'ja').map((r) => r.label), ['代金引換', 'ストアクレジット'], 'store credit is a payment line')
 })
 
-Deno.test('owner example: ¥100,000, no discount, no shipping — discount and shipping still shown, COD fee and late fee not', () => {
-  const r: ReceiptPayload = { ...yen, lines: { items: [{ title: 'Ring', quantity: 1, line_total_jpy: 100000 }], discount_total: 0, shipping: 0, cod_fee: 0, payments: [] },
+Deno.test('owner example: 1 item ¥100,000 — discount and shipping shown at 0, COD fee and late fee not', () => {
+  const r: ReceiptPayload = { ...yen, lines: { items: [it('Ring', 100000, 90909)], discount_total: 0, shipping: 0, cod_fee: 0, payments: [] },
     total_paid: 100000, penalty_total: 0, taxable_total: 100000, subtotal: 90909, tax_amount: 9091 }
-  eq(receiptRows(r, 'ja').slice(1).map((x) => [x.label, x.value]), [
+  eq(itemTable(r, 'ja').rows, [['Ring', '1', '¥90,909', '¥90,909']], 'item')
+  eq(totalsRows(r, 'ja').map((x) => [x.label, x.value]), [
     ['小計（税抜）', '¥90,909'], ['消費税（10%）', '¥9,091'], ['割引', `${M}¥0`], ['送料', '¥0'], ['合計（税込）', '¥100,000'],
   ], 'owner example')
 })
 
-Deno.test('peso receipt: every line in PHP, late fee shown, no yen and no rate anywhere', () => {
-  const rows = receiptRows(php, 'en')
-  eq(rows.map((r) => [r.label, r.value]), [
-    ['Bracelet　× 1', ''],
-    ['Subtotal (excl. tax)', 'PHP 38,182'],
-    ['10% Tax', 'PHP 3,818'],
-    ['Discount', `${M}PHP 0`],
-    ['Shipping fee', 'PHP 0'],
-    ['Late fee', 'PHP 1,000'],
-    ['Total (tax incl.)', 'PHP 43,000'],
-  ], 'peso rows')
-  for (const lang of ['ja', 'en'] as const) {
-    const all = JSON.stringify([receiptRows(php, lang), paymentRows(php, lang)])
-    ok(!/[¥₱]|0\.42|JPY/.test(all), `no yen / rate on a peso receipt (${lang})`)
-  }
+Deno.test('layaway: the late fee is its own line', () => {
+  eq(totalsRows(lay, 'en').map((x) => [x.label, x.value]), [
+    ['Subtotal (excl. tax)', '¥90,909'], ['10% Tax', '¥9,091'], ['Discount', `${M}¥0`], ['Shipping fee', '¥0'], ['Late fee', '¥1,000'], ['Total (tax incl.)', '¥101,000'],
+  ], 'late fee')
 })
 
 Deno.test('no layaway wording anywhere the receipt prints', () => {
   for (const lang of ['ja', 'en'] as const) {
-    const all = JSON.stringify([receiptRows(php, lang), paymentRows(php, lang)])
+    const all = JSON.stringify([itemTable(lay, lang), totalsRows(lay, lang), paymentRows(lay, lang)])
     ok(!/layaway|lay-away|分割|レイアウェイ|予約/i.test(all), `layaway wording in ${lang}`)
   }
 })
@@ -110,7 +108,7 @@ Deno.test({
   ignore: !FONT,
   fn: async () => {
     const font = await Deno.readFile(FONT!)
-    for (const [r, lang, reissue] of [[yen, 'ja', false], [php, 'en', true]] as const) {
+    for (const [r, lang, reissue] of [[yen, 'ja', false], [lay, 'en', true]] as const) {
       const t = performance.now()
       const bytes = await renderReceiptPdf({ receipt: r, lang, issueNo: reissue ? 2 : 1, isReissue: reissue, downloadedAt: '2026-10-28T05:00:00Z' }, font, null)
       const ms = Math.round(performance.now() - t)

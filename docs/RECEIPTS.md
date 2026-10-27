@@ -13,35 +13,45 @@ Code: `_shared/receipt-math.ts` (rules), `_shared/receipt-pdf.ts` (PDF), `_share
 - **One final receipt per order**, issued when the order is fully paid: status `completed`, the
   non-voided payments less card/Paidy refunds cover the order total (a layaway's total includes its
   non-waived penalties), and no Square dispute other than `WON`.
-- **Tax (owner, locked; totals block corrected 2026-10-27).** Every amount is already
-  tax-included; nothing is added. The receipt's totals block is the Hub invoice's: tax on the
-  products, discount after tax, shipping added after tax. No exchange rate, no 10%対象 / 内消費税
-  breakdown, no yen figure on a peso receipt.
+- **Tax (owner, locked; corrected twice on 2026-10-27).** Every amount is already tax-included;
+  nothing is added. The receipt follows generate-invoice's rule: item rows are shown EXCLUDING tax so
+  they add up exactly to the subtotal. No exchange rate, no 10%対象 / 内消費税 breakdown.
+
+  Item table: 品名 / Item · 数量 / Qty · 単価（税抜） / Unit price (excl. tax) · 金額（税抜） / Amount (excl. tax)
+  - unit price excl. tax = Math.round(tax-included unit price ÷ 1.1) (SQL: round(unit × 10 / 11))
+  - line amount excl. tax = unit price excl. tax × qty
 
   | JA | EN | figure |
   |---|---|---|
-  | 小計（税抜） | Subtotal (excl. tax) | product amount − tax |
-  | 消費税（10%） | 10% Tax | round(product amount × 10 / 110), normal rounding (Math.round) |
+  | 小計（税抜） | Subtotal (excl. tax) | Σ line amounts excl. tax (= the item rows exactly) |
+  | 消費税（10%） | 10% Tax | Σ tax-included item amounts − subtotal |
   | 割引 | Discount | discount_amount (coupon included) + points, as a minus; shown even at 0 |
   | 送料 | Shipping fee | shipping_fee as stored; shown even at 0 |
   | 代引手数料 | COD fee | cod_fee — only when > 0 |
   | 延滞金 | Late fee | non-waived layaway penalties — only when > 0 |
-  | 合計（税込） | Total (tax incl.) | the money received |
+  | 合計（税込） | Total (tax incl.) | subtotal + tax − discount + shipping + COD fee + late fee = money received |
 
-  - product amount = the sum of the order's item lines in the receipt's currency. Yen orders: Σ
-    `line_total_jpy`. Peso orders store their item lines in YEN only, so their product amount is
-    `total_amount − shipping_fee − cod_fee + discount_amount` (pesos). Every line prints in PHP.
-  - money received = non-voided payments − points (LOYALTY-) − card/Paidy refunds. Store credit is
-    a payment line.
-  - The block must add up EXACTLY: subtotal + tax − discount + shipping + COD fee + late fee =
-    received. When the stored data does not (lines edited at Confirm, an overpayment, a paid
-    penalty later waived, no item lines), NO receipt is issued — never a balancing line — and an
-    issued one is cancelled (`does_not_add_up`). The sync logs a WARNING; list such orders with the
-    query in "Finding orders that do not add up" below.
-  - Owner example: ¥100,000 of products, no discount, no shipping → 小計（税抜） ¥90,909 /
-    消費税（10%） ¥9,091 / 割引 −¥0 / 送料 ¥0 / 合計（税込） ¥100,000.
-  - Stored as printed: `taxable_total` (the product amount), `subtotal`, `tax_amount`.
-    `fx_rate_used` is stored for the record and never printed.
+  - money received = non-voided payments − points (LOYALTY-) − card/Paidy refunds. Store credit is a
+    payment line.
+  - The block must add up EXACTLY, and Σ unit × qty must equal Σ stored line totals. When the stored
+    data does not (lines edited at Confirm, an overpayment, a paid penalty later waived, no item
+    lines), NO receipt is issued — never a balancing line — and an issued one is cancelled
+    (`does_not_add_up`). The sync logs a WARNING; find such orders with the query below.
+  - Owner examples: 1 item ¥100,000 → 単価/金額（税抜） ¥90,909, 小計 ¥90,909, 消費税 ¥9,091, 合計
+    ¥100,000. 2 items ¥60,000 + ¥40,000 → ¥54,545 + ¥36,364 = 小計 ¥90,909, 消費税 ¥9,091,
+    割引 −¥0, 送料 ¥0, 合計 ¥100,000.
+  - Stored as printed: each item's `unit_price_ex` / `line_ex` in `lines.items`; `subtotal`,
+    `tax_amount`, `taxable_total` (Σ tax-included item amounts). `fx_rate_used` is never printed.
+
+- **Peso orders — HELD, owner decision pending.** The layout needs per-line peso amounts, and none
+  exist: item lines are stored in YEN only (`unit_price_jpy` / `line_total_jpy`), and checkout never
+  derived per-line pesos — it converts the total and the shipping once (`_shared/settlement.ts`
+  `settleFullPaymentInPhp`: "the items are the remainder"); staff service lines on a peso order are
+  even stored as `Math.round(pesos ÷ rate)` yen (`confirm-web-draft/index.ts`). So no peso receipt is
+  issued (`web_receipt_sync` → `not_issued: peso_pending_owner_decision`). Options for the owner:
+  (a) convert each line with the order's rate and give the rounding remainder to one line so the
+  lines equal the stored peso product amount; (b) one peso line for all pieces (titles listed
+  without amounts); (c) store per-line peso amounts at Confirm from now on (a checkout change).
 - **Cancel, never edit.** Figures are a snapshot. When an order with an issued receipt leaves
   `completed`, is refunded (Square COMPLETED refund, any Paidy refund), disputed, reassigned, or its
   totals / discount / shipping / COD fee / penalties change (a waiver included) while it stays
@@ -129,7 +139,7 @@ function (package.json and the package guard untouched). A4, Japanese by default
   The seal is an image object inside the PDF: a determined person with a PDF tool can extract it.
   The overprinted receipt number and the verify code are the protection; full flattening would need
   rasterising the page, which needs a new dependency.
-- **Size / time (local, 2026-10-27, Apple M-series):** ~3.37 MB per PDF; 370–500 ms per render. Every
+- **Size / time (local, 2026-10-27, Apple M-series):** ~3.37 MB per PDF; 370–450 ms per render. Every
   render logs `website_receipt_pdf: rendered` with font_ms, font_cached, seal_ms, render_ms,
   pdf_bytes — read it in test mode on Supabase (2 s CPU limit per request).
 - **Follow-up if Supabase is too slow or the files too large (option b):** a pre-cut font (JIS level
@@ -150,8 +160,9 @@ receipt cancelled before its email is never emailed.
   then every scenario (switch, deferral, coupon/points/COD, store credit, void → new number, figures
   change, owner change, refunds, disputes, peso layaway with penalty and waiver, test mode, downloads,
   details, verify, guards, email queue, privileges).
-- `src/test/receipt-math.test.ts` (vitest, CI) — the totals block (¥100,000; discount + shipping +
-  COD fee; layaway late fee; pesos; does-not-add-up), numbering, reissue, cancellation, switch.
+- `src/test/receipt-math.test.ts` (vitest, CI) — items excl. tax and the totals block (1 item; the
+  owner's 2-item example; 3 items with qty 2 + discount + shipping + COD fee; layaway late fee; peso
+  held; does-not-add-up), numbering, reissue, cancellation, switch.
 - `development/website-receipts.test.ts` (deno, CI) — rows, routes, email, migration hygiene;
   `RECEIPT_TEST_FONT=<ttf>` also renders real PDFs.
 

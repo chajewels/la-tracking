@@ -257,26 +257,43 @@ DO $t$ BEGIN
   PERFORM pg_temp.ok((pg_temp.issued('00000000-0000-0000-0000-000000000501')).id IS NOT NULL, 'dispute WON: fully paid again, new number');
 END $t$;
 
--- ------------------------------ 9. peso web layaway with a penalty
--- total ₱42,000; penalty ₱1,000 (not waived); payments ₱43,000
--- product 42,000; tax round(42000/11) = 3,818; subtotal 38,182; + late fee 1,000 = 43,000 received
-INSERT INTO public.layaway_accounts (id, customer_id, invoice_number, currency, total_amount, remaining_balance, source_channel, web_reference, fx_rate_used)
-VALUES ('00000000-0000-0000-0000-000000000701', '00000000-0000-0000-0000-0000000000c1', '900701', 'PHP', 42000, 42000, 'web', 'CJ-W-900701', 0.42);
+-- ------------------------------ 9. yen web layaway with a late fee
+-- item ¥100,000 → unit excl. tax round(100000/1.1) = 90,909; tax 9,091;
+-- late fee ¥1,000 (paid, not waived); payments ¥101,000 → total ¥101,000
+INSERT INTO public.layaway_accounts (id, customer_id, invoice_number, currency, total_amount, remaining_balance, source_channel, web_reference)
+VALUES ('00000000-0000-0000-0000-000000000701', '00000000-0000-0000-0000-0000000000c1', '900701', 'JPY', 100000, 100000, 'web', 'CJ-W-900701');
 INSERT INTO public.layaway_account_items (account_id, title, quantity, unit_price_jpy, line_total_jpy)
 VALUES ('00000000-0000-0000-0000-000000000701', 'Bracelet', 1, 100000, 100000);
-INSERT INTO public.penalty_fees (account_id, currency, penalty_amount, status) VALUES ('00000000-0000-0000-0000-000000000701', 'PHP', 1000, 'paid');
+INSERT INTO public.penalty_fees (account_id, currency, penalty_amount, status) VALUES ('00000000-0000-0000-0000-000000000701', 'JPY', 1000, 'paid');
 BEGIN;
 INSERT INTO public.payments (account_id, amount_paid, currency, payment_method, reference_number) VALUES
-  ('00000000-0000-0000-0000-000000000701', 12600, 'PHP', 'bdo', 'DP-1'),
-  ('00000000-0000-0000-0000-000000000701', 30400, 'PHP', 'gcash', NULL);
-UPDATE public.layaway_accounts SET total_paid = 43000, remaining_balance = 0, status = 'completed', completed_at = now() WHERE id = '00000000-0000-0000-0000-000000000701';
+  ('00000000-0000-0000-0000-000000000701', 30000, 'JPY', 'transfer', 'DP-1'),
+  ('00000000-0000-0000-0000-000000000701', 71000, 'JPY', 'transfer', NULL);
+UPDATE public.layaway_accounts SET total_paid = 101000, remaining_balance = 0, status = 'completed', completed_at = now() WHERE id = '00000000-0000-0000-0000-000000000701';
 COMMIT;
 DO $t$ DECLARE r public.website_receipts; BEGIN
   r := pg_temp.issued('00000000-0000-0000-0000-000000000701');
-  PERFORM pg_temp.ok(r.id IS NOT NULL AND r.currency = 'PHP', 'peso layaway issued');
-  PERFORM pg_temp.ok(r.total_paid = 43000 AND r.penalty_total = 1000 AND r.taxable_total = 42000, 'peso totals');
-  PERFORM pg_temp.ok(r.tax_amount = 3818 AND r.subtotal = 38182 AND r.fx_rate_used = 0.42, 'peso tax ' || r.tax_amount);
+  PERFORM pg_temp.ok(r.id IS NOT NULL AND r.currency = 'JPY', 'layaway issued');
+  PERFORM pg_temp.ok(r.total_paid = 101000 AND r.penalty_total = 1000 AND r.taxable_total = 100000, 'layaway totals');
+  PERFORM pg_temp.ok(r.subtotal = 90909 AND r.tax_amount = 9091, 'late fee outside the 10%: ' || r.subtotal || ' + ' || r.tax_amount);
+  PERFORM pg_temp.ok((r.lines -> 'items' -> 0 ->> 'unit_price_ex')::numeric = 90909, 'item shown excl. tax');
 END $t$;
+
+-- ------------------------------ 9a. peso orders: held until the owner decides
+-- Item lines are yen only and checkout never derived per-line pesos.
+INSERT INTO public.layaway_accounts (id, customer_id, invoice_number, currency, total_amount, remaining_balance, source_channel, web_reference, fx_rate_used)
+VALUES ('00000000-0000-0000-0000-000000000702', '00000000-0000-0000-0000-0000000000c2', '900702', 'PHP', 42000, 42000, 'web', 'CJ-W-900702', 0.42);
+INSERT INTO public.layaway_account_items (account_id, title, quantity, unit_price_jpy, line_total_jpy) VALUES
+  ('00000000-0000-0000-0000-000000000702', 'Bracelet', 1, 60000, 60000), ('00000000-0000-0000-0000-000000000702', 'Ring', 1, 40000, 40000);
+BEGIN;
+INSERT INTO public.payments (account_id, amount_paid, currency, payment_method) VALUES ('00000000-0000-0000-0000-000000000702', 42000, 'PHP', 'bdo');
+UPDATE public.layaway_accounts SET total_paid = 42000, remaining_balance = 0, status = 'completed', completed_at = now() WHERE id = '00000000-0000-0000-0000-000000000702';
+COMMIT;
+DO $t$ BEGIN
+  PERFORM pg_temp.ok(NOT EXISTS (SELECT 1 FROM public.website_receipts WHERE layaway_account_id = '00000000-0000-0000-0000-000000000702'), 'peso: no receipt yet');
+  PERFORM pg_temp.ok(public.web_receipt_sync('layaway', '00000000-0000-0000-0000-000000000702') ->> 'not_issued' = 'peso_pending_owner_decision', 'peso reason');
+END $t$;
+
 -- ------------------------------ 9b. item lines that do not add up: never issued
 INSERT INTO public.cash_orders (id, invoice_number, customer_id, currency, total_amount, remaining_balance, source_channel, web_reference)
 VALUES ('00000000-0000-0000-0000-000000000751', '900751', '00000000-0000-0000-0000-0000000000c2', 'JPY', 50000, 50000, 'web', 'CJ-W-900751');
@@ -336,7 +353,7 @@ DO $t$ DECLARE r jsonb; v_id uuid; v_code text; BEGIN
   PERFORM pg_temp.ok((SELECT addressee FROM public.website_receipt_issues WHERE receipt_id = v_id AND issue_no = 3) = '株式会社テスト', 'history keeps it');
 
   r := public.verify_website_receipt(upper(v_code));
-  PERFORM pg_temp.ok(r ->> 'status' = 'valid' AND r ->> 'currency' = 'PHP' AND (r ->> 'total')::numeric = 43000, 'verify valid');
+  PERFORM pg_temp.ok(r ->> 'status' = 'valid' AND r ->> 'currency' = 'JPY' AND (r ->> 'total')::numeric = 101000, 'verify valid');
   PERFORM pg_temp.ok((SELECT array_agg(k ORDER BY k) FROM jsonb_object_keys(r) k) = ARRAY['currency', 'issued_at', 'receipt_number', 'status', 'total'], 'verify is minimal');
   PERFORM pg_temp.ok(public.verify_website_receipt('deadbeef') IS NULL, 'unknown code');
   SELECT verify_code INTO v_code FROM public.website_receipts WHERE status = 'cancelled' LIMIT 1;

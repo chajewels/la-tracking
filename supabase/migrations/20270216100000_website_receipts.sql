@@ -233,13 +233,13 @@ COMMENT ON TABLE public.website_receipts IS
 COMMENT ON COLUMN public.website_receipts.total_paid IS
   'Money actually received, in the order''s currency: non-voided payments minus checkout/loyalty points (LOYALTY-) minus card/Paidy refunds. The receipt total.';
 COMMENT ON COLUMN public.website_receipts.taxable_total IS
-  'The product amount (tax-included) the 10% is computed on: the sum of the item lines in the order''s currency (yen orders), or total_amount − shipping − COD fee + discount (peso orders, whose item lines are stored in yen).';
+  'The products'' tax-included total: Σ unit_price × quantity of the item lines.';
 COMMENT ON COLUMN public.website_receipts.subtotal IS
-  '小計（税抜） as printed = taxable_total − tax_amount.';
+  '小計（税抜） as printed = Σ round(unit price × 10/11) × quantity (generate-invoice''s rule).';
 COMMENT ON COLUMN public.website_receipts.tax_amount IS
-  '消費税（10%） as printed = round(taxable_total × 10 / 110), computed once. Every amount is already tax-included. The totals block (owner 2026-10-27): subtotal + tax − discount + shipping + COD fee + late fee = total_paid; a receipt whose stored data does not add up is never issued.';
+  '消費税（10%） as printed = taxable_total − subtotal. Every amount is already tax-included. subtotal + tax − discount + shipping + COD fee + late fee = total_paid; a receipt whose stored data does not add up is never issued.';
 COMMENT ON COLUMN public.website_receipts.lines IS
-  'Snapshot built by web_receipt_snapshot: items (yen), goods_total, discount, coupon_code, points, shipping, cod_fee, penalties, payments[{method, amount}], store_credit, refunds, received, product_amount, subtotal, tax, discount_total, adds_up.';
+  'Snapshot built by web_receipt_snapshot: items (yen), goods_total, discount, coupon_code, points, shipping, cod_fee, penalties, payments[{method, amount}], store_credit, refunds, received, product_amount, subtotal, tax, discount_total, adds_up. Each item also carries unit_price_ex and line_ex (excl. tax).';
 
 CREATE TABLE IF NOT EXISTS public.website_receipt_issues (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -351,18 +351,23 @@ FOR EACH ROW EXECUTE FUNCTION public.guard_website_receipt_issues();
 --                  service lines, before the discount)
 --    order_total = total_amount (+ penalties on a layaway)
 --    received    = payments − points − refunds        (the receipt total)
---    TOTALS BLOCK (owner 2026-10-27, like the Hub invoice: tax on the
---    products, discount after tax, shipping added after tax):
---      product   = Σ item lines (yen order) | goods_total (peso order: its
---                  item lines are stored in yen, so the peso product amount
---                  is total_amount − shipping − cod_fee + discount)
---      tax       = round(product × 10 / 110)   (SQL round = half away from
---                  zero = Math.round for these non-negative amounts)
---      subtotal  = product − tax
+--    TOTALS BLOCK (owner 2026-10-27, generate-invoice's rule): every item
+--    line shown EXCLUDING tax so the lines add up to the subtotal:
+--      unit_price_ex = round(unit_price_jpy × 10 / 11)  (= Math.round(÷ 1.1);
+--                      SQL round = half away from zero = Math.round here)
+--      line_ex       = unit_price_ex × quantity
+--      subtotal      = Σ line_ex
+--      tax           = Σ (unit_price_jpy × quantity) − subtotal
 --      discount_total = discount (coupon included) + points
 --      subtotal + tax − discount_total + shipping + cod_fee + penalties must
---      equal received exactly (adds_up); a receipt is never issued (and an
---      issued one is cancelled) when it does not. No balancing line, ever.
+--      equal received exactly (adds_up), and Σ unit × qty must equal Σ
+--      line_total_jpy; otherwise a receipt is never issued (and an issued one
+--      is cancelled). No balancing line, ever.
+--    PESO ORDERS: adds_up is FALSE (no receipt). Their item lines are stored
+--      in yen only and checkout never derived per-line peso amounts (it
+--      converts the total and shipping; the items are the remainder), so the
+--      per-line peso figures the layout needs do not exist. Owner decision
+--      pending (docs/RECEIPTS.md "Peso orders").
 --    fully_paid  = status 'completed' AND payments − refunds ≥ order_total
 --                  AND no Square dispute other than WON
 --    The TS mirror is supabase/functions/_shared/receipt-math.ts.
@@ -389,6 +394,8 @@ DECLARE
   v_order_total numeric;
   v_received    numeric;
   v_items_sum   numeric := 0;
+  v_items_incl  numeric := 0;
+  v_items_ex    numeric := 0;
   v_product     numeric;
   v_subtotal    numeric;
   v_tax         numeric;
@@ -423,7 +430,9 @@ BEGIN
   IF p_kind = 'cash' THEN
     SELECT coalesce(jsonb_agg(jsonb_build_object(
              'title', i.title, 'sku', i.sku, 'quantity', i.quantity,
-             'unit_price_jpy', i.unit_price_jpy, 'line_total_jpy', i.line_total_jpy)
+             'unit_price_jpy', i.unit_price_jpy, 'line_total_jpy', i.line_total_jpy,
+             'unit_price_ex', round(i.unit_price_jpy * 10 / 11),
+             'line_ex', round(i.unit_price_jpy * 10 / 11) * i.quantity)
              ORDER BY i.created_at, i.id), '[]'::jsonb)
       INTO v_items FROM public.cash_order_items i WHERE i.cash_order_id = p_id;
 
@@ -452,7 +461,9 @@ BEGIN
   ELSE
     SELECT coalesce(jsonb_agg(jsonb_build_object(
              'title', i.title, 'sku', i.sku, 'quantity', i.quantity,
-             'unit_price_jpy', i.unit_price_jpy, 'line_total_jpy', i.line_total_jpy)
+             'unit_price_jpy', i.unit_price_jpy, 'line_total_jpy', i.line_total_jpy,
+             'unit_price_ex', round(i.unit_price_jpy * 10 / 11),
+             'line_ex', round(i.unit_price_jpy * 10 / 11) * i.quantity)
              ORDER BY i.created_at, i.id), '[]'::jsonb)
       INTO v_items FROM public.layaway_account_items i WHERE i.account_id = p_id;
 
@@ -482,12 +493,18 @@ BEGIN
   v_goods       := v_o.total_amount - v_shipping - v_cod + v_discount;
   v_order_total := v_o.total_amount + v_penalties;
   v_received    := v_paid_all - v_points - v_refunds;
-  SELECT coalesce(sum((e ->> 'line_total_jpy')::numeric), 0) INTO v_items_sum FROM jsonb_array_elements(v_items) e;
-  v_product     := CASE WHEN v_o.currency = 'JPY' THEN v_items_sum ELSE v_goods END;
-  v_tax         := round(v_product * 10 / 110);
-  v_subtotal    := v_product - v_tax;
+  SELECT coalesce(sum((e ->> 'line_total_jpy')::numeric), 0),
+         coalesce(sum((e ->> 'unit_price_jpy')::numeric * (e ->> 'quantity')::numeric), 0),
+         coalesce(sum((e ->> 'line_ex')::numeric), 0)
+    INTO v_items_sum, v_items_incl, v_items_ex
+    FROM jsonb_array_elements(v_items) e;
+  v_product     := v_items_incl;
+  v_subtotal    := v_items_ex;
+  v_tax         := v_items_incl - v_items_ex;
   v_disc_total  := v_discount + v_points;
-  v_adds_up     := v_product > 0
+  v_adds_up     := v_o.currency = 'JPY'
+                   AND v_items_incl > 0
+                   AND v_items_incl = v_items_sum
                    AND abs((v_subtotal + v_tax - v_disc_total + v_shipping + v_cod + v_penalties) - v_received) < 0.005;
 
   RETURN jsonb_build_object(
@@ -613,6 +630,9 @@ BEGIN
      OR (v_snap ->> 'completed_at')::timestamptz < v_live
      OR (v_mode = 'test') <> (v_snap ->> 'is_test')::boolean THEN
     RETURN jsonb_build_object('action', v_action, 'cancelled_id', v_cancelled, 'reason', v_reason, 'not_issued', 'switch');
+  END IF;
+  IF (v_snap ->> 'currency') = 'PHP' THEN
+    RETURN jsonb_build_object('action', v_action, 'cancelled_id', v_cancelled, 'reason', v_reason, 'not_issued', 'peso_pending_owner_decision');
   END IF;
   IF NOT (v_snap ->> 'adds_up')::boolean THEN
     RAISE WARNING 'website receipt not issued for % %: the totals block does not add up to the money received', p_kind, p_id;

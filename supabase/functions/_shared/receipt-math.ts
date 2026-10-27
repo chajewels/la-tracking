@@ -9,18 +9,22 @@
  * so the tests can prove the rules, and formats what the PDF prints.
  *
  * TAX RULE (owner, locked): every amount in the system is already
- * tax-included. Nothing is added. The totals block is the Hub invoice's
- * (owner correction 2026-10-27): tax on the products, discount after tax,
- * shipping added after tax.
- *   小計（税抜）  subtotal = product amount − tax
- *   消費税（10%） tax      = round(product amount × 10 / 110), Math.round
- *   割引          discount = discount_amount (coupon included) + points
+ * tax-included. Nothing is added. Item rows are shown EXCLUDING tax so they add
+ * up to the subtotal — generate-invoice's rule (owner correction 2026-10-27):
+ *   unit price excl. tax = Math.round(tax-included unit price ÷ 1.1)
+ *   line amount excl. tax = unit price excl. tax × qty
+ *   小計（税抜）  subtotal = Σ line amounts excl. tax
+ *   消費税（10%） tax      = Σ tax-included item amounts − subtotal
+ *   割引          discount = discount_amount (coupon included) + points (always shown)
  *   送料          shipping = shipping_fee (always shown)
  *   代引手数料    COD fee  (only when > 0)
  *   延滞金        late fee = non-waived layaway penalties (only when > 0)
- *   合計（税込）  total    = the money received
+ *   合計（税込）  total    = subtotal + tax − discount + shipping + COD + late fee
+ *                          = the money received
  * The block must add up EXACTLY; when the stored data does not, no receipt is
- * issued (never a balancing line). Pesos: every line in PHP, no yen anywhere.
+ * issued (never a balancing line). PESO orders are held: their item lines are
+ * stored in yen only and checkout never derived per-line pesos (owner decision
+ * pending; docs/RECEIPTS.md "Peso orders").
  */
 
 export type ReceiptCurrency = "JPY" | "PHP";
@@ -45,9 +49,25 @@ export function includedTax(taxable: number): number {
   return roundHalfUpRatio(c * 10, 110 * 100);
 }
 
+/** Unit price excl. tax: Math.round(tax-included ÷ 1.1), exact (integer maths). */
+export function unitPriceExTax(unitPriceIncl: number): number {
+  const c = cents(unitPriceIncl);
+  if (!Number.isFinite(c) || c <= 0) return 0;
+  // ÷ 1.1 = × 10 / 11, in whole units: cents × 10 / (11 × 100)
+  return roundHalfUpRatio(c * 10, 11 * 100);
+}
+
+export interface ReceiptItemInput {
+  /** Tax-included unit price (cash_order_items / layaway_account_items.unit_price_jpy). */
+  unitPrice: number;
+  quantity: number;
+  /** The stored line_total_jpy; must equal unitPrice × quantity. */
+  lineTotal: number;
+}
+
 export interface ReceiptTotalsInput {
-  /** Σ item lines in the receipt's currency (the product amount, tax-included). */
-  productAmount: number;
+  currency: ReceiptCurrency;
+  items: ReceiptItemInput[];
   /** discount_amount (coupon included). */
   discount: number;
   /** Σ LOYALTY-% payments — shown as a discount. */
@@ -61,6 +81,7 @@ export interface ReceiptTotalsInput {
 }
 
 export interface ReceiptTotals {
+  lines: { unitPriceEx: number; lineEx: number }[];
   subtotal: number;
   tax: number;
   discount: number;
@@ -68,25 +89,40 @@ export interface ReceiptTotals {
   codFee: number;
   penalties: number;
   total: number;
-  /** subtotal + tax − discount + shipping + COD fee + late fee === received. */
+  /** subtotal + tax − discount + shipping + COD fee + late fee === received (yen only). */
   addsUp: boolean;
+  /** Why it does not: lines_mismatch | block_mismatch | no_items | peso_pending_owner_decision. */
+  problem: string | null;
 }
 
 /** The owner's totals block (mirror of web_receipt_snapshot). */
 export function receiptTotals(i: ReceiptTotalsInput): ReceiptTotals {
-  const tax = includedTax(i.productAmount);
-  const subtotalC = cents(i.productAmount) - tax * 100;
+  const lines = i.items.map((it) => {
+    const unitPriceEx = unitPriceExTax(it.unitPrice);
+    return { unitPriceEx, lineEx: unitPriceEx * Math.trunc(it.quantity) };
+  });
+  const inclC = i.items.reduce((s, it) => s + cents(it.unitPrice) * Math.trunc(it.quantity), 0);
+  const storedC = i.items.reduce((s, it) => s + cents(it.lineTotal), 0);
+  const subtotal = lines.reduce((s, l) => s + l.lineEx, 0);
+  const taxC = inclC - subtotal * 100;
   const discountC = cents(i.discount) + cents(i.points);
-  const blockC = subtotalC + tax * 100 - discountC + cents(i.shipping) + cents(i.codFee) + cents(i.penalties);
+  const blockC = subtotal * 100 + taxC - discountC + cents(i.shipping) + cents(i.codFee) + cents(i.penalties);
+  let problem: string | null = null;
+  if (i.currency !== "JPY") problem = "peso_pending_owner_decision";
+  else if (inclC <= 0) problem = "no_items";
+  else if (inclC !== storedC) problem = "lines_mismatch";
+  else if (blockC !== cents(i.received)) problem = "block_mismatch";
   return {
-    subtotal: subtotalC / 100,
-    tax,
+    lines,
+    subtotal,
+    tax: taxC / 100,
     discount: discountC / 100,
     shipping: cents(i.shipping) / 100,
     codFee: cents(i.codFee) / 100,
     penalties: cents(i.penalties) / 100,
     total: cents(i.received) / 100,
-    addsUp: cents(i.productAmount) > 0 && blockC === cents(i.received),
+    addsUp: problem === null,
+    problem,
   };
 }
 
@@ -241,22 +277,4 @@ export function purposeFor(purpose: string | null | undefined, lang: ReceiptLang
   const p = String(purpose ?? "").trim() || DEFAULT_PURPOSE;
   if (lang === "en" && p === DEFAULT_PURPOSE) return "Payment for goods";
   return p;
-}
-
-export interface ReceiptItemLine {
-  title: string;
-  quantity: number;
-  line_total_jpy: number;
-}
-
-/**
- * Item amounts are stored in YEN. They are printed per line only on a yen
- * receipt whose lines add up exactly to the goods total; otherwise the lines
- * show title × quantity and the goods total carries the amount (a peso order,
- * or a staff edit at Confirm).
- */
-export function showItemAmounts(items: ReceiptItemLine[], goodsTotal: number, currency: ReceiptCurrency): boolean {
-  if (currency !== "JPY" || items.length === 0) return false;
-  const sum = items.reduce((s, i) => s + cents(Number(i.line_total_jpy ?? 0)), 0);
-  return sum === cents(goodsTotal);
 }
