@@ -5,8 +5,8 @@
  */
 import { ADDRESS_EN, CORPORATE_NO, EMAIL, LEGAL_NAME_JA, NAME_EN, PHONE, REPRESENTATIVE } from '@/lib/companyInfo';
 import {
-  BOND_HELD_LABEL, STATUS_LABEL, advanceLabel, amountDue, bondReleasedLabel, differenceLabel, figuresChanged, formatDate,
-  formatDateDD, formatPeso, formatYen, longMonthLabel, round2, storedBreakdown,
+  BOND_HELD_LABEL, STATUS_LABEL, advanceLabel, amountDue, bonusCategoryLabel, bondReleasedLabel, differenceLabel, figuresChanged, formatDate,
+  formatDateDD, formatPeso, formatYen, longMonthLabel, payslipNumber, round2, storedBreakdown,
   type Payslip,
 } from '@/lib/payslips';
 
@@ -21,11 +21,8 @@ function hours(n: number): string {
   return round2(n).toLocaleString('en-US', { maximumFractionDigits: 2 });
 }
 
-/** PS-YYYY-MM-XXXXXX: the pay month and the first 6 hex characters of the payslip id, uppercase. */
-export function payslipNumber(p: Pick<Payslip, 'id' | 'pay_month'>): string {
-  const hex = p.id.replace(/[^0-9a-f]/gi, '').slice(0, 6).toUpperCase();
-  return `PS-${p.pay_month.slice(0, 7)}-${hex}`;
-}
+/** PS-YYYY-MM-XXXXXX (defined in payslips.ts so the Excel and the screen can use it too). */
+export { payslipNumber };
 
 /** "October 2026" — the month, never a 1–31 range (the sheet is a 31-row window). */
 export function periodLabel(p: Pick<Payslip, 'pay_month'>): string {
@@ -170,7 +167,7 @@ function money(label: string, details: string, amount: number): EarningsRow {
 }
 
 /** The earnings table from the STORED timesheet / commission breakdowns. */
-export function earningsRows(p: Pick<Payslip, 'template_type' | 'timesheet' | 'commission'>): EarningsRow[] {
+export function earningsRows(p: Pick<Payslip, 'template_type' | 'timesheet' | 'commission' | 'bonuses'>): EarningsRow[] {
   const t = p.timesheet;
   const rows: EarningsRow[] = [];
   if (p.template_type === 'csr') {
@@ -200,6 +197,10 @@ export function earningsRows(p: Pick<Payslip, 'template_type' | 'timesheet' | 'c
     rows.push(money('Commission', `Role won: ${role}`, num(c.earnings)));
     const tier = num(c.top_sales_tier);
     if (tier > 0) rows.push(money(`Top Sales ${tier} bonus`, '', num(c.top_sales_bonus)));
+  }
+  // Bonuses typed per month (owner 2026-10-27): earnings, in the frozen order.
+  for (const b of p.bonuses ?? []) {
+    rows.push(money(bonusCategoryLabel(b.category), `${formatDateDD(b.bonus_date)} · ${b.note}`, b.amount_php));
   }
   return rows;
 }
@@ -241,7 +242,7 @@ export function deductionRows(p: Payslip): { advances: SummaryRow[]; summary: Su
     { label: 'Net pay', amount: b.net, amountText: formatPeso(b.net), emphasis: true },
   ];
   const bond: SummaryRow[] = [];
-  if (b.held > 0) bond.push({ label: BOND_HELD_LABEL, amount: -b.held, amountText: formatPeso(-b.held) });
+  if (b.held > 0) bond.push({ label: b.heldLabel ?? BOND_HELD_LABEL, amount: -b.held, amountText: formatPeso(-b.held) });
   if (b.released > 0) bond.push({ label: bondReleasedLabel(b.releasedFrom), amount: b.released, amountText: formatPeso(b.released) });
   return { advances, summary, bond };
 }
@@ -274,6 +275,14 @@ function pagesText(r: PageRange): string {
 /** Caption under an image advance proof (drawn with a standard font: callers pass it through winAnsiSafe). */
 export function advanceProofCaption(advanceDate: string, fileName: string): string {
   return `Cha Jewels Co., Ltd. — Cash advance — ${formatDateDD(advanceDate)} — ${fileName}`;
+}
+
+export function bonusProofCaption(category: string, bonusDate: string, fileName: string): string {
+  return `Cha Jewels Co., Ltd. — ${bonusCategoryLabel(category)} — ${formatDateDD(bonusDate)} — ${fileName}`;
+}
+
+export function bonusProofFallback(fileName: string): string {
+  return `Bonus proof could not be included — open it from the Hub: ${fileName}`;
 }
 
 export function advanceProofFallback(fileName: string): string {
@@ -313,10 +322,18 @@ export function paymentBlock(p: Payslip): PaymentBlock {
  */
 export function paymentNote(
   p: Payslip, proofIncluded: boolean | null, advancePages: PageRange | null = null, proofPages: PageRange | null = null,
+  bonusPages: PageRange | null = null,
 ): string | null {
-  const advances = advancePages ? `cash advance proofs ${pagesText(advancePages)}` : null;
+  const parts = [
+    ...(advancePages ? [`cash advance proofs ${pagesText(advancePages)}`] : []),
+    ...(bonusPages ? [`bonus proofs ${pagesText(bonusPages)}`] : []),
+  ];
+  const advances = parts.length ? parts.join(', ') : null;
   if (p.status !== 'paid' || p.jpy_sent == null || p.php_received == null) {
-    return advances ? `Cash advance proofs attached (${pagesText(advancePages as PageRange)})` : null;
+    if (!advancePages && !bonusPages) return null;
+    if (advancePages && !bonusPages) return `Cash advance proofs attached (${pagesText(advancePages)})`;
+    if (bonusPages && !advancePages) return `Bonus proofs attached (${pagesText(bonusPages)})`;
+    return `Proofs attached: ${advances}`;
   }
   const proof = proofIncluded === false
     ? 'Proof of payment could not be included'

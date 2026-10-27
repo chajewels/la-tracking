@@ -549,3 +549,154 @@ migration's version).
   - S7: audit.
 - Vitest `src/test/payslip-second-proof.test.tsx` (16): Record payment with 1 or 2 files and before the
   update, Add 2nd proof, two-file view, advance slots, helpers, refusals, Excel, PDF pages and fallback.
+
+## Bonuses (owner 2026-10-27 14:04)
+
+Migration `20270206100000_payslip_bonuses.sql`.
+
+### Owner decisions (locked)
+
+- **Categories:**
+  - **Performance / KPI bonus** (`performance`)
+  - **Holiday / Christmas bonus** (`holiday`)
+
+  The commission **Top Sales bonus** stays as it is: automatic, from the commission.
+- **Entry:** typed per month, like cash advances. Admin or Brenda enter each bonus on the Payslips tab before
+  Finalize, with a category, date, amount and note. A month can have several. A mistake is voided with a
+  reason, never deleted. Bonuses lock once the month's payslip is finalized.
+- **Earnings:** bonuses are earnings. Total earnings = timesheet pay + commission + bonuses.
+  Net pay = total earnings − cash advances.
+- **Cash bond:** a new hire's first-month cash bond is half of that net pay, so it **includes** bonuses.
+- **Proof:** each bonus has up to **2** optional proof or approval files (photo or PDF). They are added to the
+  payslip PDF.
+
+### Database
+
+- **`payslip_bonuses`:**
+  - Columns: `category`, `bonus_date` (2026-04-01 .. today Japan time), `amount_php` (> 0, 2 decimals),
+    `note` (1–200), `proof_path`/`proof_path_2` (`bonuses/<id>/<file>`), `active | void`, `payslip_id`.
+  - The before-write trigger allows only a proof slot being filled, void, or linking to a payslip. DELETE
+    and TRUNCATE are refused.
+  - Read RLS = `can_manage_payslips`; there are no write policies.
+- **`payslips`:**
+  - New columns: `bonuses` (the frozen snapshot) and `bonus_php`.
+  - **`payslips_total` is replaced** with `total_php = timesheet_net_php + commission_php + bonus_php`.
+    Every existing row has `bonus_php = 0`.
+  - `payslips_before_write` is unchanged: the new columns are snapshot columns, so they stay frozen.
+- **RPCs:**
+  - `add_payslip_bonus(p_user_id, p_pay_month, p_bonus_date, p_category, p_amount_php, p_note)`.
+  - `attach_payslip_bonus_proof(p_id, p_path)`: slot 1, then slot 2.
+  - `void_payslip_bonus(p_id, p_reason)`.
+  - Refusals:
+    - adding: `invalid_bonus_date`, `invalid_category`, `bonus_note_required`;
+    - month and status: `bonus_month_finalized`, `bonus_void`, `bonus_already_void`;
+    - proofs: `bonus_proofs_full`;
+    - the same codes as cash advances for the gate, amount, note length, month and proof path.
+  - Audit rows carry no amounts or notes.
+- **`finalize_payslip` (4-argument):**
+  - It sums the month's **active** bonuses on the server. The client payload still carries timesheet +
+    commission only.
+  - It stores `total_php` = payload total + bonuses, `bonus_php` and the snapshot, and links the bonuses.
+  - `advance_exceeds_pay` and the first-month cash bond use earnings including bonuses.
+- **`get_payslip_book`:** the month's `bonuses` (all statuses) and `features.bonuses`.
+- **Storage:** the policy "Payslip managers can upload bonus proofs" allows an upload while the bonus is
+  active, a slot is free and the month is open.
+
+### Screens, Excel, PDF
+
+- **Payslips tab:**
+  - Each row has a **Bonuses** button with the active count.
+  - The dialog has a list (Open proof 1/2, Attach proof / Attach 2nd proof, Void with a reason) and an
+    **Add bonus** form: category, date, amount, note, proof and 2nd proof.
+  - A row's draft total includes its active bonuses.
+- **Payslip view:**
+  - Each bonus appears as "Add: Performance / KPI bonus — 30 Sep 2026 · note" in "Bonuses, deductions and
+    cash bond", and Total earnings includes it.
+  - The "figures changed" warning compares live timesheet + commission with `total_php − bonus_php`
+    (`storedFiguresTotal`).
+- **Excel:** the same "Add: …" rows.
+- **PDF:**
+  - Each bonus is an earnings row (category, then "date · note", then the amount).
+  - Bonus proofs follow the cash advance proofs, captioned with the category and date.
+  - The page note names "bonus proofs pages x–y".
+  - A file that cannot be included gets a fallback page and a warning.
+
+### Release order
+
+Frontend first: the Bonuses button appears only when the book reports `features.bonuses`. Then the migration
+is applied (guarded by the live md5s of `finalize_payslip` (4-argument) and `get_payslip_book`).
+
+### Tests
+
+- SQL harness phase 4 (`supabase/tests/payslips/test_bonuses.sql`, after phase 3 and the `pre6_*` snapshots;
+  the migration applied twice), groups B1–B9:
+  - B1: shape, with existing rows unchanged;
+  - B2: add, every refusal, and void;
+  - B3: proof slots, paths and storage;
+  - B4: the gate and RLS;
+  - B5: finalize with bonuses, the month lock, and void + re-issue relinking;
+  - B6: the cash bond including bonuses (odd centavo);
+  - B7: advances covered by bonuses;
+  - B8: direct writes;
+  - B9: audit.
+- Vitest `src/test/payslip-bonuses.test.tsx` (11): the row button, count and draft total; add with 2 proofs;
+  void; the draft view; a finalized payslip (no false "changed", locked); helpers; Excel; PDF rows, pages
+  and note; form rules and refusals.
+
+## Edit figures and the cash bond (owner 2026-10-27 15:20–15:32)
+
+Migration `supabase/migrations/20270207100000_payslip_edit_figures.sql` (frontend first; gated by
+`get_payslip_book` `features.edit_figures`). This **replaces the locked "never edited — void and re-issue"
+rule** for figures: the payslip row itself still never changes, but Edit figures voids it and issues the
+corrected one in one step.
+
+### Owner decisions (locked)
+
+- **Edit figures:** every pay line can be typed by hand — days, hours, sum of daily pay, basic salary cap,
+  allowance, weeks forfeited, Live Admin ₱500/₱300 days, commission earnings and top-sales bonus, and the
+  cash bond. A reason (3–500 characters) is required. Totals recalculate as the engines do. The payslip
+  view, Excel and PDF show "Manually corrected (replaces payslip no. PS-…) — <reason>".
+- **On a Finalized or Paid payslip, Edit = automatic void + re-issue:** the old one becomes Void
+  ("Corrected: <reason>"), the corrected one is issued in its place; history stays.
+- **A Paid payslip keeps its payment:** yen, pesos, rate, paid-on, paid by/at and both proof files are copied,
+  so the corrected payslip is Paid.
+- **Cash bond = half of the salary (timesheet net pay) only:** salary ₱10,000 → bond ₱5,000. Commission and
+  bonuses are excluded; cash advances are not taken off first. The bond can be typed in Edit figures (not on
+  final pay). It can never be more than the pay left after advances (`bond_exceeds_pay`).
+
+### Database
+
+- `payslips.correction_reason` (null, or trimmed 3–500) and `payslips.corrected_from_payslip_id` (the voided
+  one; needs a reason). Both are snapshot columns set on INSERT; `payslips_before_write` is unchanged.
+- The proof CHECKs are now by shape (`<uuid>/<file>`, no `..`): a copied proof stays in the folder of the
+  payslip it was uploaded for. `record_payslip_payment` and `attach_payslip_proof` still require `<own id>/`.
+- `payslip_issue(...)` (internal, not executable by clients) is the one issuing path. `finalize_payslip`
+  (3 and 4 arguments) is unchanged for callers; new **5-argument** `finalize_payslip(…, p_correction_reason)`
+  = finalize with typed figures (the pay-settings match is skipped, arithmetic checks stay, the payload may
+  carry `cash_bond_held_php`).
+- New `correct_payslip(p_id, p_payload, p_is_final_pay, p_reason)`: one transaction; refuses
+  `reason_required`, `not_found`, `already_void`, `bond_already_released` (its bond was released on a later
+  payslip — correct that one first) and every finalize refusal; on any refusal nothing changes. The month's
+  advances and bonuses move to the corrected payslip. Audit: the void row and a `correct_payslip` row
+  (`manual`, `corrected_from`; no figures).
+
+### Screens
+
+- Payslip view: **Edit figures** on the draft (next to Finalize) and on Finalized / Paid payslips (next to
+  Void). The dialog shows every line, the recalculated totals (earnings, advances, bond held/released,
+  amount due), "Final pay", the cash bond field ("Use half of salary"), and the reason. Save: "Save and
+  finalize" (draft) or "Save and re-issue".
+- A corrected payslip shows the "Manually corrected …" note; the held-bond line reads "Less: Cash bond held"
+  (not "50% held") on corrected payslips.
+- The "figures changed" warning and the Finalize confirmation point to Edit figures once the feature is on.
+
+### Tests
+
+- SQL harness phase 5 (`test_edit_figures.sql`, `pre7_*` snapshots, migration applied twice), E1–E9: shape
+  and existing rows unchanged; bond = half of timesheet pay and its release; 5-argument finalize (reason,
+  typed basic, typed bond, refusals); correct a Finalized payslip (one transaction, refusal rolls back,
+  advances move, audit); correct a Paid payslip twice (payment and both proofs from two folders copied, 2nd
+  proof still addable); bond already released; gate; book; direct writes.
+- Vitest `src/test/payslip-edit-figures.test.tsx` (12): recalculation (CSR, Live Admin), validation, payload,
+  salary-only bond preview, labels on screen/Excel/PDF, refusals, hidden before the migration, draft
+  finalize with a reason, paid correction with a typed bond, refusal toast, corrected view.

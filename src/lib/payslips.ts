@@ -93,8 +93,16 @@ export interface Payslip {
   cash_bond_released_php?: number;
   cash_bond_source_payslip_id?: string | null;
   amount_due_php?: number;
+  // Migration 20270206100000 (bonuses; absent before it). total_php includes bonus_php.
+  bonuses?: BonusSnapshot[];
+  bonus_php?: number;
   /** get_payslip_book: 'YYYY-MM-DD' of the payslip whose cash bond this one releases. */
   cash_bond_source_month?: string | null;
+  // Migration 20270207100000 (Edit figures; absent before it):
+  /** Set when the figures were typed by hand: the reason. */
+  correction_reason?: string | null;
+  /** The payslip this one replaces (voided "Corrected: …" in the same step). */
+  corrected_from_payslip_id?: string | null;
   finalized_at: string;
   paid_at: string | null;
   voided_at: string | null;
@@ -111,6 +119,39 @@ export interface AdvanceSnapshot {
   proof_path: string | null;
   /** The advance's 2nd proof file (migration 20270205100000). */
   proof_path_2?: string | null;
+}
+
+export type BonusCategory = 'performance' | 'holiday';
+
+/** Bonus categories (owner 2026-10-27). The commission Top Sales bonus is separate and automatic. */
+export const BONUS_CATEGORIES: { value: BonusCategory; label: string }[] = [
+  { value: 'performance', label: 'Performance / KPI bonus' },
+  { value: 'holiday', label: 'Holiday / Christmas bonus' },
+];
+
+export function bonusCategoryLabel(c: string): string {
+  return BONUS_CATEGORIES.find(x => x.value === c)?.label ?? 'Bonus';
+}
+
+/** One bonus as frozen on a payslip (payslips.bonuses). */
+export interface BonusSnapshot {
+  id: string;
+  bonus_date: string;
+  category: BonusCategory;
+  amount_php: number;
+  note: string;
+  proof_path: string | null;
+  proof_path_2?: string | null;
+}
+
+/** One row of payslip_bonuses. */
+export interface PayslipBonus extends BonusSnapshot {
+  user_id: string;
+  pay_month: string;
+  status: 'active' | 'void';
+  void_reason: string | null;
+  created_at: string;
+  payslip_id: string | null;
 }
 
 /** One row of payslip_cash_advances. */
@@ -148,11 +189,15 @@ export interface PayslipFeatures {
   from_april: boolean;
   /** Migration 20270205100000: a 2nd proof file on the payment and on each cash advance. */
   second_proof: boolean;
+  /** Migration 20270206100000: bonuses typed per month. */
+  bonuses: boolean;
+  /** Migration 20270207100000: Edit figures (manual correction) and the cash bond on the timesheet pay only. */
+  edit_figures: boolean;
 }
 
 export const NO_FEATURES: PayslipFeatures = {
   cash_advances: false, employee_id: false, cash_bond: false, pay_history: false, from_april: false,
-  second_proof: false,
+  second_proof: false, bonuses: false, edit_figures: false,
 };
 
 export interface PayslipBook {
@@ -162,6 +207,8 @@ export interface PayslipBook {
   details: PayrollDetails[];
   features: PayslipFeatures;
   cash_advances: CashAdvance[];
+  /** The month's bonuses (all statuses); empty before migration 20270206100000. */
+  bonuses: PayslipBonus[];
   pay_settings: PaySetting[];
 }
 
@@ -286,8 +333,141 @@ export function finalizePayload(f: PayslipFigures): Record<string, unknown> {
 }
 
 /** True when the live total no longer matches the stored payslip (more than half a centavo apart). */
+/** The stored total WITHOUT bonuses, comparable with live timesheet + commission figures. */
+export function storedFiguresTotal(p: Pick<Payslip, 'total_php' | 'bonus_php'>): number {
+  return (cents(p.total_php) - cents(p.bonus_php ?? 0)) / 100;
+}
+
 export function figuresChanged(storedTotal: number, liveTotal: number): boolean {
   return Math.abs(round2(storedTotal) - round2(liveTotal)) >= 0.005;
+}
+
+// ── Edit figures (owner 2026-10-27; migration 20270207100000) ───────────────
+
+/**
+ * The lines typed in "Edit figures". The totals are recalculated from them exactly as the engines do:
+ * CSR gross = min(sum of daily pay, basic salary), allowance paid = allowance × (4 − weeks forfeited) / 4,
+ * net = gross + allowance paid; Live Admin net = ₱500 × days + ₱300 × days; commission total = earnings +
+ * top-sales bonus.
+ */
+export interface FigureInputs {
+  days_worked: string;
+  total_hours: string;
+  daily_pay_sum: string;
+  basic_salary: string;
+  monthly_allowance: string;
+  forfeited_weeks: string;
+  days_at_500: string;
+  days_at_300: string;
+  earnings: string;
+  top_sales_bonus: string;
+  /** Cash bond held, '' = as calculated. */
+  cash_bond: string;
+}
+
+const str = (v: unknown): string => (v == null ? '' : String(round2(num(v))));
+
+/** The form, filled from stored figures (issued payslip) or the live draft. */
+export function figureInputs(
+  template: TemplateType, t: Record<string, unknown>, c: Record<string, unknown>, bond: number | null = null,
+): FigureInputs {
+  const csr = template === 'csr';
+  return {
+    days_worked: csr ? str(t.days_worked) : '',
+    total_hours: str(t.total_hours),
+    daily_pay_sum: csr ? str(t.daily_pay_sum) : '',
+    basic_salary: csr ? str(t.basic_salary) : '',
+    monthly_allowance: csr ? str(t.monthly_allowance) : '',
+    forfeited_weeks: csr ? str(t.forfeited_weeks) : '',
+    days_at_500: csr ? '' : str(t.days_at_500),
+    days_at_300: csr ? '' : str(t.days_at_300),
+    earnings: str(c.earnings),
+    top_sales_bonus: str(c.top_sales_bonus),
+    cash_bond: bond == null ? '' : str(bond),
+  };
+}
+
+const MONEY_RE = /^\d+(\.\d{1,2})?$/;
+const WHOLE_RE = /^\d+$/;
+
+/** null when every typed line is valid (and the reason is 3–500 characters), else what to fix. */
+export function validateFigureInputs(template: TemplateType, f: FigureInputs, reason: string): string | null {
+  const check = (v: string, label: string, whole: boolean, max?: number): string | null => {
+    const t = v.trim();
+    if (!(whole ? WHOLE_RE : MONEY_RE).test(t)) {
+      return whole ? `${label}: enter a whole number (0 or more).` : `${label}: enter a number (0 or more, up to 2 decimals).`;
+    }
+    if (max != null && Number(t) > max) return `${label}: at most ${max}.`;
+    return null;
+  };
+  const fields: [string, string, boolean, number?][] = template === 'csr'
+    ? [[f.days_worked, 'Days worked', true, 31], [f.total_hours, 'Total hours', false],
+      [f.daily_pay_sum, 'Sum of daily pay', false], [f.basic_salary, 'Basic salary cap', false],
+      [f.monthly_allowance, 'Monthly allowance', false], [f.forfeited_weeks, 'Weeks forfeited', true, 4]]
+    : [[f.days_at_500, 'Days at ₱500', true, 31], [f.days_at_300, 'Days at ₱300', true, 31], [f.total_hours, 'Total hours', false]];
+  fields.push([f.earnings, 'Commission earnings', false], [f.top_sales_bonus, 'Top sales bonus', false]);
+  for (const [v, label, whole, max] of fields) {
+    const e = check(v, label, whole, max);
+    if (e) return e;
+  }
+  if (template !== 'csr' && Number(f.days_at_500) + Number(f.days_at_300) > 31) return 'Days at ₱500 and ₱300: at most 31 together.';
+  if (f.cash_bond.trim() !== '') {
+    const e = check(f.cash_bond, 'Cash bond', false);
+    if (e) return e;
+  }
+  const r = reason.trim();
+  if (r.length < 3) return 'Write the reason for the correction (at least 3 characters).';
+  if (r.length > 500) return 'The reason is over 500 characters.';
+  return null;
+}
+
+/** The recalculated figures from valid inputs. `base` keeps the commission role and top-sales tier. */
+export function figuresFromInputs(template: TemplateType, f: FigureInputs, base: Record<string, unknown>): PayslipFigures {
+  const n = (v: string) => round2(Number(v.trim()) || 0);
+  let timesheet: TimesheetFigures;
+  if (template === 'csr') {
+    const daily = n(f.daily_pay_sum);
+    const basic = n(f.basic_salary);
+    const allowance = n(f.monthly_allowance);
+    const weeks = Math.min(Math.trunc(n(f.forfeited_weeks)), 4);
+    const capped = round2(Math.min(daily, basic));
+    const paid = round2(allowance * (1 - weeks / 4));
+    timesheet = {
+      days_worked: Math.trunc(n(f.days_worked)), total_hours: n(f.total_hours), daily_pay_sum: daily, basic_salary: basic,
+      capped_gross: capped, monthly_allowance: allowance, forfeited_weeks: weeks, allowance_paid: paid, net: round2(capped + paid),
+    };
+  } else {
+    const a = Math.trunc(n(f.days_at_500));
+    const b = Math.trunc(n(f.days_at_300));
+    timesheet = { days_at_500: a, days_at_300: b, total_hours: n(f.total_hours), net: 500 * a + 300 * b };
+  }
+  const earnings = n(f.earnings);
+  const bonus = n(f.top_sales_bonus);
+  const baseTier = num(base.top_sales_tier);
+  const tier: 0 | 1 | 2 = bonus > 0 ? (baseTier === 2 ? 2 : 1) : 0;
+  const role = typeof base.role_won === 'string' && base.role_won.trim() ? base.role_won : null;
+  return buildFigures(timesheet, { role_won: role, earnings, top_sales_tier: tier, top_sales_bonus: bonus, total: round2(earnings + bonus) });
+}
+
+/** The payload of finalize_payslip (5 arguments) / correct_payslip: the figures and an optional typed bond. */
+export function editPayload(f: PayslipFigures, bond: string): Record<string, unknown> {
+  const out = finalizePayload(f);
+  if (bond.trim() !== '') out.cash_bond_held_php = round2(Number(bond.trim()));
+  return out;
+}
+
+/** PS-YYYY-MM-XXXXXX: the pay month and the first 6 hex characters of the payslip id, uppercase. */
+export function payslipNumber(p: Pick<Payslip, 'id' | 'pay_month'>): string {
+  const hex = p.id.replace(/[^0-9a-f]/gi, '').slice(0, 6).toUpperCase();
+  return `PS-${p.pay_month.slice(0, 7)}-${hex}`;
+}
+
+/** "Manually corrected (replaces payslip no. PS-…) — <reason>", or null for calculated figures. */
+export function correctionLabel(p: Pick<Payslip, 'pay_month' | 'correction_reason' | 'corrected_from_payslip_id'>): string | null {
+  if (!p.correction_reason) return null;
+  const replaced = p.corrected_from_payslip_id
+    ? ` (replaces payslip no. ${payslipNumber({ id: p.corrected_from_payslip_id, pay_month: p.pay_month })})` : '';
+  return `Manually corrected${replaced} — ${p.correction_reason}`;
 }
 
 // ── Lines (display + Excel) ─────────────────────────────────────────────────
@@ -520,6 +700,15 @@ export function payslipRefusal(code: string | undefined): string {
     case 'proof_already_attached': return 'This advance already has 2 proofs.';
     case 'not_paid': return 'Record the payment first.';
     case 'second_proof_attached': return 'This payslip already has 2 proof files.';
+    case 'invalid_bonus_date': return 'The bonus date must be from April 2026 up to today.';
+    case 'invalid_category': return 'Choose the bonus category.';
+    case 'bonus_note_required': return 'Write a note for the bonus.';
+    case 'bonus_month_finalized': return 'This month\'s payslip is finalized — void it to change bonuses.';
+    case 'bonus_void': return 'This bonus is void.';
+    case 'bonus_proofs_full': return 'This bonus already has 2 proofs.';
+    case 'bonus_already_void': return 'This bonus is already void.';
+    case 'bond_exceeds_pay': return 'The cash bond is more than what is left to pay this month. Lower it with Edit figures.';
+    case 'bond_already_released': return 'This payslip\'s cash bond was already released on a later payslip. Correct that later payslip first.';
     default: return 'Something went wrong. Try again in a moment.';
   }
 }
@@ -536,6 +725,8 @@ export function bookFeatures(raw: Record<string, unknown>): PayslipFeatures {
     pay_history: f.pay_history === true,
     from_april: f.from_april === true,
     second_proof: f.second_proof === true,
+    bonuses: f.bonuses === true,
+    edit_figures: f.edit_figures === true,
   };
 }
 
@@ -546,6 +737,13 @@ export function normaliseBook(raw: Record<string, unknown>): PayslipBook {
   const details = (Array.isArray(raw.details) ? raw.details : []) as Record<string, unknown>[];
   const advances = (Array.isArray(raw.cash_advances) ? raw.cash_advances : []) as Record<string, unknown>[];
   const settings = (Array.isArray(raw.pay_settings) ? raw.pay_settings : []) as Record<string, unknown>[];
+  const bonuses = (Array.isArray(raw.bonuses) ? raw.bonuses : []) as Record<string, unknown>[];
+  const bonusOf = (b: Record<string, unknown>): BonusSnapshot => ({
+    id: String(b.id), bonus_date: String(b.bonus_date ?? ''),
+    category: b.category === 'holiday' ? 'holiday' : 'performance',
+    amount_php: num(b.amount_php), note: String(b.note ?? ''),
+    proof_path: (b.proof_path as string | null) ?? null, proof_path_2: (b.proof_path_2 as string | null) ?? null,
+  });
   const rate = raw.php_jpy_rate == null ? null : Number(raw.php_jpy_rate);
   return {
     month: String(raw.month ?? ''),
@@ -573,6 +771,8 @@ export function normaliseBook(raw: Record<string, unknown>): PayslipBook {
       cash_bond_held_php: optNum(p.cash_bond_held_php),
       cash_bond_released_php: optNum(p.cash_bond_released_php),
       amount_due_php: optNum(p.amount_due_php),
+      bonuses: Array.isArray(p.bonuses) ? (p.bonuses as Record<string, unknown>[]).map(bonusOf) : undefined,
+      bonus_php: optNum(p.bonus_php),
     })),
     details: details.map(d => {
       const pending = d.cash_bond_pending as Record<string, unknown> | null | undefined;
@@ -595,6 +795,11 @@ export function normaliseBook(raw: Record<string, unknown>): PayslipBook {
       proof_path_2: (a.proof_path_2 as string | null) ?? null, status: a.status === 'void' ? 'void' : 'active',
       void_reason: (a.void_reason as string | null) ?? null, created_at: String(a.created_at ?? ''),
       payslip_id: (a.payslip_id as string | null) ?? null,
+    })),
+    bonuses: bonuses.map(b => ({
+      ...bonusOf(b), user_id: String(b.user_id), pay_month: String(b.pay_month ?? ''),
+      status: b.status === 'void' ? 'void' : 'active', void_reason: (b.void_reason as string | null) ?? null,
+      created_at: String(b.created_at ?? ''), payslip_id: (b.payslip_id as string | null) ?? null,
     })),
     pay_settings: settings.map(s => ({
       user_id: String(s.user_id), effective_from: String(s.effective_from ?? ''),
@@ -634,7 +839,9 @@ export interface BondPreview {
 /**
  * The cash bond finalize_payslip will decide, computed the same way for the draft preview:
  *   - the hire month holds floor(net pay / 2) to the centavo (net pay = earnings − advances; the odd
- *     centavo stays in the paid half), unless ticked "Final pay";
+ *     centavo stays in the paid half), unless ticked "Final pay". Once migration 20270207100000 is
+ *     applied (`salaryOnly`) it is floor(timesheet net / 2) instead — the salary only: commission and
+ *     bonuses excluded, advances not taken off first (owner 2026-10-27 15:31);
  *   - a pending bond is released on its month + 1, or earlier on a "Final pay" payslip;
  *   - a later month before the hire-month payslip exists is refused (cash_bond_order).
  * The hire month counts only from April 2026 (the first month a payslip can exist).
@@ -647,6 +854,10 @@ export function bondPreview(o: {
   firstMonthIssued: boolean | null | undefined;
   pending: BondPending | null | undefined;
   isFinalPay: boolean;
+  /** The timesheet net (salary), used when `salaryOnly`. */
+  timesheetNetPhp?: number;
+  /** features.edit_figures: the bond is half of the salary only. */
+  salaryOnly?: boolean;
 }): BondPreview {
   const none: BondPreview = { kind: 'none', held: 0, released: 0, releasedFrom: null, firstMonth: null };
   const first = o.hireDate ? o.hireDate.slice(0, 7) : null;
@@ -654,8 +865,8 @@ export function bondPreview(o: {
     return { ...none, kind: 'blocked', firstMonth: first };
   }
   if (first && first === o.monthKey && !o.isFinalPay) {
-    const net = cents(o.totalPhp) - cents(o.advancesPhp);
-    return { ...none, kind: 'held', held: Math.floor(Math.max(0, net) / 2) / 100 };
+    const base = o.salaryOnly ? cents(o.timesheetNetPhp ?? 0) : cents(o.totalPhp) - cents(o.advancesPhp);
+    return { ...none, kind: 'held', held: Math.floor(Math.max(0, base) / 2) / 100 };
   }
   const p = o.pending;
   if (p && p.pay_month.slice(0, 7) < o.monthKey && (o.monthKey === addMonths(p.pay_month.slice(0, 7), 1) || o.isFinalPay)) {
@@ -665,6 +876,9 @@ export function bondPreview(o: {
 }
 
 export interface PayBreakdown {
+  /** Bonuses (earnings, owner 2026-10-27); included in `earnings`. */
+  bonuses: { bonus_date: string; category: string; note: string; amount_php: number }[];
+  bonusesTotal: number;
   earnings: number;
   advances: { advance_date: string; note: string; amount_php: number }[];
   advancesTotal: number;
@@ -673,6 +887,8 @@ export interface PayBreakdown {
   released: number;
   /** 'YYYY-MM' of the payslip whose bond is released. */
   releasedFrom: string | null;
+  /** The held line's label: a typed bond (Edit figures) is not "50% held". */
+  heldLabel?: string;
   due: number;
 }
 
@@ -680,7 +896,10 @@ export interface PayBreakdown {
 export function storedBreakdown(p: Payslip, sourceMonth: string | null = p.cash_bond_source_month?.slice(0, 7) ?? null): PayBreakdown | null {
   if (!hasDeductionColumns(p)) return null;
   const advances = (p.cash_advances ?? []).map(a => ({ advance_date: a.advance_date, note: a.note, amount_php: a.amount_php }));
+  const bonuses = (p.bonuses ?? []).map(b => ({ bonus_date: b.bonus_date, category: b.category, note: b.note, amount_php: b.amount_php }));
   return {
+    bonuses,
+    bonusesTotal: p.bonus_php ?? 0,
     earnings: p.total_php,
     advances,
     advancesTotal: p.cash_advance_php ?? 0,
@@ -688,18 +907,36 @@ export function storedBreakdown(p: Payslip, sourceMonth: string | null = p.cash_
     held: p.cash_bond_held_php ?? 0,
     released: p.cash_bond_released_php ?? 0,
     releasedFrom: sourceMonth,
+    ...(p.correction_reason ? { heldLabel: BOND_HELD_TYPED_LABEL } : {}),
     due: amountDue(p),
   };
 }
 
-/** The deductions block of a DRAFT, from live figures, the month's active advances and the bond preview. */
-export function draftBreakdown(totalPhp: number, advances: CashAdvance[], bond: BondPreview): PayBreakdown {
+/** The month's ACTIVE bonuses, in finalize order (date, then created). */
+export function activeBonuses(bonuses: PayslipBonus[]): PayslipBonus[] {
+  return bonuses.filter(b => b.status === 'active')
+    .sort((a, b) => a.bonus_date.localeCompare(b.bonus_date) || a.created_at.localeCompare(b.created_at));
+}
+
+export function bonusesTotal(bonuses: PayslipBonus[]): number {
+  return activeBonuses(bonuses).reduce((s, b) => s + cents(b.amount_php), 0) / 100;
+}
+
+/**
+ * The deductions block of a DRAFT, from live figures (timesheet + commission), the month's active
+ * bonuses (added to earnings, as finalize_payslip does), active advances and the bond preview.
+ */
+export function draftBreakdown(totalPhp: number, advances: CashAdvance[], bond: BondPreview, bonuses: PayslipBonus[] = []): PayBreakdown {
   const active = advances.filter(a => a.status === 'active')
     .sort((a, b) => a.advance_date.localeCompare(b.advance_date) || a.created_at.localeCompare(b.created_at));
   const advancesTotal = active.reduce((s, a) => s + cents(a.amount_php), 0) / 100;
-  const net = (cents(totalPhp) - cents(advancesTotal)) / 100;
+  const bonusSum = bonusesTotal(bonuses);
+  const earnings = (cents(totalPhp) + cents(bonusSum)) / 100;
+  const net = (cents(earnings) - cents(advancesTotal)) / 100;
   return {
-    earnings: round2(totalPhp),
+    bonuses: activeBonuses(bonuses).map(b => ({ bonus_date: b.bonus_date, category: b.category, note: b.note, amount_php: b.amount_php })),
+    bonusesTotal: bonusSum,
+    earnings,
     advances: active.map(a => ({ advance_date: a.advance_date, note: a.note, amount_php: a.amount_php })),
     advancesTotal,
     net,
@@ -711,22 +948,28 @@ export function draftBreakdown(totalPhp: number, advances: CashAdvance[], bond: 
 }
 
 export const BOND_HELD_LABEL = 'Less: Cash bond — first-month pay (50% held)';
+/** On a payslip with figures typed by hand the bond may be any amount (Edit figures). */
+export const BOND_HELD_TYPED_LABEL = 'Less: Cash bond held';
 export function bondReleasedLabel(fromMonth: string | null): string {
   return fromMonth ? `Cash bond released — ${longMonthLabel(fromMonth)}` : 'Cash bond released';
+}
+export function bonusLabel(b: { bonus_date: string; category: string; note: string }): string {
+  return `Add: ${bonusCategoryLabel(b.category)} — ${formatDateDD(b.bonus_date)} · ${b.note}`;
 }
 export function advanceLabel(a: { advance_date: string; note: string }): string {
   return `Less: Cash advance — ${formatDateDD(a.advance_date)} · ${a.note}`;
 }
 
-/** The lines after the earnings: advances, totals, net pay, cash bond, amount due / paid. */
+/** The lines after the earnings: bonuses, advances, totals, net pay, cash bond, amount due / paid. */
 export function breakdownLines(b: PayBreakdown, paid: boolean): Line[] {
-  const lines: Line[] = b.advances.map(a => ({ label: advanceLabel(a), value: formatPeso(-a.amount_php) }));
+  const lines: Line[] = b.bonuses.map(x => ({ label: bonusLabel(x), value: formatPeso(x.amount_php) }));
+  lines.push(...b.advances.map(a => ({ label: advanceLabel(a), value: formatPeso(-a.amount_php) })));
   lines.push(
     { label: 'Total earnings', value: formatPeso(b.earnings) },
     { label: 'Total cash advances', value: formatPeso(b.advancesTotal) },
     { label: 'Net pay', value: formatPeso(b.net) },
   );
-  if (b.held > 0) lines.push({ label: BOND_HELD_LABEL, value: formatPeso(-b.held) });
+  if (b.held > 0) lines.push({ label: b.heldLabel ?? BOND_HELD_LABEL, value: formatPeso(-b.held) });
   if (b.released > 0) lines.push({ label: bondReleasedLabel(b.releasedFrom), value: formatPeso(b.released) });
   lines.push({ label: paid ? 'Amount paid' : 'Amount due', value: formatPeso(b.due) });
   return lines;
@@ -762,6 +1005,29 @@ export function advanceProofFileName(path: string | null | undefined): string {
   if (!path) return '';
   const parts = path.split('/');
   return parts.length >= 3 ? parts.slice(2).join('/') : path;
+}
+
+// ── Bonus form + proof (owner 2026-10-27; migration 20270206100000) ────────
+
+export interface BonusForm { bonusDate: string; category: string; amount: string; note: string }
+
+export const BONUS_DATE_MIN = '2026-04-01';
+
+export function validateBonus(f: BonusForm, today: string = todayTokyo()): string | null {
+  if (!BONUS_CATEGORIES.some(c => c.value === f.category)) return 'Choose the bonus category.';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(f.bonusDate)) return 'Enter the date of the bonus.';
+  if (f.bonusDate > today) return 'The bonus date is in the future.';
+  if (f.bonusDate < BONUS_DATE_MIN) return 'The bonus date must be from April 2026.';
+  if (!/^\d+(\.\d{1,2})?$/.test(f.amount.trim()) || Number(f.amount) <= 0) return 'Enter the amount in pesos (up to 2 decimals) above 0.';
+  if (Number(f.amount) > 10_000_000) return 'The amount is too large.';
+  if (!f.note.trim()) return 'Write a note for the bonus.';
+  if (f.note.trim().length > 200) return 'The note is over 200 characters.';
+  return null;
+}
+
+/** bonuses/<bonus id>/<timestamp>-<safe name>: the only shape attach_payslip_bonus_proof accepts. */
+export function bonusProofPath(bonusId: string, fileName: string, now: number = Date.now()): string {
+  return `bonuses/${proofPath(bonusId, fileName, now)}`;
 }
 
 // ── Excel (STORED figures only) ─────────────────────────────────────────────
@@ -812,6 +1078,7 @@ export function payslipRows(p: Payslip, generatedOn: string = todayTokyo(), sour
     ['Address', p.address],
     ['Date of birth', formatDate(p.date_of_birth)],
     ['Job title', p.job_title ?? '—'],
+    ...(correctionLabel(p) ? [[], [correctionLabel(p) as string]] : []),
     [],
     ['Timesheet'],
     ...timesheetLines(p.template_type, p.timesheet).map(l => [l.label, l.value]),

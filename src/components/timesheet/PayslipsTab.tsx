@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Ban, Coins, Download, FileDown, FileText, Loader2, Paperclip, Pencil, UserCog, Wallet } from 'lucide-react';
+import { AlertTriangle, Ban, Coins, Download, FileDown, FileText, Gift, Loader2, Paperclip, Pencil, UserCog, Wallet } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { Badge } from '@/components/ui/badge';
@@ -26,12 +26,13 @@ import {
   computeMonth as computeCommissionMonth, type CommissionSplit, type SaleRow,
 } from '@/lib/commissionEngine';
 import {
-  COMPANY_NAME, NO_FEATURES, PAYSLIP_BOOK_KEY, PAYSLIP_PROOF_BUCKET, STATUS_LABEL,
-  type BondPreview, type CashAdvance, type Payslip, type PayslipBookState, type PayslipFeatures, type PayslipFigures,
+  BONUS_CATEGORIES, BONUS_DATE_MIN, COMPANY_NAME, NO_FEATURES, PAYSLIP_BOOK_KEY, PAYSLIP_PROOF_BUCKET, STATUS_LABEL,
+  type BondPreview, type CashAdvance, type Payslip, type PayslipBonus, type PayslipBookState, type PayslipFeatures, type PayslipFigures,
   type PayrollDetails, type RowStatus,
-  actualRate, advanceDateMin, advanceProofFileName, advanceProofPath, advanceProofPaths, advanceProofSlotFree, amountDue, bondPreview, breakdownLines,
+  actualRate, bonusCategoryLabel, bonusProofPath, bonusesTotal, storedFiguresTotal, validateBonus, advanceDateMin, advanceProofFileName, advanceProofPath, advanceProofPaths, advanceProofSlotFree, amountDue, bondPreview, breakdownLines,
   buildCommissionFigures, buildFigures, buildTimesheetFigures, canIssueForMonth, commissionLines,
-  currentPayslip, defaultYenSent, detailsComplete, differenceLabel, downloadPayslipXlsx, draftBreakdown, figuresChanged,
+  correctionLabel, currentPayslip, defaultYenSent, detailsComplete, differenceLabel, downloadPayslipXlsx, draftBreakdown, editPayload,
+  figureInputs, figuresChanged, figuresFromInputs, validateFigureInputs, type FigureInputs,
   finalizePayload, findAgentResult, formatDate, formatDateDD, formatPeso, formatYen, longMonthLabel, normaliseBook,
   payslipProofPaths, payslipRefusal, payslipTitle, proofContentType, proofFileName, proofPath, proofProblem, storedBreakdown, timesheetLines,
   todayTokyo, validateAdvance, validateDetails, validateEmployeeDetails, validatePayment,
@@ -79,6 +80,8 @@ interface StaffRow {
   details: PayrollDetails | null;
   /** This staff member's cash advances for the month (all statuses, newest first). */
   advances: CashAdvance[];
+  /** This staff member's bonuses for the month (all statuses, newest first; migration 20270206100000). */
+  bonuses: PayslipBonus[];
 }
 
 /** The cash bond the draft would get, mirroring finalize_payslip (none before the migration). */
@@ -86,8 +89,9 @@ function draftBond(r: StaffRow, monthKey: string, features: PayslipFeatures, isF
   if (!features.cash_bond || !r.figures) return NO_BOND;
   const advancesPhp = r.advances.filter(a => a.status === 'active').reduce((s, a) => s + a.amount_php, 0);
   return bondPreview({
-    monthKey, totalPhp: r.figures.total_php, advancesPhp, hireDate: r.details?.hire_date,
+    monthKey, totalPhp: r.figures.total_php + bonusesTotal(r.bonuses), advancesPhp, hireDate: r.details?.hire_date,
     firstMonthIssued: r.details?.first_month_issued, pending: r.details?.cash_bond_pending, isFinalPay,
+    timesheetNetPhp: r.figures.timesheet_net_php, salaryOnly: features.edit_figures,
   });
 }
 
@@ -144,7 +148,9 @@ export default function PayslipsTab({
   const [editingDetails, setEditingDetails] = useState<string | null>(null); // user_id
   const [pdfBusy, setPdfBusy] = useState(false);
   const [advancesFor, setAdvancesFor] = useState<string | null>(null); // user_id
+  const [bonusesFor, setBonusesFor] = useState<string | null>(null); // user_id
   const [finalPay, setFinalPay] = useState(false);
+  const [editingFigures, setEditingFigures] = useState<string | null>(null); // user_id
 
   const book = useQuery<PayslipBookState>({
     queryKey: [...PAYSLIP_BOOK_KEY, monthKey],
@@ -200,8 +206,10 @@ export default function PayslipsTab({
       const payslip = data ? currentPayslip(data.payslips, p.user_id) : null;
       const details = data?.details.find(d => d.user_id === p.user_id) ?? null;
       const advances = data?.cash_advances.filter(a => a.user_id === p.user_id) ?? [];
+      const bonuses = data?.bonuses.filter(b => b.user_id === p.user_id) ?? [];
       return {
         profile: p, name, inactive: !base.active, figures, payslip, status: payslip?.status ?? 'not_issued', details, advances,
+        bonuses,
       };
     }).sort((a, b) => a.name.localeCompare(b.name));
   }, [profiles, nameByUser, entriesByUser, monthKey, commission.data, data, settings]);
@@ -301,6 +309,8 @@ export default function PayslipsTab({
   const viewingRow = viewing ? rows.find(r => r.profile.user_id === viewing) ?? null : null;
   const editingRow = editingDetails ? rows.find(r => r.profile.user_id === editingDetails) ?? null : null;
   const advancesRow = advancesFor ? rows.find(r => r.profile.user_id === advancesFor) ?? null : null;
+  const bonusesRow = bonusesFor ? rows.find(r => r.profile.user_id === bonusesFor) ?? null : null;
+  const figuresRow = editingFigures ? rows.find(r => r.profile.user_id === editingFigures) ?? null : null;
   const detailsMissing = features.employee_id ? DETAILS_MISSING_WITH_ID : DETAILS_MISSING;
   const finalizeBlock = (r: StaffRow): string | null => {
     if (!canIssueForMonth(monthKey, features.from_april)) {
@@ -313,12 +323,12 @@ export default function PayslipsTab({
       return `Finalize the ${longMonthLabel(bond.firstMonth)} payslip first — it holds the cash bond.`;
     }
     const adv = r.advances.filter(a => a.status === 'active').reduce((s, a) => s + a.amount_php, 0);
-    if (adv > r.figures.total_php) return 'The cash advances are more than this month\'s earnings.';
+    if (adv > r.figures.total_php + bonusesTotal(r.bonuses)) return 'The cash advances are more than this month\'s earnings.';
     return null;
   };
   const confirmBond = confirmFinalize ? draftBond(confirmFinalize, monthKey, features, finalPay) : NO_BOND;
-  const confirmBreakdown = confirmFinalize?.figures && (features.cash_advances || features.cash_bond)
-    ? draftBreakdown(confirmFinalize.figures.total_php, confirmFinalize.advances, confirmBond) : null;
+  const confirmBreakdown = confirmFinalize?.figures && (features.cash_advances || features.cash_bond || features.bonuses)
+    ? draftBreakdown(confirmFinalize.figures.total_php, confirmFinalize.advances, confirmBond, confirmFinalize.bonuses) : null;
 
   return (
     <div className="space-y-4" data-testid="payslips-tab">
@@ -377,8 +387,8 @@ export default function PayslipsTab({
                   const shown = r.payslip && r.payslip.status !== 'void' ? r.payslip : null;
                   const ts = shown ? shown.timesheet_net_php : r.figures?.timesheet_net_php;
                   const cm = shown ? shown.commission_php : r.figures?.commission_php;
-                  const total = shown ? shown.total_php : r.figures?.total_php;
-                  const changed = shown && r.figures ? figuresChanged(shown.total_php, r.figures.total_php) : false;
+                  const total = shown ? shown.total_php : (r.figures ? r.figures.total_php + bonusesTotal(r.bonuses) : undefined);
+                  const changed = shown && r.figures ? figuresChanged(storedFiguresTotal(shown), r.figures.total_php) : false;
                   return (
                     <tr key={r.profile.user_id} className="border-t border-border">
                       <td className="px-3 py-2">
@@ -401,6 +411,17 @@ export default function PayslipsTab({
                             {r.advances.some(a => a.status === 'active') && (
                               <Badge variant="secondary" className="ml-1 px-1.5 py-0 text-[10px]">
                                 {r.advances.filter(a => a.status === 'active').length}
+                              </Badge>
+                            )}
+                          </Button>
+                        )}
+                        {features.bonuses && (
+                          <Button size="sm" variant="ghost" onClick={() => setBonusesFor(r.profile.user_id)}
+                            data-testid="payslip-bonuses-open">
+                            <Gift className="mr-1 h-4 w-4" /> Bonuses
+                            {r.bonuses.some(b => b.status === 'active') && (
+                              <Badge variant="secondary" className="ml-1 px-1.5 py-0 text-[10px]">
+                                {r.bonuses.filter(b => b.status === 'active').length}
                               </Badge>
                             )}
                           </Button>
@@ -441,6 +462,7 @@ export default function PayslipsTab({
               onAddSecondProof={addSecondProof}
               proofBusy={proofBusy}
               onEditDetails={() => setEditingDetails(viewingRow.profile.user_id)}
+              onEditFigures={() => setEditingFigures(viewingRow.profile.user_id)}
             />
           )}
         </DialogContent>
@@ -454,7 +476,9 @@ export default function PayslipsTab({
             <AlertDialogDescription>
               {confirmFinalize?.name}, {longLabel(monthKey)}: total {confirmFinalize?.figures ? formatPeso(confirmFinalize.figures.total_php) : '—'}
               {confirmBreakdown ? `, amount due ${formatPeso(confirmBreakdown.due)}` : ''}.
-              The figures and staff details freeze. To change them later, void the payslip and issue a new one.
+              The figures and staff details freeze. {features.edit_figures
+                ? 'To change them later, use Edit figures (the payslip is re-issued).'
+                : 'To change them later, void the payslip and issue a new one.'}
             </AlertDialogDescription>
           </AlertDialogHeader>
           {features.cash_bond && (
@@ -521,6 +545,16 @@ export default function PayslipsTab({
         </DialogContent>
       </Dialog>
 
+      {figuresRow && data && (
+        <EditFiguresDialog
+          row={figuresRow}
+          monthKey={monthKey}
+          features={features}
+          onClose={() => setEditingFigures(null)}
+          onSaved={() => { setEditingFigures(null); refresh(); }}
+        />
+      )}
+
       {detailsOpen && data && (
         <StaffDetailsDialog rows={rows} features={features} onClose={() => setDetailsOpen(false)} onSaved={refresh} />
       )}
@@ -533,6 +567,17 @@ export default function PayslipsTab({
           secondProof={features.second_proof}
           onOpenProof={openProof}
           onClose={() => setAdvancesFor(null)}
+          onChanged={refresh}
+        />
+      )}
+
+      {bonusesRow && data && (
+        <BonusesDialog
+          row={bonusesRow}
+          monthKey={monthKey}
+          locked={!!bonusesRow.payslip && bonusesRow.payslip.status !== 'void'}
+          onOpenProof={openProof}
+          onClose={() => setBonusesFor(null)}
           onChanged={refresh}
         />
       )}
@@ -585,7 +630,7 @@ function Section({ title, lines }: { title: string; lines: { label: string; valu
 
 function PayslipView({
   row, monthKey, features, detailsMissing, finalizeBlock, onFinalize, onPay, onVoid, onProof, onDownloadProof, onDownloadPdf,
-  pdfBusy, onAddSecondProof, proofBusy, onEditDetails,
+  pdfBusy, onAddSecondProof, proofBusy, onEditDetails, onEditFigures,
 }: {
   row: StaffRow;
   monthKey: string;
@@ -602,6 +647,7 @@ function PayslipView({
   onAddSecondProof: (p: Payslip, f: File | null) => void;
   proofBusy: boolean;
   onEditDetails: () => void;
+  onEditFigures: () => void;
 }) {
   const p = row.payslip;
   const issued = p && p.status !== 'void' ? p : null;
@@ -609,14 +655,14 @@ function PayslipView({
   const tsSource = issued ? issued.timesheet : (row.figures?.timesheet as unknown as Record<string, unknown> | undefined);
   const cmSource = issued ? issued.commission : (row.figures?.commission as unknown as Record<string, unknown> | undefined);
   const total = issued ? issued.total_php : row.figures?.total_php;
-  const changed = issued && row.figures ? figuresChanged(issued.total_php, row.figures.total_php) : false;
+  const changed = issued && row.figures ? figuresChanged(storedFiguresTotal(issued), row.figures.total_php) : false;
   // Advances, net pay, cash bond and amount due: from the snapshot when issued (payslips issued before the
   // migration have none), from live data for a draft once the database has the feature.
   const draftBondPreview = !issued ? draftBond(row, monthKey, features, false) : NO_BOND;
   const breakdown = issued
     ? storedBreakdown(issued)
-    : (row.figures && (features.cash_advances || features.cash_bond)
-      ? draftBreakdown(row.figures.total_php, row.advances, draftBondPreview) : null);
+    : (row.figures && (features.cash_advances || features.cash_bond || features.bonuses)
+      ? draftBreakdown(row.figures.total_php, row.advances, draftBondPreview, row.bonuses) : null);
   const employeeId = issued ? issued.employee_id : row.details?.employee_id;
   const due = issued ? amountDue(issued) : null;
 
@@ -638,7 +684,15 @@ function PayslipView({
       {changed && (
         <p className="flex items-start gap-2 rounded-md border border-warning/50 bg-warning/10 p-2 text-xs" data-testid="payslip-changed">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
-          Figures changed after this payslip was finalized — void and re-issue to update.
+          {features.edit_figures
+            ? 'Figures changed after this payslip was finalized — use Edit figures to re-issue it.'
+            : 'Figures changed after this payslip was finalized — void and re-issue to update.'}
+        </p>
+      )}
+      {issued && correctionLabel(issued) && (
+        <p className="flex items-start gap-2 rounded-md border border-primary/30 bg-primary/5 p-2 text-xs" data-testid="payslip-corrected">
+          <Pencil className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+          {correctionLabel(issued)}
         </p>
       )}
 
@@ -662,7 +716,8 @@ function PayslipView({
                 const last = lines[lines.length - 1];
                 return (
                   <>
-                    <Section title="Deductions and cash bond" lines={lines.slice(0, -1)} />
+                    <Section title={breakdown.bonuses.length ? 'Bonuses, deductions and cash bond' : 'Deductions and cash bond'}
+                      lines={lines.slice(0, -1)} />
                     <div className="flex items-baseline justify-between rounded-md bg-primary/5 px-3 py-2 font-semibold"
                       data-testid="payslip-amount-due">
                       <span>{last.label}</span>
@@ -726,7 +781,14 @@ function PayslipView({
       <DialogFooter className="flex-wrap gap-2 sm:justify-end">
         {!issued && (
           <div className="flex flex-col items-end gap-1">
-            <Button onClick={onFinalize} disabled={!!finalizeBlock} data-testid="payslip-finalize">Finalize payslip</Button>
+            <div className="flex flex-wrap justify-end gap-2">
+              {features.edit_figures && (
+                <Button variant="outline" onClick={onEditFigures} disabled={!!finalizeBlock} data-testid="payslip-edit-figures">
+                  <Pencil className="mr-1 h-4 w-4" /> Edit figures
+                </Button>
+              )}
+              <Button onClick={onFinalize} disabled={!!finalizeBlock} data-testid="payslip-finalize">Finalize payslip</Button>
+            </div>
             {finalizeBlock && (
               <span className="flex items-center gap-2 text-xs text-muted-foreground">
                 <span data-testid="payslip-finalize-block">{finalizeBlock}</span>
@@ -747,6 +809,11 @@ function PayslipView({
             <Button variant="outline" onClick={() => onDownloadPdf(issued)} disabled={pdfBusy} data-testid="payslip-download-pdf">
               {pdfBusy ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <FileDown className="mr-1 h-4 w-4" />} Download PDF
             </Button>
+            {features.edit_figures && (
+              <Button variant="outline" onClick={onEditFigures} data-testid="payslip-edit-figures">
+                <Pencil className="mr-1 h-4 w-4" /> Edit figures
+              </Button>
+            )}
             <Button variant="outline" onClick={() => onVoid(issued)}>
               <Ban className="mr-1 h-4 w-4" /> Void
             </Button>
@@ -756,6 +823,193 @@ function PayslipView({
           <Button onClick={() => onPay(issued)}><Wallet className="mr-1 h-4 w-4" /> Record payment</Button>
         )}
       </DialogFooter>
+    </div>
+  );
+}
+
+// ── Edit figures (owner 2026-10-27; migration 20270207100000) ───────────────
+
+function EditFiguresDialog({ row, monthKey, features, onClose, onSaved }: {
+  row: StaffRow;
+  monthKey: string;
+  features: PayslipFeatures;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const issued = row.payslip && row.payslip.status !== 'void' ? row.payslip : null;
+  const template: TemplateType = issued ? issued.template_type : row.profile.template_type;
+  const baseTs = issued ? issued.timesheet : ((row.figures?.timesheet ?? {}) as unknown as Record<string, unknown>);
+  const baseCm = useMemo(
+    () => (issued ? issued.commission : ((row.figures?.commission ?? {}) as unknown as Record<string, unknown>)),
+    [issued, row.figures],
+  );
+  const [form, setForm] = useState<FigureInputs>(() => figureInputs(
+    template, baseTs, baseCm, issued && (issued.cash_bond_held_php ?? 0) > 0 ? issued.cash_bond_held_php ?? 0 : null,
+  ));
+  const [reason, setReason] = useState('');
+  const [isFinalPay, setIsFinalPay] = useState(issued?.is_final_pay === true);
+  const [saving, setSaving] = useState(false);
+  const set = (k: keyof FigureInputs) => (e: React.ChangeEvent<HTMLInputElement>) => setForm(f => ({ ...f, [k]: e.target.value }));
+
+  const problem = validateFigureInputs(template, form, reason);
+  const figures = useMemo(() => figuresFromInputs(template, form, baseCm), [template, form, baseCm]);
+  // Bonuses and advances stay as they are: the frozen ones on an issued payslip, the active ones on a draft.
+  const bonuses = issued ? (issued.bonus_php ?? 0) : bonusesTotal(row.bonuses);
+  const advances = issued
+    ? (issued.cash_advance_php ?? 0)
+    : row.advances.filter(a => a.status === 'active').reduce((s, a) => s + a.amount_php, 0);
+  const earnings = figures.total_php + bonuses;
+  const half = Math.floor(Math.max(0, Math.round(figures.timesheet_net_php * 100)) / 2) / 100;
+  const calc = bondPreview({
+    monthKey, totalPhp: earnings, advancesPhp: advances, hireDate: row.details?.hire_date,
+    firstMonthIssued: true, pending: null, isFinalPay, timesheetNetPhp: figures.timesheet_net_php, salaryOnly: true,
+  });
+  const typedBond = form.cash_bond.trim() === '' ? null : Number(form.cash_bond.trim());
+  const held = isFinalPay ? 0 : (typedBond ?? (calc.kind === 'held' ? calc.held : 0));
+  const left = Math.round((earnings - advances) * 100) / 100;
+  const bondTooBig = held > left;
+  const released = issued ? (issued.cash_bond_released_php ?? 0) : draftBond(row, monthKey, features, isFinalPay).released;
+  const due = Math.round((left - held + released) * 100) / 100;
+
+  const save = async () => {
+    if (problem || bondTooBig) return;
+    setSaving(true);
+    try {
+      const payload = editPayload(figures, isFinalPay ? '' : form.cash_bond);
+      if (issued) {
+        await callRpc('correct_payslip', { p_id: issued.id, p_payload: payload, p_is_final_pay: isFinalPay, p_reason: reason.trim() });
+        toast.success(issued.status === 'paid' ? 'Payslip corrected — the payment was kept' : 'Payslip corrected');
+      } else {
+        await callRpc('finalize_payslip', {
+          p_user_id: row.profile.user_id, p_pay_month: `${monthKey}-01`, p_payload: payload, p_is_final_pay: isFinalPay,
+          p_correction_reason: reason.trim(),
+        });
+        toast.success('Payslip finalized with your figures');
+      }
+      onSaved();
+    } catch (e) {
+      toast.error(refusal(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const field = (k: keyof FigureInputs, label: string, hint?: string) => (
+    <div className="space-y-1">
+      <Label htmlFor={`ef-${k}`} className="text-xs">{label}</Label>
+      <Input id={`ef-${k}`} inputMode="decimal" value={form[k]} onChange={set(k)} className="h-9 tabular-nums" data-testid={`ef-${k}`} />
+      {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
+    </div>
+  );
+
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o && !saving) onClose(); }}>
+      <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto" data-testid="edit-figures-dialog">
+        <DialogHeader>
+          <DialogTitle>Edit figures — {row.name}, {longLabel(monthKey)}</DialogTitle>
+          <DialogDescription>
+            {issued
+              ? `Saving voids the current payslip ("Corrected: your reason") and issues the corrected one in its place${issued.status === 'paid' ? '; the payment and proofs stay on it' : ''}.`
+              : 'Saving finalizes the payslip with these figures.'} The payslip, Excel and PDF show “Manually corrected” with your reason.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <section className="space-y-2">
+            <h3 className="text-sm font-semibold">Timesheet — {TEMPLATE_LABEL[template]}</h3>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+              {template === 'csr' ? (
+                <>
+                  {field('days_worked', 'Days worked')}
+                  {field('total_hours', 'Total hours')}
+                  {field('daily_pay_sum', 'Sum of daily pay (₱)')}
+                  {field('basic_salary', 'Basic salary cap (₱)')}
+                  {field('monthly_allowance', 'Monthly allowance (₱)')}
+                  {field('forfeited_weeks', 'Weeks forfeited (0–4)')}
+                </>
+              ) : (
+                <>
+                  {field('days_at_500', 'Days at ₱500')}
+                  {field('days_at_300', 'Days at ₱300')}
+                  {field('total_hours', 'Total hours')}
+                </>
+              )}
+            </div>
+            {template === 'csr' && 'capped_gross' in figures.timesheet && (
+              <p className="text-xs text-muted-foreground" data-testid="ef-timesheet-calc">
+                Gross pay (capped) {formatPeso(figures.timesheet.capped_gross)} · Allowance paid {formatPeso(figures.timesheet.allowance_paid)}
+              </p>
+            )}
+          </section>
+
+          <section className="space-y-2">
+            <h3 className="text-sm font-semibold">Commission</h3>
+            <div className="grid grid-cols-2 gap-3">
+              {field('earnings', 'Commission earnings (₱)')}
+              {field('top_sales_bonus', 'Top sales bonus (₱)')}
+            </div>
+          </section>
+
+          <section className="space-y-2">
+            <h3 className="text-sm font-semibold">Cash bond</h3>
+            <label className="flex items-center gap-2 text-sm">
+              <Checkbox checked={isFinalPay} onCheckedChange={v => setIsFinalPay(v === true)} aria-label="Final pay (staff leaving)"
+                data-testid="ef-final-pay" />
+              Final pay (staff leaving) — no bond is held
+            </label>
+            {!isFinalPay && (
+              <div className="grid grid-cols-2 gap-3">
+                {field('cash_bond', 'Cash bond held (₱)', `Empty = as calculated (${calc.kind === 'held' ? formatPeso(calc.held) : '₱0.00'}). Half of the salary: ${formatPeso(half)}.`)}
+                <div className="flex items-end">
+                  <Button type="button" variant="outline" size="sm" onClick={() => setForm(f => ({ ...f, cash_bond: String(half) }))}
+                    data-testid="ef-bond-half">
+                    Use half of salary
+                  </Button>
+                </div>
+              </div>
+            )}
+          </section>
+
+          <section className="space-y-1 rounded-md border border-border p-3 text-sm" data-testid="ef-totals">
+            <Row label="Timesheet net pay" value={formatPeso(figures.timesheet_net_php)} />
+            <Row label="Commission" value={formatPeso(figures.commission_php)} />
+            {bonuses > 0 && <Row label="Bonuses" value={formatPeso(bonuses)} />}
+            <Row label="Total earnings" value={formatPeso(earnings)} />
+            {advances > 0 && <Row label="Cash advances" value={`− ${formatPeso(advances)}`} />}
+            {held > 0 && <Row label="Cash bond held" value={`− ${formatPeso(held)}`} />}
+            {released > 0 && <Row label="Cash bond released" value={`+ ${formatPeso(released)}`} />}
+            <Row label="Amount due" value={formatPeso(due)} strong />
+          </section>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="ef-reason">Reason for the correction</Label>
+            <Textarea id="ef-reason" value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500}
+              placeholder="e.g. Missed day on 14 Sept added from the paper sheet" data-testid="ef-reason" />
+          </div>
+          {(problem || bondTooBig) && (
+            <p className="text-xs text-destructive" data-testid="ef-problem">
+              {problem ?? `The cash bond is more than what is left to pay (${formatPeso(left)}).`}
+            </p>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={saving}>Cancel</Button>
+          <Button onClick={save} disabled={saving || !!problem || bondTooBig} data-testid="ef-save">
+            {saving && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+            {issued ? 'Save and re-issue' : 'Save and finalize'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function Row({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
+  return (
+    <div className={`flex items-baseline justify-between gap-3 ${strong ? 'font-semibold' : ''}`}>
+      <span className={strong ? '' : 'text-muted-foreground'}>{label}</span>
+      <span className="tabular-nums">{value}</span>
     </div>
   );
 }
@@ -1187,6 +1441,234 @@ function CashAdvancesDialog({
               )}
               <Button size="sm" onClick={add} disabled={!!formError || !!fileError || saving} data-testid="cash-advance-add">
                 {saving && <Loader2 className="mr-1 h-4 w-4 animate-spin" />} Add advance
+              </Button>
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── Bonuses (owner 2026-10-27; migration 20270206100000) ───────────────────
+
+function BonusesDialog({
+  row, monthKey, locked, onOpenProof, onClose, onChanged,
+}: {
+  row: StaffRow;
+  monthKey: string;
+  /** A non-void payslip exists for the month: bonuses are read-only. */
+  locked: boolean;
+  onOpenProof: (path: string) => void;
+  onClose: () => void;
+  onChanged: () => void;
+}) {
+  const today = todayTokyo();
+  const [category, setCategory] = useState('');
+  const [bonusDate, setBonusDate] = useState(today);
+  const [amount, setAmount] = useState('');
+  const [note, setNote] = useState('');
+  const [file, setFile] = useState<File | null>(null);
+  const [file2, setFile2] = useState<File | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [voidingId, setVoidingId] = useState<string | null>(null);
+  const [voidReason, setVoidReason] = useState('');
+
+  const formError = validateBonus({ bonusDate, category, amount, note }, today);
+  const fileError = (file ? proofProblem(file) : null) ?? (file2 ? proofProblem(file2) : null);
+  const activeTotal = bonusesTotal(row.bonuses);
+
+  /** Upload, then attach; false (with a toast) when either step fails — the bonus itself stays. */
+  const attach = async (bonusId: string, f: File, now: number = Date.now()): Promise<boolean> => {
+    const path = bonusProofPath(bonusId, f.name, now);
+    const { error: upErr } = await supabase.storage.from(PAYSLIP_PROOF_BUCKET)
+      .upload(path, f, { cacheControl: '3600', upsert: false, contentType: proofContentType(f) || undefined });
+    if (!upErr) {
+      try {
+        await callRpc('attach_payslip_bonus_proof', { p_id: bonusId, p_path: path });
+        return true;
+      } catch { /* falls through to the message below */ }
+    }
+    toast.error('The bonus is saved, but its proof did not upload. Use Attach proof to try again.');
+    return false;
+  };
+
+  const add = async () => {
+    if (formError || fileError) return;
+    setSaving(true);
+    try {
+      let id: string;
+      try {
+        const out = await callRpc('add_payslip_bonus', {
+          p_user_id: row.profile.user_id, p_pay_month: `${monthKey}-01`, p_bonus_date: bonusDate,
+          p_category: category, p_amount_php: Number(amount), p_note: note.trim(),
+        });
+        id = String((out.bonus as { id?: string } | undefined)?.id ?? '');
+      } catch (e) {
+        toast.error(refusal(e));
+        return;
+      }
+      const files = [file, file2].filter((f): f is File => !!f);
+      if (files.length && id) {
+        let ok = true;
+        for (const [i, f] of files.entries()) ok = (await attach(id, f, Date.now() + i)) && ok;
+        if (ok) toast.success(files.length > 1 ? 'Bonus added with its 2 proofs' : 'Bonus added with its proof');
+      } else {
+        toast.success('Bonus added');
+      }
+      setAmount(''); setNote(''); setFile(null); setFile2(null); setCategory(''); setBonusDate(today);
+      onChanged();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const attachLater = async (bonusId: string, f: File | null) => {
+    if (!f) return;
+    const problem = proofProblem(f);
+    if (problem) { toast.error(problem); return; }
+    setSaving(true);
+    try {
+      if (await attach(bonusId, f)) toast.success('Proof attached');
+      onChanged();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const voidBonus = async () => {
+    if (!voidingId || voidReason.trim().length < 3) return;
+    setSaving(true);
+    try {
+      await callRpc('void_payslip_bonus', { p_id: voidingId, p_reason: voidReason.trim() });
+      toast.success('Bonus voided');
+      setVoidingId(null); setVoidReason('');
+      onChanged();
+    } catch (e) {
+      toast.error(refusal(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o && !saving) onClose(); }}>
+      <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto" data-testid="bonuses-dialog">
+        <DialogHeader>
+          <DialogTitle>Bonuses — {row.name}, {longLabel(monthKey)}</DialogTitle>
+          <DialogDescription>
+            Each active bonus is added to this month's earnings on the payslip. The Top Sales bonus comes from the
+            commission automatically. A mistake is voided with a reason, never deleted.
+          </DialogDescription>
+        </DialogHeader>
+
+        {locked && (
+          <p className="rounded-md border border-dashed p-2 text-xs text-muted-foreground" data-testid="bonuses-locked">
+            This month's payslip is finalized — void it to change bonuses
+          </p>
+        )}
+
+        {row.bonuses.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No bonuses this month.</p>
+        ) : (
+          <div className="space-y-2">
+            {row.bonuses.map(b => (
+              <div key={b.id} className="space-y-1 rounded-md border border-border p-2 text-sm" data-testid="bonus-row">
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <span className="font-medium">{bonusCategoryLabel(b.category)}</span>
+                  <span className={b.status === 'void' ? 'tabular-nums text-muted-foreground line-through' : 'tabular-nums font-medium'}>
+                    {formatPeso(b.amount_php)}
+                  </span>
+                </div>
+                <p className="text-muted-foreground"><span className="tabular-nums">{formatDateDD(b.bonus_date)}</span> · {b.note}</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant={b.status === 'void' ? 'outline' : 'secondary'}>{b.status === 'void' ? 'Void' : 'Active'}</Badge>
+                  {b.status === 'void' && b.void_reason && <span className="text-xs text-muted-foreground">{b.void_reason}</span>}
+                  {advanceProofPaths(b).map((path, i, all) => (
+                    <Button key={path} size="sm" variant="link" className="h-auto p-0" onClick={() => onOpenProof(path)}>
+                      <Paperclip className="mr-1 h-3.5 w-3.5" /> Open proof{all.length > 1 ? ` ${i + 1}` : ''}
+                    </Button>
+                  ))}
+                  {!locked && b.status === 'active' && advanceProofSlotFree(b, true) && (
+                    <label className="cursor-pointer text-xs text-primary underline-offset-2 hover:underline">
+                      {b.proof_path ? 'Attach 2nd proof' : 'Attach proof'}
+                      <input type="file" className="sr-only"
+                        aria-label={b.proof_path ? `Attach 2nd proof for ${b.note}` : `Attach proof for ${b.note}`}
+                        accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf"
+                        onChange={(e) => attachLater(b.id, e.target.files?.[0] ?? null)} />
+                    </label>
+                  )}
+                  {!locked && b.status === 'active' && (
+                    <Button size="sm" variant="ghost" className="ml-auto h-7" onClick={() => { setVoidingId(b.id); setVoidReason(''); }}>
+                      <Ban className="mr-1 h-3.5 w-3.5" /> Void
+                    </Button>
+                  )}
+                </div>
+                {voidingId === b.id && (
+                  <div className="flex flex-wrap items-end gap-2">
+                    <div className="min-w-[12rem] flex-1 space-y-1">
+                      <Label htmlFor={`void-bonus-${b.id}`} className="text-xs">Reason</Label>
+                      <Input id={`void-bonus-${b.id}`} value={voidReason} maxLength={500} onChange={(e) => setVoidReason(e.target.value)} />
+                    </div>
+                    <Button size="sm" variant="destructive" disabled={voidReason.trim().length < 3 || saving} onClick={voidBonus}>
+                      Void bonus
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => setVoidingId(null)}>Cancel</Button>
+                  </div>
+                )}
+              </div>
+            ))}
+            <p className="text-right text-sm font-medium" data-testid="bonuses-total">
+              Total active bonuses {formatPeso(activeTotal)}
+            </p>
+          </div>
+        )}
+
+        {!locked && (
+          <div className="space-y-2 rounded-md border border-border p-3">
+            <p className="text-sm font-medium">Add bonus</p>
+            <div className="space-y-1">
+              <Label htmlFor="bonus-category" className="text-xs">Category</Label>
+              <select id="bonus-category" value={category} onChange={(e) => setCategory(e.target.value)}
+                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm">
+                <option value="">Choose…</option>
+                {BONUS_CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+              </select>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <div className="space-y-1">
+                <Label htmlFor="bonus-date" className="text-xs">Date</Label>
+                <Input id="bonus-date" type="date" value={bonusDate} min={BONUS_DATE_MIN} max={today}
+                  onChange={(e) => setBonusDate(e.target.value)} />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="bonus-amount" className="text-xs">Amount (₱)</Label>
+                <Input id="bonus-amount" inputMode="decimal" value={amount}
+                  onChange={(e) => setAmount(e.target.value.replace(/[^\d.]/g, ''))} />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="bonus-note" className="text-xs">Note</Label>
+              <Input id="bonus-note" value={note} maxLength={200} onChange={(e) => setNote(e.target.value)} />
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <div className="space-y-1">
+                <Label htmlFor="bonus-proof" className="text-xs">Proof (optional — photo or PDF, up to 10 MB)</Label>
+                <Input id="bonus-proof" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf"
+                  onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="bonus-proof-2" className="text-xs">2nd proof (optional)</Label>
+                <Input id="bonus-proof-2" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf"
+                  onChange={(e) => setFile2(e.target.files?.[0] ?? null)} />
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-2">
+              {(amount || note) && (formError || fileError) && (
+                <span className="text-xs text-destructive">{formError ?? fileError}</span>
+              )}
+              <Button size="sm" onClick={add} disabled={!!formError || !!fileError || saving} data-testid="bonus-add">
+                {saving && <Loader2 className="mr-1 h-4 w-4 animate-spin" />} Add bonus
               </Button>
             </div>
           </div>

@@ -67,6 +67,13 @@ null at write time, ignored by the engine).
 - A week with **≥3 absences** forfeits that week's ¼.
 - Partial 5th week rolls into week 4.
 - allowance_paid = monthly_allowance × (1 − forfeited_weeks ÷ 4)
+- **Starts June 2026** (`ALLOWANCE_ABSENCE_RULE_FROM = '2026-06'`, owner 2026-10-27):
+  - April and May 2026 come from the paper sheets, where the allowance was set by hand per month.
+  - Those months forfeit nothing and pay the allowance in force (`timesheet_pay_settings`, else the
+    profile). A reduced paper-month allowance, such as Cris's ₱2,000 in May, is a pay setting for that
+    month.
+  - `finalize_payslip` checks only that net = capped gross + allowance paid and that the monthly
+    allowance equals the one in force, so no database change is needed.
 
 ---
 
@@ -265,8 +272,8 @@ SQL harness `supabase/tests/payslips/` phase 2.
   (synthetic, no live data):
   - Cholita's April pattern (11:00–17:00, Sundays off, window 1 Apr–1 May) gives ₱16,800 basic, ₱4,000
     allowance, ₱20,800 net and 162 hours.
-  - The Cris-style May (00:00 PM out read as midnight, 6.00 / 8.00 hours, two forfeited weeks) gives a
-    ₱2,000 allowance.
+  - The Cris-style May (00:00 PM out read as midnight, 6.00 / 8.00 hours) forfeits nothing in May (a
+    paper-sheet month). A ₱2,000 May pay setting gives ₱2,000. The same pattern in June forfeits 2 weeks.
 
 ## Repo audit (RESOLVED 2026-06-13)
 
