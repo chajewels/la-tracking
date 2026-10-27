@@ -29,6 +29,8 @@ import { OrderUpdateEmail } from '../supabase/functions/_shared/email-templates/
 import { LayawayUpdateEmail } from '../supabase/functions/_shared/email-templates/layaway-update.tsx'
 import { WebLoyaltyEmail } from '../supabase/functions/_shared/email-templates/web-loyalty.tsx'
 import { StoreCreditIssuedEmail } from '../supabase/functions/_shared/email-templates/store-credit-issued.tsx'
+import { ReceiptReadyEmail } from '../supabase/functions/_shared/email-templates/receipt-ready.tsx'
+import { LayawayReceiptReadyEmail } from '../supabase/functions/_shared/email-templates/layaway-receipt-ready.tsx'
 import { LayawayReservedEmail } from '../supabase/functions/_shared/email-templates/layaway-reserved.tsx'
 import { LayawayPlanCreatedEmail } from '../supabase/functions/_shared/email-templates/layaway-plan-created.tsx'
 import { LayawayDeclinedEmail } from '../supabase/functions/_shared/email-templates/layaway-declined.tsx'
@@ -142,6 +144,8 @@ function storefrontFixtures(): Fixture[] {
       for (const variant of ['earned', 'bonus', 'tier_upgrade', 'tier_restored'])
         add('web-loyalty.tsx', `web-loyalty ${k} ${variant}`, el(WebLoyaltyEmail, { lang, variant, reference: base.reference, points: 3000, balance: 15000, level: 'Radiant', previousLevel: 'Glimmer', multiplier: 2, promoName: '秋のボーナス / Autumn bonus', promoEnd: '31 Oct 2026', loyaltyUrl: storefrontLoyaltyUrl() }))
       add('store-credit-issued.tsx', `store-credit-issued ${k}`, el(StoreCreditIssuedEmail, { lang, amount: 25000, currency, expiresAt: '2027-10-06T00:00:00.000Z' }))
+      add('receipt-ready.tsx', `receipt-ready ${k}`, el(ReceiptReadyEmail, { lang, reference: 'CJ-W-000123', receiptNumber: 'CJR-2026-000001', currency, total: 91950, orderUrl }))
+      if (lang === 'en') add('layaway-receipt-ready.tsx', `layaway-receipt-ready ${currency}`, el(LayawayReceiptReadyEmail, { reference: 'CJ-W-000123', receiptNumber: 'CJR-2026-000002', currency, total: 120000, planUrl }))
       // Layaway: English only (no lang prop); currency is the plan's.
       const plan = { reference: 'CJ-W-000124', currency, totalAmount: 120000, deposit: 36000, termMonths: 3 }
       for (const variant of ['placed', 'ready'])
