@@ -37,6 +37,7 @@ import {
   pointsValue, publicMethod, storedMethod,
 } from "../_shared/checkout-choice.ts";
 import { attachHeroCutouts, attachHeroPlaces, handleHeroCutouts } from "../_shared/hero-cutouts.ts";
+import { newestFirst } from "../_shared/catalog-order.ts";
 import { COMMENT_DAILY_LIMIT, cleanCommentBody, commentsOpen, isCommentLang, toPublicComment } from "../_shared/post-comments.ts";
 import { webLayawaySubmissionIsDeposit, type DepositPaymentRow, type PendingSubmissionRow } from "../_shared/layaway-deposit-rules.ts";
 import { INVALID_PROOF_URL, isOwnProofUrl } from "../_shared/proof-url.ts";
@@ -1455,16 +1456,17 @@ async function handle(req: Request, requestId: string): Promise<Response> {
 
       const { data: links, error: linkError } = await supabase
         .from("website_collection_products")
-        .select(`sort, product:website_products(${PRODUCT_SELECT})`)
-        .eq("collection_id", collection.id)
-        .order("sort");
+        .select(`product:website_products(${PRODUCT_SELECT}, created_at)`)
+        .eq("collection_id", collection.id);
       if (linkError) throw linkError;
 
+      // Order: newest first (website_products.created_at desc, id asc —
+      // _shared/catalog-order.ts). created_at is the sort key only, never sent.
       const fx = await latestFx(supabase);
-      const shaped = (links ?? [])
+      const shaped = newestFirst((links ?? [])
         .map((l: AnyRec) => l.product as AnyRec | null)
-        .filter((p): p is AnyRec => !!p && p.status === "active")
-        .map((p) => shapeProduct(p, fx))
+        .filter((p): p is AnyRec => !!p && p.status === "active"))
+        .map((p) => { delete p.created_at; return shapeProduct(p, fx); })
         .filter((p): p is AnyRec => p !== null);
       await attachHeroCutouts(supabase, shaped);
       await attachDownPayments(supabase, shaped, fx);
@@ -1501,21 +1503,19 @@ async function handle(req: Request, requestId: string): Promise<Response> {
 
       const { data: links, error: linkError } = await supabase
         .from("website_category_products")
-        .select(`sort_order, product:website_products(${PRODUCT_SELECT})`)
-        .eq("category_id", (category as AnyRec).id)
-        .order("sort_order", { ascending: true });
+        .select(`product:website_products(${PRODUCT_SELECT}, created_at)`)
+        .eq("category_id", (category as AnyRec).id);
       if (linkError) throw linkError;
 
-      // Order: website_category_products.sort_order, then product name.
-      const rows = (links ?? [])
-        .map((l: AnyRec) => ({ sort: Number(l.sort_order ?? 0), product: l.product as AnyRec | null }))
-        .filter((r): r is { sort: number; product: AnyRec } => !!r.product && r.product.status === "active");
-      rows.sort((a, b) =>
-        a.sort - b.sort || String(a.product.name ?? "").localeCompare(String(b.product.name ?? "")));
-
+      // Order: newest first (website_products.created_at desc, id asc —
+      // _shared/catalog-order.ts). created_at is the sort key only, never sent.
+      // The hero's running order is NOT this: hero_place comes from
+      // hero_lineup_rows (SQL), unchanged.
       const fx = await latestFx(supabase);
-      const shaped = rows
-        .map((r) => shapeProduct(r.product, fx))
+      const shaped = newestFirst((links ?? [])
+        .map((l: AnyRec) => l.product as AnyRec | null)
+        .filter((p): p is AnyRec => !!p && p.status === "active"))
+        .map((p) => { delete p.created_at; return shapeProduct(p, fx); })
         .filter((p): p is AnyRec => p !== null);
       await attachHeroCutouts(supabase, shaped);
       // Hero order (20261016100000): hero_place, only while the hero uses ticked cut-outs.
