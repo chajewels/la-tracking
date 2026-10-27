@@ -31,7 +31,7 @@ import {
   type PayrollDetails, type RowStatus,
   actualRate, bonusCategoryLabel, bonusProofPath, bonusesTotal, storedFiguresTotal, validateBonus, advanceDateMin, advanceProofFileName, advanceProofPath, advanceProofPaths, advanceProofSlotFree, amountDue, bondPreview, breakdownLines,
   buildCommissionFigures, buildFigures, buildTimesheetFigures, canIssueForMonth, commissionLines,
-  correctionLabel, currentPayslip, defaultYenSent, detailsComplete, differenceLabel, downloadPayslipXlsx, draftBreakdown, editPayload,
+  correctionLabel, currentPayslip, hiredAfterMonth, defaultYenSent, detailsComplete, differenceLabel, downloadPayslipXlsx, draftBreakdown, editPayload,
   figureInputs, figuresChanged, figuresFromInputs, validateFigureInputs, type FigureInputs,
   finalizePayload, findAgentResult, formatDate, formatDateDD, formatPeso, formatYen, longMonthLabel, normaliseBook,
   PROOF_NOT_ON_FILE, payslipProofPaths, payslipRefusal, payslipTitle, proofContentType, proofFileName, proofPath, proofProblem, storedBreakdown, timesheetLines,
@@ -211,7 +211,8 @@ export default function PayslipsTab({
         profile: p, name, inactive: !base.active, figures, payslip, status: payslip?.status ?? 'not_issued', details, advances,
         bonuses,
       };
-    }).sort((a, b) => a.name.localeCompare(b.name));
+    }).filter(r => !hiredAfterMonth(r.details?.hire_date, monthKey, r.payslip))
+      .sort((a, b) => a.name.localeCompare(b.name));
   }, [profiles, nameByUser, entriesByUser, monthKey, commission.data, data, settings]);
 
   const refresh = () => qc.invalidateQueries({ queryKey: PAYSLIP_BOOK_KEY });
