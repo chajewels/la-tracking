@@ -1205,8 +1205,8 @@ Overview KPIs — docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
   - PAGE365 INVOICES ARE JPY. The account currency is the CSR's choice; PHP
     converts at system_settings.php_jpy_rate, carried on the draft. NEVER use
     currency-converter.ts getConversionRate() server-side or for a stored figure.
-  - A RESIZE FEE IS A SERVICE (account_services), never a product line, never
-    in loyalty_jpy_amount.
+  - ANY SERVICE LINE (resize, certificate…) is a SERVICE, never a product line,
+    never in loyalty_jpy_amount (_shared/page365-service-lines.ts).
   - ITEM NOTES ARE DISPLAYED, NEVER APPLIED. Page365's OWN stock is never read;
     origin is never auto-set.
   - PHOTOS ARE COPIED, NEVER HOTLINKED; a photo that cannot be copied is null.

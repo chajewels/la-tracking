@@ -40,6 +40,7 @@
 import { corsHeaders, corsPreflight, jsonResponse } from "../_shared/cors.ts";
 import { requireAuth } from "../_shared/handler.ts";
 import { fetchWithRetryOnRateLimit } from "../_shared/fetch-retry.ts";
+import { isPage365ServiceLine } from "../_shared/page365-service-lines.ts";
 import {
   firstWord, previewPage365Stock, readStockMode, type Page365StockMatch,
 } from "../_shared/page365-stock.ts";
@@ -105,14 +106,13 @@ interface DraftItem {
   stock_match: Page365StockMatch | null;
 }
 
-/** A RESIZE FEE is a SERVICE, never a product line. Services belong in
- *  account_services (already inside total_amount) and must never reach
- *  loyalty_jpy_amount, which is the product amount alone — booking one as a
- *  product inflates the customer's tier progress with a fee they paid for
- *  labour. Matched loosely because Page365 descriptions are hand-typed. */
-function isServiceLine(name: string): boolean {
-  return /resize|re-size|sizing\s*fee|service\s*fee/i.test(name);
-}
+/** A service line (resize, certificate, polish, colour change, engraving,
+ *  repair, appraisal, plating, cleaning, service / labour fee) is NEVER a
+ *  product line. Services belong in account_services (already inside
+ *  total_amount) and must never reach loyalty_jpy_amount, which is the product
+ *  amount alone. One rule, shared: _shared/page365-service-lines.ts (owner
+ *  2026-10-27 "left out all kinds of services"). */
+const isServiceLine = (name: string): boolean => isPage365ServiceLine(name);
 
 /** Page365 item names lead with the product code: "EM378 Diamond Earrings".
  *  The code is the FIRST WORD, upper-cased — the same rule as the stock match
