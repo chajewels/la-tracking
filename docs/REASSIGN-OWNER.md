@@ -100,3 +100,21 @@ R11 IDENTITY MATCH. A reassign is allowed only if the target account matches the
 
 ("Section F" in R5 is the 2026-09-24 investigation report; its markers are
 the ones listed in the same rule, all checked by reassign_order_owner_atomic.)
+
+## Rules moved from CLAUDE.md (2026-10-28)
+
+Moved verbatim from CLAUDE.md on 2026-10-28 (Option A split); CLAUDE.md keeps a one-line pointer and every money rule.
+
+## REASSIGN OWNER — NON-NEGOTIABLE (added 2026-09-24, owner-approved)
+  Moving a layaway plan or cash order to another customer. ONE writer:
+  reassign_order_owner_atomic (SQL, service_role only) behind the
+  reassign-order-owner edge function (requireAuth, no service-role path;
+  requirePermission('reassign_owner')). The Hub's ReassignOwnerDialog is the
+  only UI, on AccountDetail and CashOrderDetail. A signed-in user can no longer
+  write customer_id on either order table at all — trg_guard_order_customer_id
+  raises whenever auth.uid() IS NOT NULL — so the old browser .update() is
+  retired for good. Preview (apply:false) writes nothing. Full mechanics:
+  docs/SCHEMA-FACTS.md "Reassign Owner".
+
+  R2 Cash orders behave exactly like layaway.
+  R11 IDENTITY MATCH: the target must match the CURRENT owner on full name, Facebook name, mobile (last 10 digits) or email (find_customer_matches normalisation), else refused different_customer_details. Only reassign_owner_unmatched may override, explicitly and with the written reason; the override bypasses ONLY R11, every other refusal still applies — docs "Rules moved".

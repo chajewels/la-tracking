@@ -56,6 +56,12 @@ Reference docs (read the relevant one when a task touches that area):
 - docs/WEBSITE-COUPONS.md — website checkout coupon codes: pieces only, coupon before points, held/used/released, website_coupon_quote is the only maths, the draft stores reduced figures and the review screen adds the coupon back
 - docs/PAYSLIPS.md — Timesheet → Payslips (admin + can_view_all only)
 - docs/RECEIPTS.md — website receipts (領収書): web orders only, tax rule, cancel-never-edit, switch, font
+- docs/TOOL-OWNERSHIP.md — who edits/deploys what (Lovable, Claude Code, Cloud Shell, SQL Editor); moved 2026-10-28
+- docs/DEPLOY-AND-MIGRATIONS.md — generated types, Lovable deploy assertions, migrations baseline & function changes; moved 2026-10-28
+- docs/PERMISSIONS.md — permission resolution, adding routes/menu items, team member lifecycle; moved 2026-10-28
+- docs/UI-CONVENTIONS.md — help screenshots, brand style, splash, realtime sync, sidebar, frontend workflow; moved 2026-10-28
+- docs/DISPLAY-RULES.md — date columns, customer message templates, portal link rule; moved 2026-10-28
+- docs/REMINDERS.md — web payment reminders + cart reminders mechanics; moved 2026-10-28
 - Every doc named in a "Rules moved from CLAUDE.md" pointer below holds the
   full text moved out verbatim on 2026-09-24 / 2026-10-02 / 2026-10-18 under that heading;
   CLAUDE.md keeps the one-line rules and the pointer.
@@ -158,32 +164,7 @@ Reference docs (read the relevant one when a task touches that area):
     - NO DOUBLE COMPENSATION: money refunded through Square or held/taken by a chargeback is NEVER also issued as store credit.
     - PAIDY — SAME RULE: a VERIFIED Paidy refund refuses "store credit issued"; record_paidy_refund is the ONLY paidy_refunds writer.
 
-## GENERATED FILES & DEPLOY VERIFICATION — NON-NEGOTIABLE
-
-  - src/integrations/supabase/types.ts is SUPABASE-AUTO-GENERATED. Lovable
-    regenerates it on every edge-function deploy. NEVER hand-edit it. After a
-    schema change the new types arrive on Lovable's next push. Hand-editing it
-    caused a CI failure (TS2300/TS2717) this session — if a type is missing, cast
-    at the call site instead.
-  - LOVABLE'S REPO MIRROR CAN LAG GITHUB. A Lovable "deployed successfully" does
-    NOT prove it deployed main's tip. Every edge-function deploy prompt MUST
-    assert on SOURCE CONTENT (e.g. `grep -c "<a string unique to the new code>"
-    <file>` plus the file's line count) BEFORE deploying, and STOP if it fails. A
-    lagging mirror silently shipped a stale build this session.
-  - AN ASSERTION MUST TEST CODE, NOT PROSE. Every grep in a Lovable message is
-    re-run against the file with all comment lines stripped; if the count moves,
-    the pattern is matching an explanatory comment and must be rewritten to a
-    form that discriminates (anchor it, e.g. `^function foo`, or include
-    punctuation only code has). Three of eleven candidates failed this test on
-    2026-09-15 and four did on 2026-09-14. Also require each count to DIFFER from
-    the pre-release main: an assertion that passes identically before and after
-    proves nothing about the deploy.
-  - AN ASSERTION NOBODY CAN SATISFY IS WORSE THAN NO ASSERTION (2026-09-15, third
-    occurrence): ask only for what the agent can observe with the access it has
-    (the deployed function body, version, timestamp), never a synthesised user
-    journey; proof that needs a human in a browser goes to the owner's own
-    acceptance run. Full text and the three incidents: docs/LOVABLE-VERIFICATION.md
-    "Rules moved from CLAUDE.md".
+## Generated files & Lovable deploy verification: read docs/DEPLOY-AND-MIGRATIONS.md before touching src/integrations/supabase/types.ts or writing any Lovable deploy message.
 
 ## DOMAIN ARCHITECTURE — STRICT RULE (NON-NEGOTIABLE)
 
@@ -252,22 +233,9 @@ Reference docs (read the relevant one when a task touches that area):
   - shipping_rates changes ONLY via set_shipping_rate / deactivate_shipping_rate
     (admin, audited; Website → Settings → Shipping fees). NEVER delete a rate —
     deactivate (guard trigger refuses DELETE/TRUNCATE). Never edit it in SQL.
-  - planned_shipping_method_id has NO DB default; only PH is preselected
-    (Pabitbit, LBC number + LBC template) by the confirmation screen.
+  - Courier mechanics: read docs/SHIPPING-FEES.md before touching planned_shipping_method_id or the courier preselection.
 
-## PERMISSION RESOLUTION ORDER
-
-When checking whether a user can perform an action:
-
-  1. user_permission_overrides WHERE user_id = this_user
-       → if a row exists for this permission_key, use granted value
-  2. role_permissions WHERE role = user's role
-       → fallback when no override exists
-  3. admin role → always full access regardless of any override
-
-  Table: user_permission_overrides (user_id, permission_key, granted)
-  Managed via Settings → Permission Matrix → By Member view
-  RLS: admins only (has_role(auth.uid(), 'admin'))
+## Permission resolution order: read docs/PERMISSIONS.md before touching permission checks, user_permission_overrides or role_permissions.
 
 ## PAYMENT SUBMISSION RATE LIMITS
 
@@ -281,66 +249,13 @@ When checking whether a user can perform an action:
   flat 3-cap; record-multi-payment is uncapped (staff batch path); HTTP 429 on
   cap exceeded. docs/PAYMENT-SUBMISSIONS.md "Rules moved from CLAUDE.md".
 
-## ADDING NEW MENU ITEMS / ROUTES — NON-NEGOTIABLE (added 2026-06-01)
+## Adding menu items / routes: read docs/PERMISSIONS.md before touching App.tsx routes, AppSidebar.tsx or PAGE_PERMISSION_MAP.
 
-When adding a new route to App.tsx + a sidebar entry to AppSidebar.tsx, the
-route must be granted access via ONE of these two paths:
+## Help Center screenshots: read docs/UI-CONVENTIONS.md before touching src/help-content/ or Help.tsx.
 
-  1. PERM-GATED ROUTE (most common):
-     a. Add an entry to PAGE_PERMISSION_MAP in src/contexts/PermissionsContext.tsx
-        mapping the path → permission_key (e.g. `'/my-new-page': 'view_my_thing'`)
-     b. Seed rows in role_permissions table for each role that should have access
-        (admin still gets a row even though admin short-circuits — keep DB consistent)
+## Brand style (Deco Ledger): read docs/UI-CONVENTIONS.md before touching colours, theme tokens, email-template hex, package-lock.json or SheetJS.
 
-  2. UNIVERSALLY-ACCESSIBLE ROUTE (any authenticated user, no perm check):
-     Add the path to PUBLIC_AUTHENTICATED_PATHS in PermissionsContext.tsx.
-     Use this for Help, Glossary, FAQ, Changelog, or any content intended
-     for ALL authenticated users regardless of role.
-
-Without either entry, canAccessPage returns false and ProtectedRoute renders
-"Access Denied" — including for admins on perm keys that don't yet have DB rows.
-
-Admin short-circuit in can(): an 'admin' user gets true unconditionally
-("admin role → always full access"), so a newly-added permission key that is
-not yet seeded in role_permissions never denies an admin.
-
-## HELP CENTER SCREENSHOTS — NON-NEGOTIABLE (updated 2026-06-01)
-
-Help Center screenshots live in the Supabase Storage bucket `brand-assets` (public read), NOT in the repo, stored WITHOUT file extensions (`Signin_Page`, not `Signin_Page.png`); Markdown references omit the extension too.
-
-Markdown in src/help-content/ references a screenshot by filename only (no
-extension); Help.tsx resolves it to the bucket's public URL; adding one needs
-no code change. docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
-
-## BRAND STYLE STANDARD (Deco Ledger, 2026-07-06)
-
-  Full text incl. the tracked-debt list (nested workflow, package-lock
-  registry quirk, email-template gold, SheetJS pin), background photos and
-  video assets: docs/BRAND-STYLE.md (moved verbatim 2026-09-24).
-
-  - Gold: --gold-500 #C9A227 (primary), --gold-300 #E5C860 (hover/focus). The
-    old #D4AF37 is RETIRED. Gold only via theme tokens (src/index.css,
-    src/theme/tokens.ts); hex literals ONLY in src/theme/ and src/index.css.
-  - Semantic tokens --success/--warning/--danger/--info exist; signature
-    divider is the 1px gold hairline (.hairline-gold / -b / -t).
-  - TWO CHECKS, both must be 0: (1) retired gold repo-wide, case-insensitive;
-    (2) token discipline in src outside src/theme/ (do NOT widen — email
-    templates inline #C9A227). Commands: docs/BRAND-STYLE.md "Rules moved".
-  - Email templates: canonical literal hex only.
-  - Keep package-lock.json on registry.npmjs.org; if private-registry URLs
-    reappear, regenerate on main, never from a feature branch.
-  - SheetJS stays at 0.18.5 for the admin-only catalog importer; NEVER feed
-    customer- or portal-supplied files through it.
-  - The DOUBLE SLASH in brand-assets//… video keys is real — never normalize it.
-
-## POST-LOGIN SPLASH (2026-07-06)
-
-  Full mechanics: docs/POST-LOGIN-SPLASH.md (moved verbatim 2026-09-24).
-  Shows ONLY on a fresh staff sign-in with no ?next (freshLoginRef set before
-  the sign-in await); never on session restore or ?next flows. Failsafes
-  (onError, 5s canplay watchdog, reduced motion) are mandatory; there is NO
-  auto-navigate timer. Invariants are locked by
-  src/test/post-login-splash-guard.test.tsx.
+## Post-login splash: read docs/UI-CONVENTIONS.md before touching the staff sign-in flow or the splash video.
 
 ## total_amount DEFINITION — NON-NEGOTIABLE (updated 2026-04-12)
 
@@ -520,112 +435,11 @@ no code change. docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
     resetting to that GROSS sum; NEVER flatten total_due_amount to
     actual_remaining. docs/RECONCILIATION.md "Rules moved from CLAUDE.md".
 
-## Git Workflow — NON-NEGOTIABLE (changed 2026-09-11)
+## Git workflow (main = production, develop, the Lovable exception, merge-back, one sender per Lovable message): read docs/GIT-WORKFLOW.md before touching any branch, PR, merge or Lovable message.
 
-**`main` is production.** A push to `main` deploys the Hub frontend to live
-Firebase Hosting (`chajewelslayaway`). It is changed only by a PR from
-`develop`, merged by Cynthia — plus Lovable, see the exception below.
+## Tool ownership (Lovable / Claude Code / Cloud Shell / SQL Editor, frozen dependencies): read docs/TOOL-OWNERSHIP.md before touching src/, supabase/functions/, package.json or any SQL change.
 
-**`develop` is where work lands.** All Claude Code work goes to `develop`, or to
-a short-lived feature branch merged into `develop`. Never push to `main`
-directly. A push to `develop` deploys to the `develop` Firebase Hosting preview
-channel; every PR gets its own `pr-<number>` channel, and the workflow posts the
-URL as a single sticky comment on the PR.
-
-History, rationale and the incidents behind every rule in this section:
-docs/GIT-WORKFLOW.md "Rules moved from CLAUDE.md". The same workflow is in force
-on the storefront repo (`chajewels/cha-jewels-web`).
-
-### THE LOVABLE EXCEPTION — main is not protected against Lovable
-
-Lovable mirrors `main` and commits its own work to `main`; it does not use
-`develop`. **This is accepted, not a gap** — an approved Lovable message *is*
-the review (docs/GIT-WORKFLOW.md).
-
-Two consequences to work with rather than around:
-
-- **Never assume `main` equals `develop`.** Lovable may have moved `main` since
-  `develop` branched. Before opening a `develop` -> `main` PR, and before any
-  work that reads `main`, fetch it: `git fetch origin main`. Merge `main` into
-  `develop` when it has moved; never rebase `develop` onto it (other branches
-  are cut from `develop`).
-- **Do not "clean up" Lovable's direct commits to `main`.** They are legitimate.
-- **After EVERY squash-merge of a release PR into `main`, merge `main` back into
-  `develop` immediately** (`git fetch origin main && git checkout develop &&
-  git merge origin/main && git push origin develop`). A squash creates a commit
-  `develop` does not have, so the next `develop` -> `main` PR conflicts on any
-  file both sides touched since (2026-09-13: #35 was not merged back and #38
-  conflicted on docs/FIXED-BUGS.md). "Main and develop have identical content"
-  is NOT the same as "develop contains main"; only the merge-back makes the
-  next release PR clean.
-
-### MIGRATIONS MUST BE ON `main` BEFORE A LOVABLE APPLY MESSAGE
-
-Lovable deploys and applies migrations from its mirror of `main`; a migration on
-`develop` is invisible to it and the apply message's source assertions fail — by
-design, never to be weakened.
-
-So a step's Hub work is merged **once, at the end of the step**: the migration
-and the Hub frontend that depends on it go `develop` -> `main` in the same PR,
-and only then is the Lovable apply-and-deploy message sent. Never merge a
-migration to `main` ahead of the frontend that needs it, and never send an apply
-message for a migration that is still on `develop`.
-
-### ONE SENDER PER LOVABLE MESSAGE — AND THAT SENDER IS CLAUDE CODE
-
-Every Lovable apply/deploy message is sent exactly once, by Claude Code, from
-this session, after Cynthia's OK. Nobody else sends it — not Claude chat, not a
-second session, not Cynthia pasting it herself. Claude Code checks the Lovable
-message queue before every send and never resends after a transport timeout.
-
-Why: the 2026-09-11 transfer_payment_methods message was sent twice — docs/GIT-WORKFLOW.md.
-
-- Versioning: package.json version is the app version (shown in the sidebar with the build commit). Bump MINOR when a feature ships, PATCH for fixes — only when a prompt explicitly says to bump.
-
-## TOOL OWNERSHIP RULES (updated 2026-05-10)
-
-  Lovable → src/ AND supabase/functions/ file creation and editing.
-            Lovable ALSO handles ALL Supabase edge function
-            deployments via direct Supabase Dashboard tooling access.
-            Lovable IDE is the ONLY edge-function deploy path; the GitHub
-            Actions deploy workflow was removed (it never deployed anything —
-            docs/AUTO-DEPLOY.md "Rules moved from CLAUDE.md").
-  Claude Code → src/ AND supabase/functions/ editing when explicitly
-                directed by Cynthia. Default mode is read-only audit
-                and diagnosis. May commit and push to git when asked.
-  Cloud Shell → git operations only (pulls, merges, pushes, repo
-                audits). Cynthia has NO direct Supabase deployment
-                access — NEVER suggest `npx supabase functions deploy`
-                from Cloud Shell. If a function appears stale,
-                escalate to Lovable to redeploy via Supabase
-                Dashboard tooling.
-  Supabase SQL Editor → database changes only (pure SQL)
-
-  Practice rules (apply to both Lovable and Claude Code):
-  - No prompt written without plan confirmed first.
-  - No step executed without explicit go signal from Cynthia.
-  - DEPENDENCIES ARE FROZEN: no one, Lovable included, touches package.json,
-    bun.lock, drizzle/ or prisma/, not even to "fix preview errors". A change
-    is a "deps:" PR updating .github/package-guard.sha256; CI fails all else.
-  - SQL changes are applied in the SQL Editor by Cynthia and are NOT
-    committed to repo as migrations unless explicitly told to.
-    EXCEPTION, and it is not optional: a SQL Editor change that alters a
-    FUNCTION BODY is committed as a migration in the same session. Data fixes
-    and one-off queries stay uncommitted as before; function bodies do not,
-    because the next rebuild from the baseline silently reverts them — see
-    "A SQL EDITOR CHANGE THAT IS NEVER COMMITTED…" in docs/MIGRATIONS.md.
-
-  CLAUDE.md is the single source of truth — both Lovable and
-  Claude Code must read it before any changes.
-
-## Active Features
-
-  Product Inquiry Tracker (/inquiries) and Timesheet (/timesheet): full notes in
-  docs/INQUIRY-TRACKER.md (moved verbatim 2026-09-24) and docs/TIMESHEET-SPEC.md.
-  - INVARIANT: never SUM or AVG accumulated_inquiry_count (a running total);
-    aggregate inquiry_count from the base table instead.
-  - Never add an INSTEAD OF UPDATE trigger to product_inquiries_with_accumulated.
-  - Timesheet spillover rows count toward the month (not display-only).
+## Active features (Inquiry Tracker, Timesheet): read docs/SCHEMA-FACTS.md before touching /inquiries, /timesheet or product_inquiries_with_accumulated.
 
 ## Project Overview
 
@@ -653,11 +467,7 @@ All values come from computeLayaway() in business-rules.ts
 
 ## Display Rules (NEVER break these)
 
-### Dates
-
-  Schedule list → always show due_date (when payment is due)
-  Payment History → always show created_at (when payment was made)
-  NEVER mix these two
+Dates, customer message templates, PORTAL LINK RULE: read docs/DISPLAY-RULES.md before touching date columns, message_lines or the portal-link builders.
 
 ### Amounts
 
@@ -666,27 +476,6 @@ All values come from computeLayaway() in business-rules.ts
   - Always use ₱ symbol
   - Comma separators: ₱22,103.27
   - Never show ₱0 penalties
-
-### Customer Message Templates
-
-  Opening and closing words are picked at random per open from public.message_lines (owner decision 2026-10-01). The templates below are line 1 of each pool and the fallback. Figures, links, PIN line, headers, notices and policy sentences are fixed. Pools and placeholders: src/lib/message-lines.ts and docs/SCHEMA-FACTS.md. Lines are edited ONLY in Hub → Settings → Message lines (admin, audited; line 1 of every pool is locked = the code fallback; lines are switched off, never deleted).
-
-  The SINGLE PAYMENT, SPLIT PAYMENT, FULLY PAID and BATCH PAYMENT template
-  texts (line 1 of each pool = the code fallback) are in docs/SCHEMA-FACTS.md
-  "Rules moved from CLAUDE.md" and src/lib/message-lines.ts; the PIN line is
-  shown only when [portalLink] is a token link (PORTAL LINK RULE below).
-
-### PORTAL LINK RULE (both builders: src/lib/portal-link.ts, _shared/portal-link.ts)
-
-  1. customers.portal_password_at set    → bare URL (sign-in), intent honoured
-  2. else a live (active, unexpired) token → token URL, intent honoured
-  3. else auth_user_id set                → bare URL, intent honoured
-  4. else                                 → https://portal.chajewelsjp.com/portal
-  auth_user_id alone is no password (magic-link sign-ins set it). Column set by
-  setup-customer-account + portal-auth Path 0 on a password sign-in.
-  PIN line: shown iff the built URL is a token link (isTokenLink) and a PIN
-  exists; never keyed on auth_user_id. History: docs/FIXED-BUGS.md
-  "Portal password customers got token links" (2026-09-28).
 
 ## Monthly Row Display Rules
 
@@ -861,27 +650,9 @@ docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
   RULE: "Collected" always means cash received. The schedule-efficiency metric is "Paid vs Due",
   never "Collected".
 
-## REALTIME SYNC (added 2026-05-24)
+## Realtime sync: read docs/UI-CONVENTIONS.md before touching useRealtimeSync, SYNC_TABLES, or adding a mutating table / dashboard query key.
 
-  useRealtimeSync (src/hooks/useRealtimeSync.ts) is mounted once at the App
-  root, internal users only (the portal never opens a channel), and invalidates
-  REALTIME_INVALIDATE_KEYS on any postgres_changes event from SYNC_TABLES,
-  debounced 250 ms. Published tables and mechanics: docs/SCHEMA-FACTS.md
-  "Rules moved from CLAUDE.md".
-
-  When adding a new mutating table or a new dashboard query key:
-    - If the table drives a card, add it to SYNC_TABLES.
-    - If the key isn't covered by any of the four KEY groups, add it to
-      one of them (so it's swept into REALTIME_INVALIDATE_KEYS).
-
-## TEAM MEMBER LIFECYCLE (added 2026-05-24)
-
-  create-team-member creates members and handles deactivate / reactivate
-  (admin/manage_team): deactivate = profiles.status 'inactive' + auth ban, the
-  user_roles row KEPT; there is NO hard delete. handle_new_user inserts a
-  profile ONLY when user_metadata.is_team_member = 'true' (Bug #151). Session
-  idle-timeout: 2h with a 5-minute warning, all authenticated sessions.
-  Full text: docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
+## Team member lifecycle: read docs/PERMISSIONS.md before touching create-team-member, handle_new_user or the session idle-timeout.
 
 ## VIEW FIELD MAPPING
 
@@ -926,22 +697,7 @@ docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
   FRONTEND BINDING: applies to ALL total_due_amount writers, incl. direct frontend .update() calls (Waivers.tsx, ApplyPenaltyCapDialog.tsx). Any recompute of an EXISTING row MUST be base + penalty + carried_amount. ONLY exemption: inserting a brand-new installment row (no carry yet; EditAccountDialog "Add new installments", total_due = base).
 
 
-## CUSTOMER CODE STANDARD (added 2026-04-19)
-
-  Format: CJ-YYYY-XXXXX
-  - CJ = Cha Jewels
-  - YYYY = year customer was created
-  - XXXXX = 5-digit sequential number incrementing by 8 per year
-  - Example: CJ-2026-00008, CJ-2026-00016, CJ-2026-00024
-
-  Auto-generated by trigger auto_generate_customer_code (BEFORE INSERT on customers); all existing customers backfilled.
-
-  The universal customer identifier across all Cha Jewels platforms (Loyalty App sync).
-
-  customer_code is IMMUTABLE after creation (prevent_customer_code_change);
-  EditCustomerDialog never edits it. The forensic-repair SQL (SET LOCAL
-  app.allow_customer_code_change + audit row) is in
-  docs/SCHEMA-FACTS-CUSTOMER-CODE.md (moved verbatim 2026-09-24).
+## Customer code standard (CJ-YYYY-XXXXX, immutable): read docs/SCHEMA-FACTS.md before touching customers.customer_code or its triggers.
 
 ## PENALTY STANDARD — NON-NEGOTIABLE (added 2026-04-12)
 
@@ -1046,12 +802,7 @@ docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
   - is_trade on layaway_accounts and cash_orders is set at creation and LOCKED
     after (SQL override only for one-time backfills). Pure metadata — NO effect
     on calculations, payments, penalties or forfeiture. Default false.
-  - Detail pages show the amber "🔄 Trade" badge; no list column.
-  - LOCKED UI surfaces: the "Trade Program" checkbox (amber, policy link) on
-    NewAccount + NewCashOrder; Finance → Overview has 3 trade KPI StatCards
-    (between the Cash Orders row and AgingBuckets) and the TradeProgramTrends
-    chart below MonthlyAnalyticsChart. RPCs get_trade_kpis /
-    get_trade_monthly_trends.
+  - Trade badge and LOCKED UI surfaces: read docs/TRADE-PROGRAM.md before touching the Trade checkbox, badge, trade KPI cards or trends chart.
 
 ## ACCOUNT-SCOPE COVERAGE — NON-NEGOTIABLE (added 2026-06-05)
 
@@ -1103,22 +854,13 @@ Overview KPIs — docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
 
 ## REASSIGN OWNER — NON-NEGOTIABLE (added 2026-09-24, owner-approved)
 
-  Moving a layaway plan or cash order to another customer. ONE writer:
-  reassign_order_owner_atomic (SQL, service_role only) behind the
-  reassign-order-owner edge function (requireAuth, no service-role path;
-  requirePermission('reassign_owner')). The Hub's ReassignOwnerDialog is the
-  only UI, on AccountDetail and CashOrderDetail. A signed-in user can no longer
-  write customer_id on either order table at all — trg_guard_order_customer_id
-  raises whenever auth.uid() IS NOT NULL — so the old browser .update() is
-  retired for good. Preview (apply:false) writes nothing. Full mechanics:
-  docs/SCHEMA-FACTS.md "Reassign Owner".
+  Writer, dialog, R2 and R11 identity-match mechanics: read docs/REASSIGN-OWNER.md before touching reassign_order_owner_atomic, reassign-order-owner or ReassignOwnerDialog.
 
   R1 PRIORITY — FIRST CHECK. An account "has points" if its loyalty_members row has total_points_earned > 0 OR cumulative_spend_jpy > 0 OR spend_baseline_jpy > 0 (any loyalty history).
      - current owner has points → REFUSE (points_account_is_current_owner): the order never leaves a points account.
      - both have points → REFUSE (both_have_points): manual handling by the owner.
      - target has points, current has none → allowed.
      - neither has points → allowed.
-  R2 Cash orders behave exactly like layaway.
   R3 Permission: requirePermission('reassign_owner') server-side (live role_permissions/overrides). Setting or changing the loyalty amount inside the reassign additionally requires 'edit_loyalty_amount'.
   R4 The loyalty product amount (excluding shipping and service fees) must be set (> 0) before a reassign completes — always, for every reassign. The dialog collects it if empty.
   R5 Also refuse, with a plain-words reason: an order already earned by ANY member (any marker, incl. in-flight claims and lots on the invoice); Shopify orders; split submissions covering more than one order; any non-cancelled redemption or store credit on the order; closed status; crossing is_test; same owner; not found; Paidy history (paidy_order); card history — any square_card_attempts / square_payments row or a square submission (card_order, S04 2026-10-08). Full list: docs/REASSIGN-OWNER.md "Rules moved from CLAUDE.md".
@@ -1127,7 +869,6 @@ Overview KPIs — docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
   R8 A written reason is required for every reassign. Web orders are allowed (not Paidy ones, R5).
   R9 If the move commits but the catch-up award fails: the move stands; insert a staff_notifications row type 'reassign_catch_up_failed' naming the invoice, both customers and the error.
   R10 Out of scope: changing the normal award's last_purchase_at = now(); any merge-customers tool.
-  R11 IDENTITY MATCH: the target must match the CURRENT owner on full name, Facebook name, mobile (last 10 digits) or email (find_customer_matches normalisation), else refused different_customer_details. Only reassign_owner_unmatched may override, explicitly and with the written reason; the override bypasses ONLY R11, every other refusal still applies — docs "Rules moved".
 
   How "born expired" lots are written, the separate catch-up call, the child
   rows that move, and permissions: docs/REASSIGN-OWNER.md (moved verbatim 2026-09-24).
@@ -1146,33 +887,10 @@ Overview KPIs — docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
     layaway row itself. The invoice number is reserved at quote time
     (checkout_quotes.reserved_invoice_seq) and carried to the account; gaps are
     by design.
-  - THE DEPOSIT DEADLINE IS A FIELD (transfer_due_at), moved ONLY through
-    set_account_deadlines / set-account-deadlines (edit_account, audited). A
-    REASON IS REQUIRED (400 reason_required); creation is exempt. On a cash
-    order it writes transfer_due_at AND expires_at together. Web default:
-    24 h for a new customer, 72 h (3 days) for a returning one — public.web_deposit_deadline_hours(); returning = has a non-cancelled cash order or layaway in the Hub (an old Hub customer matched by email counts), owner confirmed 2026-10-18.
-    No violation predicate, no automatic violator classification.
-  - A DEADLINE IS MOVED, NEVER REMOVED: null → deadline_required. Backdating is
-    legal but returns deadline_in_past: true and the Hub warns.
-  - What a deadline does depends on the channel (web layaway expires; Hub
-    layaway: reminder only; cash: cancelled, stock back for web only). Any
-    surface stating a consequence must state the one for THAT order.
+  - Deadline, extension/revive, forfeit-stock and checkout-draft mechanics: read docs/WEB-LAYAWAY.md before touching transfer_due_at, set_account_deadlines, revive_web_cash_order_atomic, web layaway stock release or *_web_draft_atomic.
   - THE DEADLINE IS SPENT ONCE THE DEPOSIT IS CONFIRMED (layaway only):
     set_account_deadlines refuses already_paid / payment_exists. The Hub says
     why. A cash order's deadline stays live while a balance remains.
-  - THERE IS ONE DEADLINE: never re-add settlement_due_at or any settlement
-    date to layaway_accounts, set_account_deadlines or the creation forms.
-  - EXTENSION is a later deadline and only while the order is live. An expired
-    or cancelled order is NEVER revived (exception: cash-order revive, Bug #217;
-    on a WEB cash order it is ONE RPC, revive_web_cash_order_atomic — never
-    revive a web order with client-side writes).
-  - A forfeit of a web layaway (staff or automatic) returns its stock in the
-    same transaction/statement (stock_released_at); reactivation re-holds it or
-    fails with web_layaway_stock_unavailable (trigger
-    trg_release_forfeited_web_layaway_stock covers automatic forfeits, so
-    auto-forfeit-settlement stays LOCKED). Both paths send the storefront
-    layaway-forfeited email. Reactivation is all-or-nothing
-    (reactivate_layaway_atomic).
   - EXPIRY: expire_web_layaway_atomic (hourly sweep) releases a web plan whose
     deposit never arrived; refuses already_paid, payment_exists,
     submission_pending (INVARIANT 12). Expiry never cancels after a deposit;
@@ -1191,11 +909,6 @@ Overview KPIs — docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
     the deposit rule); a figure the Hub cannot produce is OMITTED, never
     estimated. docs/WEB-LAYAWAY.md "DISPLAYED DOWN PAYMENTS" / "Rules moved".
   - Web layaways are NEVER hard-deleted (trg_prevent_web_layaway_delete).
-  - WEB ORDER DRAFTS are THE ONLY CHECKOUT PATH (PR 10, 2026-10-01): written
-    ONLY by the *_web_draft_atomic functions; page365_web_holds MUST count held
-    draft lines; web_checkout_mode is 'draft' and stays so (never change it in
-    SQL); never re-add a checkout that writes an order or plan directly.
-    docs/WEB-ORDER-DRAFTS.md "Rules moved from CLAUDE.md".
 
 ## PAGE365 IMPORT — NON-NEGOTIABLE (added 2026-09-19)
 
@@ -1206,8 +919,7 @@ Overview KPIs — docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
     is_test prefix all apply).
   - page365-fetch-order NEVER WRITES AN ORDER; it refuses the whole import,
     naming the field, when anything is missing or totals do not reconcile.
-  - THE ?sig= IS A CAPABILITY: kept ONLY in page365_invoice_links (RLS, no
-    policy); never on an order table, logged or returned to any browser.
+  - ?sig= capability, item notes, photos, double-import guard, UI, line items, stock, sync switch, auto-land, interval, hide-follow, quick fetch and item types: read docs/PAGE365-IMPORT.md before touching any Page365 code.
   - VOID SYNC: 'voided' cancels a LIVE order; renewal restores only what the
     sync cancelled; writer page365_apply_invoice_stage — docs "Void sync".
   - PAGE365 INVOICES ARE JPY. The account currency is the CSR's choice; PHP
@@ -1215,177 +927,38 @@ Overview KPIs — docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
     currency-converter.ts getConversionRate() server-side or for a stored figure.
   - ANY SERVICE LINE (resize, certificate…) is a SERVICE, never a product line,
     never in loyalty_jpy_amount (_shared/page365-service-lines.ts).
-  - ITEM NOTES ARE DISPLAYED, NEVER APPLIED. Page365's OWN stock is never read;
-    origin is never auto-set.
-  - PHOTOS ARE COPIED, NEVER HOTLINKED; a photo that cannot be copied is null.
-  - The double-import guard is uq_*_page365_no + 409 already_imported;
-    consume_page365_draft is a courtesy. One invoice_number across BOTH order
-    tables (public.invoice_numbers); registry triggers are trg_zz_* and must
-    keep sorting after enforce_test_invoice_prefix.
   - DISCOUNTS: price_total is already net (subtotal + shipping −
     price_discount − campaign_discount), reconciled to the yen; a negative is
     refused. A promo code is never written to the order.
   - LOYALTY BASIS = PRODUCT LINES − DISCOUNT, in yen; services and shipping
     never in it.
-  - THE UI IS THE ONLY WAY IN AND NEVER AUTO-DECIDES: every field editable, the
-    customer is SUGGESTED never auto-selected, notes never parsed. The route is
-    permissioned on create_cash_order OR create_account.
-  - LINE ITEMS ARE WRITTEN INSIDE THE CREATING FUNCTION (_shared/order-extras.ts);
-    a failure rolls the order back.
   - Full text of the sub-rules below (moved 2026-10-02): docs/PAGE365-IMPORT.md
     "Rules moved from CLAUDE.md". One line each here; read the doc before touching
     stock, inventory, landing, schedule or hide-follow code.
-  - STOCK: PAGE365 IS THE STOCK MASTER (page365_stock_mode 'inventory_sync'); an
-    import NEVER changes website stock; a flag, never a guess; never edit
-    page365_stock_follow_order's body; never write page365_stock_lines by hand.
-  - "DON'T SYNC WITH PAGE365": website_products.page365_sync_disabled (Catalog,
-    manage_website_catalog, audited); a switched-off product is ALWAYS skipped by
-    every fetch / apply / import path; never set it in a migration.
   - INVENTORY FETCH: TARGET = max(0, Page365 available − page365_web_holds −
     page365_invoice_holds); match per VARIANT on the code, exact; a code on 2+
     listings → only the one whose 4 words after the code match the Hub name
     (>= 3, no tie), else flagged + one bell (docs "DUPLICATE CODE");
     COMPARE-AND-SET apply on 'ready' only; prices reported; reviews never stored.
-  - AUTO-LAND: every NEW code with Page365 available > 0 lands as ONE Hub
-    product, status DRAFT (NEVER published), origin UNKNOWN (never guessed);
-    publishing is refused server-side until complete; sold-out codes never land.
   - SCHEDULE: pg_cron page365-inventory-schedule (Vault key, every 5 min);
     page365_inventory_auto_apply (default OFF; changed ONLY by
     set_page365_inventory_auto_apply; never flip it in a migration) applies
     decreases AND increases from a 'ready' scheduled run inside its 30-min window;
     prices and re-publishing NEVER apply automatically; one reader at a time.
-  - INTERVAL: page365_inventory_interval_minutes ONLY 5/10/20/30, changed ONLY by
-    set_page365_inventory_interval (never in a migration); never change the cron
-    schedule to change the cadence; the 30-min auto-apply window is not the cadence.
-  - HIDE-FOLLOW: SEEN then missing from 2 COMPLETE reads in a row (last seen
-    >= 30 min before) → stock 0 + status 'draft'; never a never-seen / Hub-only,
-    switched-off or unpublished product, never from a partial read; NEVER
-    re-published automatically.
-  - QUICK FETCH: scheduled reads and the default button are QUICK; the first
-    scheduled read after 02:00 PHT is FULL; never a second reader
-    (page365_inventory_reader lease).
-  - ITEM TYPES + METAL STAMP: item_kind is EXACTLY jewelry | watch | accessory;
-    a metal stamp is required for JEWELRY only, and only to PUBLISH (never re-add
-    an every-product or creation-time stamp rule); kind and stamps are read ONLY
-    from what Page365 prints.
 
-## MEDIA CUT-OUTS (BACKGROUND REMOVAL) — NON-NEGOTIABLE (added 2026-10-05)
+## Media cut-outs & hero picks: read docs/MEDIA-CUTOUTS.md before touching website_media_cutouts, cut-out providers, Website → Photos or hero picks.
 
-  Full text: docs/MEDIA-CUTOUTS.md.
-  - One row per SOURCE PHOTO URL (website_media_cutouts.source_url), never per
-    media id (the Catalog save re-inserts media rows). A new URL is a new row;
-    old rows and staff decisions are never touched. Originals never modified.
-  - The enqueue trigger must never fail a media write.
-  - media_cutout_mode off|test|on FAILS TO OFF; invalid cap = 0; off = no
-    provider call at all (only staff-uploaded own cut-outs finish); changed ONLY
-    via set_media_cutout_settings (audited, guard trigger), never in a
-    migration or SQL — docs "Rules moved from CLAUDE.md".
-  - "Upload from Photoroom" (Website → Photos): Photoroom APP exports matched by
-    file name, applied ONLY as own_cutout through review_media_cutout — no API
-    call; never auto-apply an unmatched, duplicate, busy or non-transparent file.
-    Full text of this and the next three rules: docs/MEDIA-CUTOUTS.md "Rules
-    moved from CLAUDE.md".
-  - APPROVAL FIRST (owner 2026-10-02, migration 20261026100000): ok /
-    auto_fixed = "To approve"; ONLY `approved` is ever shown on the website or
-    ticked for the hero. Automation never overwrites approved/rejected.
-  - CUT ONCE / PUBLISH GATE: max 2 paid calls per photo, then Needs owner;
-    COMPLETED is FINAL for every role; cut ONLY while the product is published
-    (status 'active'), DB-enforced, never bypassed in SQL.
-  - PROVIDER ERRORS: Failed = a real PHOTO problem only; provider/account errors
-    (401/402/403/429/5xx, no provider, result expired) are never Failed — the
-    photo goes back by itself; a refusal is NOT a paid call.
-  - PROVIDER = REPLICATE men1scus/birefnet (since 2026-09-28); the reader fails
-    to photoroom (its default, not the live choice); a provider is called ONLY
-    when selected; provider + price change ONLY via set_media_cutout_provider.
-  - PHOTOROOM_API_KEY / FAL_KEY / REPLICATE_* are edge secrets only — never
-    repo, DB, logs, chat.
-  - A hole INSIDE the piece that is not plausible backdrop (interior_hole) or
-    Photoroom uncertainty >= 0.45 (uncertain) is needs_review, never OK /
-    auto_fixed. Never drop these checks: "Test 30" shipped two watches with
-    erased dials as passed.
-  - HERO PICKS: the hero uses product cut-outs an ADMIN ticked "Use on hero"
-    ONLY while hero_photo_source = 'product_ticks' (changed ONLY via
-    set_hero_photo_source; never in a migration or SQL); hero_lineup_rows is THE
-    order (per category, oldest tick first, max 3, never an untagged fallback).
-    docs/HERO-PICKS.md "Rules moved from CLAUDE.md".
+## Web payment reminders (incl. layaway emails ENGLISH ONLY): read docs/REMINDERS.md before touching web payment reminders or any layaway email template.
 
-## WEB PAYMENT REMINDERS — NON-NEGOTIABLE (added 2026-10-04)
-
-  Full text: docs/WEB-PAYMENT-REMINDERS.md.
-  - ONE transactional reminder before a confirmed, unpaid WEB order's / web
-    layaway's deadline (6h before a 24h one, 24h before a 72h one); max 2 per
-    order; web only. It never reads consent / cart-reminder / suppression data.
-  - SQL decides (web_payment_reminder_eligible, claim_ under a row lock);
-    the edge function only sends via sendStorefrontEmail. Change the TS mirror
-    (_shared/web-payment-reminder-rules.ts) with the SQL.
-  - Switch web_payment_reminders_mode off|owner_only|on (fail-closed) +
-    owner list: changed ONLY via set_web_payment_reminders (admin, audited);
-    never in a migration or SQL.
-  - Layaway emails are ENGLISH ONLY — subjects AND bodies, every layaway
-    email (owner rule, 2026-09-27). Layaway templates have NO lang prop and no
-    Japanese copy; never pass one or add one. Guarded by
-    development/layaway-english.test.ts (CI). Exceptions: the registered
-    company name in the footer and stored transfer-account details.
-
-## CART REMINDERS (STAGES A/B) — NON-NEGOTIABLE (added 2026-10-01)
-
-  Full text: docs/CART-REMINDERS.md. Migration 20261021100000_cart_reminders.sql.
-  - PROMOTIONAL: opt-in only (consent kind 'cart_reminder', checkbox OFF by
-    default), append-only consent events (never UPDATE/DELETE), full sender
-    block in every email; ONE email per cart cycle, never within 7 days, never
-    once an order exists.
-  - SQL decides WHO and WHEN (cart_reminder_candidates / claim_cart_reminder);
-    the sweep only renders and sends. Switch cart_reminders_mode off|owner_only|on
-    (fail-closed; seeded off).
+## Cart reminders (stages A/B): read docs/REMINDERS.md before touching cart reminders, consent or the opt-out link; the money rules stay here:
   - ONE LANGUAGE PER EMAIL; THE JAPANESE EMAIL NEVER MENTIONS LAYAWAY, a deposit
     or a reserve figure (JA_FORBIDDEN; CI test).
   - EVERY MONEY FIGURE IS THE HUB'S, recomputed at send time; no percentage, rate
     or conversion in the template or sender.
-  - The opt-out link touches ONLY the consent row; a PROVIDER unsubscribe
-    withdraws consent and rings bell cart_reminder_unsubscribed.
-    Full text: docs/CART-REMINDERS.md "Rules moved from CLAUDE.md".
-  - Stage D (payment reminders) reads NO cart-reminder data and never will.
 
-## CUSTOMER ADDRESSES — NON-NEGOTIABLE (added 2026-09-15)
+## Customer addresses (never delete-all; orders keep their own snapshot): read docs/SCHEMA-FACTS.md before touching customer_addresses, ship_to_snapshot or upsert_customer_addresses.
 
-  A CHECKOUT NEVER DELETES A ROW THE CUSTOMER DID NOT ASK TO REMOVE.
-  `customer_addresses` ids are load-bearing (the ship_to_address_id FKs are ON
-  DELETE SET NULL): deleting a row silently blanks the shipping address on every
-  order and quote pointing at it — docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
-  The writer is `upsert_customer_addresses`: an entry carrying an id belonging
-  to that customer UPDATES in place, an entry without one INSERTs, and a row
-  the payload does not mention is LEFT ALONE. `replace_customer_addresses`
-  survives as a forwarding alias ONLY, so a stale caller cannot reach the old
-  body. Never re-introduce a delete-all write path here; a real delete route
-  belongs behind its own endpoint, per address.
-
-  AN ORDER KEEPS ITS OWN ADDRESS. `cash_orders.ship_to_snapshot` and
-  `layaway_accounts.ship_to_snapshot` hold the address AS IT WAS at creation
-  and are AUTHORITATIVE for display; the FK is a convenience link to the live
-  address book and may legitimately go NULL. Every snapshot — both writers and
-  any backfill — comes from `public.address_snapshot(uuid)` and from nowhere
-  else, so a backfilled order and a newly-written one cannot disagree. Any new
-  surface showing where an order went reads the snapshot first and the FK only
-  as a fallback (`shipToAddress()` in `website/index.ts` is the reference).
-  `layaway_accounts` has NO `ship_to_address_id` at all: the snapshot is the
-  only address a plan carries.
-
-  THE TWO STORES HAVE NOT DIVERGED (Hub: flat columns on `customers`; storefront:
-  `customer_addresses`), and that is worth keeping true. Never seed
-  `customer_addresses` from the flat columns again — docs "Rules moved".
-
-## SIDEBAR ARCHITECTURE — NON-NEGOTIABLE (2026-05-31, refresh PR #165)
-
-  Full text (types, navigation, badges, accordion): docs/SIDEBAR.md (moved verbatim 2026-09-24).
-
-  - Sub-items navigate via `${parentPath}?tab=${child.tab}`; every parent page
-    keeps ?tab in sync both ways (refresh, deep links, back/forward).
-  - Gating: adminOnly / permPath (canSeeNav) / permFilter (can()); a parent
-    whose sub-items are all gated out is hidden.
-  - LOCKED UI: ONE active indicator — the sliding gold ActivePill (FLIP from its
-    last rect; never framer layoutId, never the old parent border / sub-item
-    accent); collapse remembered in localStorage 'cj-hub-sidebar-open'; hover
-    accordion, one parent open. Full text: docs/SIDEBAR.md "Rules moved".
+## Sidebar architecture: read docs/UI-CONVENTIONS.md before touching AppSidebar, ?tab navigation or the ActivePill.
 
 ## PAYMENT SUBMISSION FLOW (locked 2026-04-13; universal submission 2026-06-12)
 
@@ -1455,7 +1028,6 @@ Overview KPIs — docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
 ### DP confirmation loyalty toast (added 2026-06-04):
   review-payment-submission returns loyalty_awards[] on layaway DP confirms and
   PaymentSubmissions.tsx toasts them; cash completion stays fire-and-forget — docs.
-
 
 
 ## LOYALTY SYSTEM RULES (locked 2026-05-16) — NON-NEGOTIABLE
@@ -1547,21 +1119,7 @@ Overview KPIs — docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
     open rows UPDATED IN PLACE; restructure-account is NOT a plan-change path.
     docs/PLAN-DURATION.md "Rules moved from CLAUDE.md".
 
-## LOYALTY GOOGLE SHEET SYNC — NON-NEGOTIABLE
-
-  Full taxonomy, column layout and architecture: docs/LOYALTY-SHEET-SYNC.md (moved verbatim 2026-09-24).
-
-  - Canonical event_type values ONLY — Members tab: enrolled, tier_changed,
-    status_changed, admin_edited; Transactions tab: earned, bonus, redeemed,
-    expired, adjusted, refunded, revoked, birthday_bonus. Every emission carries
-    member_id and is fire-and-forget (never blocks the caller).
-  - Never change sheet column order without the matching header change; never
-    remove the activity_status derivation (Members col I).
-  - Fast path (writer POSTs sync-loyalty-to-sheet and sets synced_to_sheet_at)
-    + hourly recovery (loyalty-sheet-reconcile, cron :07, Vault auth).
-    INVARIANTS: every loyalty_transactions row eventually reaches the sheet;
-    synced_to_sheet_at is write-once (NULL → timestamp); loyalty-sheet-reconcile
-    is intentionally unauthenticated; award-loyalty-points keeps its strict auth.
+## Loyalty Google Sheet sync: read docs/LOYALTY-SHEET-SYNC.md before touching sync-loyalty-to-sheet, loyalty-sheet-reconcile or sheet event_type values.
 
 ## FILL-PAYMENT-TRACKING DUAL OUTPUT (added 2026-06-06)
 
@@ -1572,24 +1130,7 @@ docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
 
 2026-09-11 (follow-up): every payment-mutation edge function (review-payment-submission, void-payment, edit-payment-amount, restore-payment, void-cash-payment, restore-cash-payment) calls `refreshPaymentTracking(invoice, caller)` from `_shared/payment-tracking.ts` before returning. Any new function that inserts, voids, edits, or restores a payment MUST add the same call. Only exception: shopify-webhook (Shopify orders are not in tracking rosters).
 
-## EMAIL DELIVERY MONITORING — NON-NEGOTIABLE (2026-09-13)
-
-  Full text: docs/EMAIL-DELIVERY.md (moved verbatim 2026-09-24).
-
-  - Both senders retry ONCE in-call (2 s, same idempotency_key) on transient errors only — _shared/email-retry.ts; never add a replay job. ONE exception (B02): square-reconcile re-sends an unsent card refund email (max 3, then bell refund_email_failed; docs/EMAIL-DELIVERY.md).
-  - EVERY email attempt is logged via _shared/email-log.ts recordEmailAttempt()
-    (sent | failed | suppressed | skipped) by both senders. A new sender that
-    bypasses the helpers MUST call recordEmailAttempt() itself. A row absent from
-    email_send_log means the send was never reached.
-  - Sent rows never carry idempotency_key (kept in metadata).
-  - The first refusal raises bell 'email_send_refused' (max once/24h).
-  - email_delivery_report(p_hours) gives the verdict (refused / silent /
-    degraded / ok); cron email-health-check 00:50 UTC raises
-    'email_delivery_outage'. Shown in the sidebar pill, Dashboard banner and
-    Settings. REPORT-ONLY — nothing re-sends automatically (owner decision),
-    except the B02 card refund email above.
-  - Render email ONLY with renderEmail (_shared/render-email.ts); never
-    renderAsync — it splits UTF-8 across stream chunks (U+FFFD). CI-guarded.
+## Email delivery monitoring: read docs/EMAIL-DELIVERY.md before touching any email sender, retry, email_send_log or renderEmail.
 
 ## DECIMAL RULES
 
@@ -1662,68 +1203,6 @@ docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
 
 - Cash (cash_order_id) branch is unchanged.
 
-## FRONTEND / DESIGN WORKFLOW (added 2026-06-19)
+## Frontend / design workflow (typecheck is `npx tsc -p tsconfig.app.json --noEmit`; KPI + chart animation standards): read docs/UI-CONVENTIONS.md before touching any frontend code.
 
-1. Before writing any library/framework code (React, Tailwind, Firebase),
-   consult Context7 for current docs — don't rely on memory.
-
-2. Build structure with shadcn/ui primitives by default. Check the shadcn
-   MCP registry before hand-rolling any component (buttons, cards, dialogs,
-   forms, etc.).
-
-3. Only when a component needs motion or visual richness, layer Magic on
-   TOP of the shadcn foundation — animated counters, bento grids, shimmer,
-   hover effects. Do not reach for Magic for plain/static UI.
-
-4. After any frontend change, verify in a real browser with Playwright:
-   start the dev server, navigate to the route, screenshot it, check
-   desktop and mobile (~375px), and read the console for errors before
-   saying it's done.
-
-5. TYPECHECK — the canonical command is `npx tsc -p tsconfig.app.json --noEmit`
-   (the EXACT CI command). NEVER bare `npx tsc --noEmit`: the root tsconfig checks
-   ZERO files and always exits 0 — a documented false green (deploy #1896). Any
-   error is a regression; there is no accepted baseline. Evidence:
-   docs/HUB-UI-MOTION-REVIEW.md "Rules moved from CLAUDE.md".
-
-6. KPI + CHART ANIMATION STANDARDS (2026-07-07): StatCard KPIs pass countUpValue
-   + formatValue + staggerIndex, bespoke KPIs use <AnimatedNumber>; charts take
-   useChartAnimation() on every series; dashboard hooks use React Query with
-   staleTime + keepPreviousData; heavy pages join usePrefetchHeavyPages. A
-   surface without them is a defect — docs/HUB-UI-MOTION-REVIEW.md "Rules moved".
-
-## Migrations baseline & FUNCTION CHANGES — NON-NEGOTIABLE
-
-  Full text (baseline description, the Bug #280 incident, drift-audit census):
-  docs/MIGRATIONS.md (moved verbatim 2026-09-24).
-
-  - supabase/migrations/ holds the 2026-07-05 live-introspected baseline plus
-    later migrations; supabase/migrations-archive/ is history only. LIVE is
-    authoritative. NEVER push the baseline to live (db push / migration up).
-    New schema changes are NEW migration files; never edit the baseline.
-  - Every migration version (14-digit prefix) must be unique:
-    `ls supabase/migrations | cut -c1-14 | sort | uniq -d` prints nothing.
-  - FUNCTION CHANGES START FROM LIVE (Bug #280):
-    1. Never rebuild a function body from the repo. Start from
-       pg_get_functiondef on live. Prefer an md5-guarded in-place patch; for a
-       full replace, reconstruct with your edits reversed and require its md5 to
-       equal live before writing the migration.
-    2. A SQL Editor change to a function body gets a record-only migration in
-       the same session.
-    3. Run scripts/function-drift-audit before any migration that redefines a
-       function; all three buckets (a_differs, b_live_only, c_repo_only) must
-       stay 0.
-  - After any DROP + CREATE FUNCTION, re-assert its REVOKE/GRANT in the same
-    migration (the default ACL grants PUBLIC; 2026-09-24).
-  - RLS policies call auth.uid() / is_staff() / has_role() inside a scalar
-    sub-select — (SELECT is_staff((SELECT auth.uid()))) — never bare (a bare
-    call runs once per row; 8 s timeouts, 2026-09-29, PR #265).
-  - STRUCTURE (2026-10-09, F2): scripts/structure-drift-audit (query on live, replay
-    locally, compare) must report 0 on all ten kinds; drift is fixed by a guarded
-    RECORD-ONLY migration read from live. docs/MIGRATIONS.md "Structure catch-up".
-  - A SECURITY DEFINER function callable by `authenticated` MUST check its caller first
-    (`PERFORM public.assert_staff_caller([permission])` or its own guard): customers are
-    `authenticated` too (2026-10-09, docs/FIXED-BUGS.md "Staff-only report and allocation functions").
-  - Every view in public is created WITH (security_invoker = true); a view
-    owned by postgres without it bypasses RLS (schedule_with_actuals leak,
-    2026-09-29, PR #266).
+## Migrations baseline & function changes: read docs/DEPLOY-AND-MIGRATIONS.md before touching supabase/migrations/, any function body, RLS policy, view or SECURITY DEFINER grant.

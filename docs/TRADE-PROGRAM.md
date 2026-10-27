@@ -36,3 +36,14 @@ Trade Program lets fully-paid layaway customers exchange their item for a new pi
   - Finance > Overview: 3 KPI StatCards (Trade Accounts / Total Trade Value / Trade Share) between Cash Orders row and AgingBuckets
   - Finance > Overview: TradeProgramTrends dual-line Recharts chart below MonthlyAnalyticsChart
 
+## Rules moved from CLAUDE.md (2026-10-28)
+
+Moved verbatim from CLAUDE.md on 2026-10-28 (Option A split); CLAUDE.md keeps a one-line pointer and every money rule.
+
+## TRADE PROGRAM — NON-NEGOTIABLE (2026-05-31)
+  - Detail pages show the amber "🔄 Trade" badge; no list column.
+  - LOCKED UI surfaces: the "Trade Program" checkbox (amber, policy link) on
+    NewAccount + NewCashOrder; Finance → Overview has 3 trade KPI StatCards
+    (between the Cash Orders row and AgingBuckets) and the TradeProgramTrends
+    chart below MonthlyAnalyticsChart. RPCs get_trade_kpis /
+    get_trade_monthly_trends.

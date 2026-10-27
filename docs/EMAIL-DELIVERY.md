@@ -103,3 +103,26 @@ website order when `email_send_log` holds no `sent` row for its key `refund-rece
 the same key square-sync used, so the customer can never receive it twice. Only refunds that arrive after
 the release (`square_refunds.refund_email_replay`), after a 30-minute grace, at most 3 re-sends, then bell
 `refund_email_failed`. Everything else stays REPORT-ONLY. docs/SQUARE.md "QA/QC review fixes".
+
+## Rules moved from CLAUDE.md (2026-10-28)
+
+Moved verbatim from CLAUDE.md on 2026-10-28 (Option A split); CLAUDE.md keeps a one-line pointer and every money rule.
+
+## EMAIL DELIVERY MONITORING — NON-NEGOTIABLE (2026-09-13)
+
+  Full text: docs/EMAIL-DELIVERY.md (moved verbatim 2026-09-24).
+
+  - Both senders retry ONCE in-call (2 s, same idempotency_key) on transient errors only — _shared/email-retry.ts; never add a replay job. ONE exception (B02): square-reconcile re-sends an unsent card refund email (max 3, then bell refund_email_failed; docs/EMAIL-DELIVERY.md).
+  - EVERY email attempt is logged via _shared/email-log.ts recordEmailAttempt()
+    (sent | failed | suppressed | skipped) by both senders. A new sender that
+    bypasses the helpers MUST call recordEmailAttempt() itself. A row absent from
+    email_send_log means the send was never reached.
+  - Sent rows never carry idempotency_key (kept in metadata).
+  - The first refusal raises bell 'email_send_refused' (max once/24h).
+  - email_delivery_report(p_hours) gives the verdict (refused / silent /
+    degraded / ok); cron email-health-check 00:50 UTC raises
+    'email_delivery_outage'. Shown in the sidebar pill, Dashboard banner and
+    Settings. REPORT-ONLY — nothing re-sends automatically (owner decision),
+    except the B02 card refund email above.
+  - Render email ONLY with renderEmail (_shared/render-email.ts); never
+    renderAsync — it splits UTF-8 across stream chunks (U+FFFD). CI-guarded.

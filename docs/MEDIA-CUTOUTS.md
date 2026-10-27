@@ -714,3 +714,47 @@ Moved out of CLAUDE.md on 2026-10-02 to keep it under 100 KB. Text is verbatim (
   my own cut-out" / "Upload from Photoroom", owner 2026-09-27); an unreadable
   switch does nothing at all. Changed ONLY via set_media_cutout_settings
   (audited, guard trigger); never in a migration or SQL.
+
+## Rules moved from CLAUDE.md (2026-10-28)
+
+Moved verbatim from CLAUDE.md on 2026-10-28 (Option A split); CLAUDE.md keeps a one-line pointer and every money rule.
+
+## MEDIA CUT-OUTS (BACKGROUND REMOVAL) — NON-NEGOTIABLE (added 2026-10-05)
+
+  Full text: docs/MEDIA-CUTOUTS.md.
+  - One row per SOURCE PHOTO URL (website_media_cutouts.source_url), never per
+    media id (the Catalog save re-inserts media rows). A new URL is a new row;
+    old rows and staff decisions are never touched. Originals never modified.
+  - The enqueue trigger must never fail a media write.
+  - media_cutout_mode off|test|on FAILS TO OFF; invalid cap = 0; off = no
+    provider call at all (only staff-uploaded own cut-outs finish); changed ONLY
+    via set_media_cutout_settings (audited, guard trigger), never in a
+    migration or SQL — docs "Rules moved from CLAUDE.md".
+  - "Upload from Photoroom" (Website → Photos): Photoroom APP exports matched by
+    file name, applied ONLY as own_cutout through review_media_cutout — no API
+    call; never auto-apply an unmatched, duplicate, busy or non-transparent file.
+    Full text of this and the next three rules: docs/MEDIA-CUTOUTS.md "Rules
+    moved from CLAUDE.md".
+  - APPROVAL FIRST (owner 2026-10-02, migration 20261026100000): ok /
+    auto_fixed = "To approve"; ONLY `approved` is ever shown on the website or
+    ticked for the hero. Automation never overwrites approved/rejected.
+  - CUT ONCE / PUBLISH GATE: max 2 paid calls per photo, then Needs owner;
+    COMPLETED is FINAL for every role; cut ONLY while the product is published
+    (status 'active'), DB-enforced, never bypassed in SQL.
+  - PROVIDER ERRORS: Failed = a real PHOTO problem only; provider/account errors
+    (401/402/403/429/5xx, no provider, result expired) are never Failed — the
+    photo goes back by itself; a refusal is NOT a paid call.
+  - PROVIDER = REPLICATE men1scus/birefnet (since 2026-09-28); the reader fails
+    to photoroom (its default, not the live choice); a provider is called ONLY
+    when selected; provider + price change ONLY via set_media_cutout_provider.
+  - PHOTOROOM_API_KEY / FAL_KEY / REPLICATE_* are edge secrets only — never
+    repo, DB, logs, chat.
+  - A hole INSIDE the piece that is not plausible backdrop (interior_hole) or
+    Photoroom uncertainty >= 0.45 (uncertain) is needs_review, never OK /
+    auto_fixed. Never drop these checks: "Test 30" shipped two watches with
+    erased dials as passed.
+  - HERO PICKS: the hero uses product cut-outs an ADMIN ticked "Use on hero"
+    ONLY while hero_photo_source = 'product_ticks' (changed ONLY via
+    set_hero_photo_source; never in a migration or SQL); hero_lineup_rows is THE
+    order (per category, oldest tick first, max 3, never an untagged fallback).
+    docs/HERO-PICKS.md "Rules moved from CLAUDE.md".
