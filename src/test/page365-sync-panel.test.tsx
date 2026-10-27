@@ -95,20 +95,28 @@ describe('Page365SyncPanel', () => {
     expect(screen.getByTestId('page365-reread')).toBeTruthy();
   });
 
-  it('keeps Add / Replace Page365 link for the cancel permission only', async () => {
+  it('offers Replace Page365 link to every staff user when the saved link fails (owner 2026-10-27)', async () => {
     state.canAll = false;
     state.status = { has_link: true, page365_no: 19848, last_stage: 'unpaid', last_check_error: 'http_401' };
     renderPanel();
     expect(await screen.findByTestId('page365-reread')).toBeTruthy();
-    expect(screen.queryByTestId('page365-add-link')).toBeNull();
+    expect(screen.getByTestId('page365-add-link').textContent).toContain('Replace Page365 link');
   });
 
-  it('shows no buttons to a user without the permission when no link is saved', async () => {
+  it('offers Add Page365 link to every staff user when no link is saved (owner 2026-10-27)', async () => {
     state.canAll = false;
     state.status = { has_link: false, page365_no: 19848 };
     renderPanel();
     expect(await screen.findByText('Page365 invoice 19848')).toBeTruthy();
     expect(screen.queryByTestId('page365-reread')).toBeNull();
-    expect(screen.queryByTestId('page365-add-link')).toBeNull();
+    expect(screen.getByTestId('page365-add-link').textContent).toContain('Add Page365 link');
+  });
+
+  it('opens Add Page365 link when Re-read finds no saved link', async () => {
+    state.status = { has_link: true, page365_no: 19848, last_stage: 'unpaid' };
+    state.invoke.mockResolvedValue({ data: null, error: { message: 'x', context: { body: new Response(JSON.stringify({ code: 'no_link', error: 'none' })).body } } });
+    renderPanel();
+    fireEvent.click(await screen.findByTestId('page365-reread'));
+    expect(await screen.findByLabelText('Page365 invoice link')).toBeTruthy();
   });
 });

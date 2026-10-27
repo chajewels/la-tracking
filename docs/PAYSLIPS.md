@@ -471,3 +471,81 @@ opens proofs with 10-minute signed URLs.
     and the Assignments flow;
   - fixtures: `src/test/fixtures/april-2026-cholita.json` and `may-2026-cris-midnight.json` (synthetic;
     no live data).
+
+## Second proof file (owner 2026-10-27 13:15)
+
+Migration `20270205100000_payslip_second_proof.sql`. The owner asked for two attachments where there was one,
+on both the proof of payment and each cash advance, and chose that a forgotten 2nd payment file can be added
+after the payment is recorded.
+
+### Owner decisions (locked)
+
+- Up to **2** files on the proof of payment and up to **2** on each cash advance.
+- **Payment:** the 2nd file can be added together with the payment ("Proof of payment (2nd file, optional)"
+  in Record payment), or later on the paid payslip ("Add 2nd proof"), once. Nothing else on a paid payslip
+  can change.
+- **Cash advance:** the 2nd file can be added with the advance or later ("Attach 2nd proof"), only while the
+  month has no non-void payslip (the same lock as before).
+
+### Database
+
+- **Columns:** `payslips.proof_path_2` and `payslip_cash_advances.proof_path_2`, both optional.
+  - Each needs the 1st proof and must differ from it.
+  - Paths: `<payslip_id>/<file>` for payments, `advances/<advance id>/<file>` for advances.
+- **`record_payslip_payment`:**
+  - New 6-argument version `(…, p_proof_path text, p_proof_path_2 text)`; the 2nd file may be null or empty.
+  - It is checked like the 1st (shape, not the same file, uploaded).
+  - The 5-argument version is a thin SQL wrapper that passes null. Neither has a default, so no call is
+    ambiguous.
+- **`attach_payslip_proof(p_id, p_path)`:** adds the 2nd file to a **paid** payslip with none. Refuses
+  `permission_denied`, `not_found`, `not_paid`, `second_proof_attached`, `proof_required`,
+  `invalid_proof_path` (wrong shape or the 1st file), `proof_missing`.
+- **`attach_cash_advance_proof`:** fills slot 1, then slot 2. A 3rd file is refused with
+  `proof_already_attached`; the 1st file again with `invalid_proof_path`. The audit row names the slot.
+- **`payslips_before_write`:** `proof_path_2` is a payment field, set while recording the payment. It also
+  allows **paid → paid** with exactly one change: `proof_path_2` from empty to set. Replacing or removing
+  it, or any other edit of a paid payslip, is refused.
+- **`payslip_cash_advances_before_write`:** also allows `proof_path_2` from empty to set, once the 1st proof
+  is set, nothing else.
+- **`finalize_payslip`:** the `cash_advances` snapshot carries `proof_path_2` (the only change).
+- **`get_payslip_book`:** `features.second_proof = true` (the only change).
+- **Storage upload policies (replaced):**
+  - Payment proofs: also while the payslip is paid and has no 2nd file.
+  - Advance proofs: while either slot is empty.
+
+### Release order
+
+Frontend first: the 2nd pickers, "Add 2nd proof" and "Attach 2nd proof" appear only when the book reports
+`features.second_proof`. Before that, Record payment uses the 5-argument call and advances stop at one proof.
+Then the migration is applied (guarded: each replaced function must still match its live md5 or this
+migration's version).
+
+### Screens, Excel, PDF
+
+- **Payslip view (paid):**
+  - One line per file: "Open proof of payment (1 of 2)" and "Download proof (1 of 2)". A single file keeps
+    the old labels.
+  - "Add 2nd proof" while the 2nd file is empty.
+- **Cash advances:**
+  - The add form has "2nd proof (optional)".
+  - Each row shows "Open proof 1 / 2", or "Attach proof" / "Attach 2nd proof" while a slot is free.
+- **Excel:** "Proof of payment (2nd file)" under "Proof of payment".
+- **PDF:**
+  - The payment proof files follow page 1 in order, captioned "Proof of payment (1 of 2)" and "(2 of 2)".
+  - Each advance's files follow in order (1st, then 2nd).
+  - Page 1 names the real proof pages ("Proof of payment attached (pages 2–3)").
+  - A file that cannot be included gets its own fallback page and its own warning.
+
+### Tests
+
+- SQL harness phase 3 (`supabase/tests/payslips/test_second_proof.sql`, after phase 2 and the `pre5_*`
+  snapshots; the migration applied twice), groups S1–S7:
+  - S1: existing rows unchanged, overloads, policies;
+  - S2: two files at payment, with every refusal;
+  - S3: one file, then the 2nd later, plus void;
+  - S4: the gate;
+  - S5: direct writes;
+  - S6: advance slots 1/2/never 3, storage and the finalize snapshot;
+  - S7: audit.
+- Vitest `src/test/payslip-second-proof.test.tsx` (16): Record payment with 1 or 2 files and before the
+  update, Add 2nd proof, two-file view, advance slots, helpers, refusals, Excel, PDF pages and fallback.

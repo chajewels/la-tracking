@@ -498,6 +498,13 @@ Three tables back the staff Timesheet feature (pure-TS engine in `src/lib/timesh
   fallback to the profile). Written only by `set_timesheet_pay_setting` (admin, audited without amounts);
   never deleted.
 - **Floor:** payslip months, cash advances and `correct_timesheet_day` start at 2026-04-01.
+- **Second proof file (migration 20270205100000):**
+  - `payslips.proof_path_2` and `payslip_cash_advances.proof_path_2` are optional; each needs the 1st
+    proof and must differ from it.
+  - A paid payslip allows exactly one more change: `proof_path_2` from empty to set, via
+    `attach_payslip_proof`.
+  - `record_payslip_payment` has 5- and 6-argument versions (the 5-argument one is a wrapper).
+  - Full text: docs/PAYSLIPS.md "Second proof file".
 - Full text: docs/PAYSLIPS.md "Cash advances, employee ID, cash bond and April–May";
   docs/TIMESHEET-SPEC.md "Pay settings history".
 
