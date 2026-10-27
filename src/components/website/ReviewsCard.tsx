@@ -63,8 +63,10 @@ export function ReviewsCard() {
         .eq("status", status)
         .order(status === "pending" ? "created_at" : "reviewed_at", { ascending: false })
         .limit(100);
-      const base = "*, customer:customers(full_name), product:website_products(slug, name)";
-      let { data, error } = await read(`${base}, links:product_review_products(product:website_products(slug, name))`);
+      // Named routes: product_review_products makes reviews → products ambiguous
+      // (PGRST201) without the foreign key in the embed (2026-10-27 outage).
+      const base = "*, customer:customers(full_name), product:website_products!product_reviews_website_product_id_fkey(slug, name)";
+      let { data, error } = await read(`${base}, links:product_review_products(product:website_products!product_review_products_website_product_id_fkey(slug, name))`);
       // Until migration 20270217100000 is applied the links table does not
       // exist; the list still loads, without the per-product labels.
       if (error) ({ data, error } = await read(base));

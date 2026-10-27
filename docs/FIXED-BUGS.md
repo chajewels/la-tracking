@@ -6522,3 +6522,22 @@ Fix (owner rule: counter-check the next words of the description): migration
 whose 4 words after the code match the Hub name (>= 3 of 4, no tie) is matched normally; otherwise flagged +
 one bell page365_duplicate_code. findListing in page365-fetch-order uses the same rule for invoice photos.
 Docs: docs/PAGE365-IMPORT.md "DUPLICATE CODE".
+
+## Reviews vanished from the website after product_review_products (2026-10-27)
+
+Symptom: right after the `website` deploy for "reviews land on every product of
+the order" (#651/#652), no review showed anywhere — not on product pages, not in
+Customer stories — and Hub → Website → Reviews could not load. Root cause:
+migration 20270217100000 created `product_review_products` with foreign keys to
+both `product_reviews` and `website_products`, which PostgREST treats as a
+junction; `product_reviews → website_products` then had two routes and every
+unhinted embed `product:website_products(...)` returned PGRST201 (HTTP 300).
+The storefront catches a failed reviews read as "no reviews section", so pages
+stayed up with the sections hidden. Stop-gap: the owner dropped
+`product_review_products_website_product_id_fkey` (23:50 JST) — reviews returned
+at once. Fix: the `website` function and ReviewsCard name the foreign key in the
+embed (`!product_reviews_website_product_id_fkey`), a source guard enforces it,
+and migration 20270218100000 restores the key after the hinted deploy.
+Lesson: a new table with foreign keys to two tables that are already joined
+directly makes their embed ambiguous; test the existing PostgREST reads, not
+only the SQL, before applying.

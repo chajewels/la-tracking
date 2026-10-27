@@ -1613,6 +1613,14 @@ migrations; the storage policies below are live (checked 2026-10-18).
   (most hand-made Hub orders) links to nothing, so its review shows in Customer
   stories only. Staff may read the table (Website → Reviews shows one label per
   linked product); GET /reviews?product=<slug> reads it.
+  EMBED RULE (PGRST201, 2026-10-27): with this table's two foreign keys,
+  PostgREST sees a second route product_reviews → website_products, so an
+  unhinted `product:website_products(...)` from product_reviews FAILS. Every
+  such embed names the key: `website_products!product_reviews_website_product_id_fkey`
+  (and `!product_review_products_website_product_id_fkey` through the links).
+  Guarded by src/test/review-products-auto-link.test.ts. Migration
+  20270218100000 restores the product key the owner dropped to end the outage;
+  apply it only after the hinted `website` function is deployed.
 - `message_lines` — random Copy Message lines (message_type, part
   opening|closing|full). Seeded: 8 'review_invite' / 'full' lines with
   {first_name}, {piece}, {link}.

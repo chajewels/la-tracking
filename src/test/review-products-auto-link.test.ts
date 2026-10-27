@@ -45,6 +45,16 @@ describe("review → product links", () => {
     expect(sql).toContain("SELECT public.link_review_products(id) FROM public.product_reviews WHERE status = 'approved'");
   });
 
+  it("every reviews → products embed names its foreign key (PGRST201, 2026-10-27)", () => {
+    const web = code(WEBSITE);
+    expect(web).toContain("product:website_products!product_reviews_website_product_id_fkey(slug, name, status)");
+    expect(web).not.toContain("reviewed_at, product:website_products(");
+    const card = code("src/components/website/ReviewsCard.tsx");
+    expect(card).toContain("product:website_products!product_reviews_website_product_id_fkey(slug, name)");
+    expect(card).toContain("links:product_review_products(product:website_products!product_review_products_website_product_id_fkey(slug, name))");
+    expect(card).not.toMatch(/product:website_products\(/);
+  });
+
   it("the linking function is not callable by staff or customers", () => {
     expect(code(MIGRATION)).toContain(
       "REVOKE ALL ON FUNCTION public.link_review_products(uuid) FROM PUBLIC, anon, authenticated;",
