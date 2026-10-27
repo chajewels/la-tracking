@@ -1068,7 +1068,9 @@ order of oldest check, 250 ms apart, 120 s budget. `check` — the staff
 "Re-read Page365" button, `{ kind, order_id }`. `add_link` — staff, `{ kind,
 order_id, url }`: the link must open THIS order's invoice number (and slug when
 the order has one) before it is saved; it reports the stage and changes no
-order. Permission: layaway `forfeit_account`, cash `cancel_cash_order`. A read
+order. Permission: `check` (Re-read) — ANY staff user (`is_staff`: admin / staff /
+finance / csr; owner 2026-10-27 — a void cancels and a renewal restores whoever
+presses it); `add_link` — layaway `forfeit_account`, cash `cancel_cash_order`. A read
 failure (`http_401`, `unreachable`, `invoice_mismatch`, …) is stored as
 `last_check_error` and changes nothing. After a cancel commits, the same
 follow-ups as a staff cancel run (non-blocking): layaway → portal "Points

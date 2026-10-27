@@ -87,11 +87,28 @@ describe('Page365SyncPanel', () => {
     }));
   });
 
-  it('hides the buttons from staff without the cancel permission', async () => {
+  it('shows Re-read to every staff user, even without the cancel permission (owner 2026-10-27)', async () => {
     state.canAll = false;
     state.status = { has_link: true, page365_no: 19848, last_stage: 'unpaid' };
     renderPanel();
     expect(await screen.findByText('Page365 invoice 19848')).toBeTruthy();
+    expect(screen.getByTestId('page365-reread')).toBeTruthy();
+  });
+
+  it('keeps Add / Replace Page365 link for the cancel permission only', async () => {
+    state.canAll = false;
+    state.status = { has_link: true, page365_no: 19848, last_stage: 'unpaid', last_check_error: 'http_401' };
+    renderPanel();
+    expect(await screen.findByTestId('page365-reread')).toBeTruthy();
+    expect(screen.queryByTestId('page365-add-link')).toBeNull();
+  });
+
+  it('shows no buttons to a user without the permission when no link is saved', async () => {
+    state.canAll = false;
+    state.status = { has_link: false, page365_no: 19848 };
+    renderPanel();
+    expect(await screen.findByText('Page365 invoice 19848')).toBeTruthy();
     expect(screen.queryByTestId('page365-reread')).toBeNull();
+    expect(screen.queryByTestId('page365-add-link')).toBeNull();
   });
 });
