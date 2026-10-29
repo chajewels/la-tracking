@@ -29,6 +29,7 @@ import ProductDialog from "@/components/website/ProductDialog";
 import { translateJa } from "@/components/website/translate";
 import { uploadWebsiteImage } from "@/components/website/HeroImageField";
 import { CATEGORIES_QUERY_KEY, fetchCategories } from "@/components/website/CategoriesCard";
+import { deleteConfirmText, deleteSummary, deleteWebsiteProduct } from "@/lib/catalog-delete";
 import {
   ConditionValue, ORIGIN_VALUES, OriginValue,
 } from "@/lib/website-catalog-import";
@@ -685,12 +686,11 @@ export default function ProductsCard() {
   });
 
   const remove = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase.from("website_products").delete().eq("id", id);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      toast({ title: "Product removed" });
+    // delete_website_product_atomic: refuses a live-selling claim, clears the
+    // piece's "not in Page365" rows, remembers its reviews, then deletes.
+    mutationFn: (id: string) => deleteWebsiteProduct(id),
+    onSuccess: (r) => {
+      toast({ title: "Product removed", description: deleteSummary(r) });
       qc.invalidateQueries({ queryKey: ["website-products"] });
     },
     onError: (e: Error) => toast({ title: "Could not remove", description: e.message, variant: "destructive" }),
@@ -1015,7 +1015,7 @@ export default function ProductsCard() {
                               variant="ghost" size="icon"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                if (confirm(`Remove ${p.name} from the website catalog?`)) remove.mutate(p.id);
+                                if (confirm(deleteConfirmText(p.name, p.page365_product_id != null))) remove.mutate(p.id);
                               }}
                             >
                               <Trash2 className="h-4 w-4 text-destructive" />

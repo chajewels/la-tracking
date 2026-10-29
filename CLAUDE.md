@@ -919,7 +919,7 @@ Overview KPIs — docs/SCHEMA-FACTS.md "Rules moved from CLAUDE.md".
     is_test prefix all apply).
   - page365-fetch-order NEVER WRITES AN ORDER; it refuses the whole import,
     naming the field, when anything is missing or totals do not reconcile.
-  - ?sig= capability, item notes, photos, double-import guard, UI, line items, stock, sync switch, auto-land, interval, hide-follow, quick fetch and item types: read docs/PAGE365-IMPORT.md before touching any Page365 code.
+  - ?sig= capability, item notes, photos, double-import guard, UI, line items, stock, sync switch, auto-land, interval, hide-follow, quick fetch, item types, FOLLOW (code / name / photos follow Page365, never price) and Catalog delete (ONLY via delete_website_product_atomic): read docs/PAGE365-IMPORT.md before touching any Page365 code.
   - VOID SYNC: 'voided' cancels a LIVE order; renewal restores only what the
     sync cancelled; writer page365_apply_invoice_stage — docs "Void sync".
   - PAGE365 INVOICES ARE JPY. The account currency is the CSR's choice; PHP
