@@ -6688,6 +6688,7 @@ export type Database = {
           pay_month: string
           php_per_jpy: number | null
           php_received: number | null
+          proof_not_on_file: boolean
           proof_path: string | null
           proof_path_2: string | null
           staff_name: string
@@ -6732,6 +6733,7 @@ export type Database = {
           pay_month: string
           php_per_jpy?: number | null
           php_received?: number | null
+          proof_not_on_file?: boolean
           proof_path?: string | null
           proof_path_2?: string | null
           staff_name: string
@@ -6776,6 +6778,7 @@ export type Database = {
           pay_month?: string
           php_per_jpy?: number | null
           php_received?: number | null
+          proof_not_on_file?: boolean
           proof_path?: string | null
           proof_path_2?: string | null
           staff_name?: string
