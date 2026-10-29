@@ -15,6 +15,8 @@
 --   P docs/sql/20270220_page365_follow_local_seed.sql
 --   P supabase/migrations/20270220100000_page365_follow_and_catalog_delete.sql
 --   P supabase/migrations/20270220100000_page365_follow_and_catalog_delete.sql   # re-run is safe
+--   P supabase/migrations/20270221100000_page365_follow_recode_name.sql          # 2026-10-29 fix: code + name changed in one edit
+--   P supabase/migrations/20270221100000_page365_follow_recode_name.sql          # re-run is safe
 --   P docs/sql/20270220_page365_follow_local_tests.sql
 -- ============================================================================
 \set ON_ERROR_STOP 1

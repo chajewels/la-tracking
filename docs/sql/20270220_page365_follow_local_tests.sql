@@ -13,6 +13,18 @@
 -- product, the index), reviews restored BOTH ways on re-land, a switched-off
 -- product and a partial read untouched, the link backfill and the one-time
 -- name pass.
+--
+-- 2026-10-29, fix/page365-follow-simultaneous-code-name (migration
+-- 20270221100000_page365_follow_recode_name.sql, applied after 20270220100000
+-- in the sequence): §0b a listing re-coded + renamed on Page365 BEFORE the
+-- follow release (the live N1073 -> N9140 shape, seeded from history) is
+-- renamed AND its name followed by the first read after the release (never
+-- completed), or renamed + kept + ONE bell (completed); §4c the regression
+-- matrix — code-only, name-only, simultaneous, staff-completed + simultaneous,
+-- duplicate-code conflict + simultaneous — and the repair of a product a read
+-- between the two releases already left with the hybrid "new code + old
+-- words" name. On a database with only 20270220100000 applied, §0b FAILS at
+-- "0b: ... AND the new Page365 name followed" — that is the bug.
 -- ============================================================================
 \set ON_ERROR_STOP 1
 CREATE OR REPLACE FUNCTION pg_temp.eq(label text, got anyelement, want anyelement) RETURNS void LANGUAGE plpgsql AS $$
@@ -85,6 +97,59 @@ SELECT pg_temp.eq('0: no name_changed bell from the pass', pg_temp.bells('page36
 SELECT pg_temp.eq('0: seen_names of SA100 holds both Page365 texts',
   (SELECT cardinality(seen_names) FROM public.page365_listing_names WHERE website_product_id = (pg_temp.prod('SA100')).id), 2);
 SELECT pg_temp.eq('0: seed active products are stamped first_published', (pg_temp.prod('SC300')).first_published_at IS NOT NULL, true);
+
+-- 0b. Re-coded + renamed on Page365 BEFORE the follow release (the live N1073 -> N9140 shape) ------------------
+-- The migration seeded the memory from the FULL history: the NEW Page365 text is already "last seen",
+-- the Hub name is still the OLD text, and the one-time pass skipped both (unmatched before step a3 existed).
+SELECT pg_temp.eq('0b: history seed - last_p365_name is already the NEW Page365 text',
+  (SELECT last_p365_name FROM public.page365_listing_names WHERE website_product_id = (pg_temp.prod('SD400')).id),
+  'SD9140 Necklace Tiffany 3.30g Paloma [Preloved]');
+SELECT pg_temp.eq('0b: ... seen_names holds the old and the new text',
+  (SELECT cardinality(seen_names) FROM public.page365_listing_names WHERE website_product_id = (pg_temp.prod('SD400')).id), 2);
+SELECT pg_temp.eq('0b: ... the one-time pass could not touch an unmatched listing: Hub still SD400 / old text',
+  (pg_temp.prod('SD400')).sku || '|' || (pg_temp.prod('SD400')).name, 'SD400|SD400 Necklace Tiffany 3.50g');
+SELECT pg_temp.eq('0b: ... same for the completed one', (pg_temp.prod('SE500')).sku || '|' || (pg_temp.prod('SE500')).name, 'SE500|SE500 Ring Blue Topaz 1.2ct');
+SELECT pg_temp.eq('0b: ... no name bell yet', pg_temp.bells('page365_name_changed'), 0::bigint);
+-- The first complete read after the release (every seed listing, so nothing is "missing").
+CREATE OR REPLACE FUNCTION pg_temp.seed_read() RETURNS uuid LANGUAGE sql AS $$
+  SELECT pg_temp.run(jsonb_build_array(
+    pg_temp.p(811001, 'N1616 Necklace K18 Diamond Pave'), pg_temp.p(811002, 'R7828 Ring PT900 Sapphire Halo'),
+    pg_temp.p(811003, 'R3341 Ring K18 Ruby Solitaire'), pg_temp.p(811004, 'N4020 Website sample necklace'),
+    pg_temp.p(811005, 'SA100 Ring Diamond [Preloved]'), pg_temp.p(811006, 'SB200 Necklace B.T 1.2ct'),
+    pg_temp.p(811007, 'SC300 Bracelet Pearl 18cm'),
+    pg_temp.p(811008, 'SD9140 Necklace Tiffany 3.30g Paloma [Preloved]', 1), pg_temp.p(811009, 'SE9500 Ring B.T 1.2ct [Preloved]'))) $$;
+CREATE TEMP TABLE r0b AS SELECT pg_temp.seed_read() AS id;
+SELECT pg_temp.eq('0b: SIMULTANEOUS code + name, never completed: renamed to the new code', (pg_temp.byp(811008)).sku, 'SD9140');
+SELECT pg_temp.eq('0b: ... AND the new Page365 name followed (not the old words behind the new code)',
+  (pg_temp.byp(811008)).name, 'SD9140 Necklace Tiffany 3.30g Paloma [Preloved]');
+SELECT pg_temp.eq('0b: ... ja_pending set (name_ja was NULL already)',
+  (SELECT ja_pending FROM public.page365_listing_names WHERE website_product_id = (pg_temp.byp(811008)).id), true);
+SELECT pg_temp.eq('0b: ... never public -> slug from the new code + new name', (pg_temp.byp(811008)).slug, 'sd9140-necklace-tiffany-3-30g-paloma-preloved');
+SELECT pg_temp.eq('0b: ... still ONE product for the listing', (SELECT count(*) FROM public.website_products WHERE page365_product_id = 811008), 1::bigint);
+SELECT pg_temp.eq('0b: ... matched / code_followed, stock proposal = Page365 available (1)',
+  (SELECT match_result || '/' || coalesce(result_note, '-') || '/' || proposed_stock FROM public.page365_inventory_items
+    WHERE run_id = (SELECT id FROM r0b) AND page365_product_id = 811008), 'matched/code_followed/1');
+SELECT pg_temp.eq('0b: ... still a draft (never auto-published), stock untouched by finish',
+  (SELECT wp.status::text || '/' || v.stock_qty FROM public.website_products wp JOIN public.website_product_variants v ON v.product_id = wp.id
+    WHERE wp.page365_product_id = 811008), 'draft/0');
+SELECT pg_temp.eq('0b: ... audited: code followed, then name followed (recoded)',
+  (SELECT string_agg(action, ',' ORDER BY action) FROM public.audit_logs WHERE entity_id = (pg_temp.byp(811008)).id
+    AND action IN ('page365_code_followed', 'page365_name_followed')), 'page365_code_followed,page365_name_followed');
+SELECT pg_temp.eq('0b: SIMULTANEOUS, staff-completed: renamed to the new code', (pg_temp.byp(811009)).sku, 'SE9500');
+SELECT pg_temp.eq('0b: ... the completed name is KEPT (code word swapped only)', (pg_temp.byp(811009)).name, 'SE9500 Ring Blue Topaz 1.2ct');
+SELECT pg_temp.eq('0b: ... name_ja kept, code word swapped', (pg_temp.byp(811009)).name_ja, 'SE9500 リング ブルートパーズ');
+SELECT pg_temp.eq('0b: ... ONE bell naming the PREVIOUS Page365 text, not the new one twice',
+  (SELECT metadata->>'page365_old' || ' -> ' || (metadata->>'page365_new') FROM public.staff_notifications
+    WHERE type = 'page365_name_changed' AND metadata->>'website_product_id' = (pg_temp.byp(811009)).id::text),
+  'SE500 Ring B.T 1.2ct -> SE9500 Ring B.T 1.2ct [Preloved]');
+SELECT pg_temp.eq('0b: ... the never-completed one rang nothing', pg_temp.bells('page365_name_changed', (pg_temp.byp(811008)).id), 0::bigint);
+SELECT pg_temp.eq('0b: ... no recode_blocked bell (no other product owns the codes)', pg_temp.bells('page365_recode_blocked'), 0::bigint);
+SELECT pg_temp.seed_read();
+SELECT pg_temp.eq('0b: a second read changes nothing',
+  (pg_temp.byp(811008)).name || '|' || (pg_temp.byp(811009)).name, 'SD9140 Necklace Tiffany 3.30g Paloma [Preloved]|SE9500 Ring Blue Topaz 1.2ct');
+SELECT pg_temp.eq('0b: ... and rings nothing again', pg_temp.bells('page365_name_changed'), 1::bigint);
+SELECT pg_temp.eq('0b: ... one code_followed audit row each (idempotent)',
+  (SELECT count(*) FROM public.audit_logs WHERE action = 'page365_code_followed'), 2::bigint);
 -- (d) the index
 SELECT pg_temp.eq('(d) index exists and is partial',
   (SELECT indexdef LIKE '%(website_product_id)%WHERE (website_product_id IS NOT NULL)%' FROM pg_indexes
@@ -126,6 +191,9 @@ VALUES (pg_temp.co(), (pg_temp.prod('FPB')).id, 1, 'FPB', 'FPB Ring', 1000);
 INSERT INTO public.audit_logs(entity_type, entity_id, action, new_value_json)
 VALUES ('website_product', (pg_temp.prod('FPC')).id, 'page365_inventory_hidden', '{}'::jsonb);
 \i supabase/migrations/20270220100000_page365_follow_and_catalog_delete.sql
+-- A re-run of 20270220100000 CREATE OR REPLACEs page365_follow_names back to its own body: the fix
+-- migration must always follow it (the documented sequence) — re-apply it here as live would.
+\i supabase/migrations/20270221100000_page365_follow_recode_name.sql
 SELECT pg_temp.eq('1: backfill - active, never stamped -> stamped', (pg_temp.prod('FPA')).first_published_at IS NOT NULL, true);
 SELECT pg_temp.eq('1: backfill - draft with an order line -> stamped', (pg_temp.prod('FPB')).first_published_at IS NOT NULL, true);
 SELECT pg_temp.eq('1: backfill - hidden by hide-follow -> stamped', (pg_temp.prod('FPC')).first_published_at IS NOT NULL, true);
@@ -232,6 +300,114 @@ SELECT pg_temp.eq('4b: ... name_ja set, no longer pending', (pg_temp.prod('RN1')
 SELECT pg_temp.eq('4b: authenticated cannot call them',
   has_function_privilege('authenticated', 'public.page365_set_name_ja(uuid,text,text)', 'EXECUTE')
   OR has_function_privilege('authenticated', 'public.page365_pending_ja_names(integer)', 'EXECUTE'), false);
+
+-- 4c. REGRESSION MATRIX — code-only, name-only, simultaneous, completed + simultaneous, blocked + simultaneous ----
+-- Steady state after the release: the memory holds the PREVIOUS Page365 text (what a follow leaves behind).
+INSERT INTO public.website_products(sku, slug, name, name_ja, status, origin, metals, page365_product_id, page365_variant_id) VALUES
+  ('RG1', 'rg1-ring', 'RG1 Ring Plain', 'RG1 リング', 'active', 'JAPAN', ARRAY['K18'], 870001, 8700010),
+  ('RG2', 'rg2-ring', 'RG2 Ring Plain', 'RG2 リング', 'active', 'JAPAN', ARRAY['K18'], 870002, 8700020),
+  ('RG3', 'rg3-ring', 'RG3 Ring Plain', 'RG3 リング', 'active', 'JAPAN', ARRAY['K18'], 870003, 8700030),
+  ('RG4', 'rg4-ring', 'RG4 Ring Blue Topaz', 'RG4 リング', 'active', 'JAPAN', ARRAY['K18'], 870004, 8700040),
+  ('RG5', 'rg5-ring', 'RG5 Ring Plain', 'RG5 リング', 'active', 'JAPAN', ARRAY['K18'], 870005, 8700050),
+  ('RG9005', 'rg9005-other', 'RG9005 Ring Other', NULL, 'active', 'JAPAN', ARRAY['K18'], NULL, NULL);
+INSERT INTO public.website_product_variants(product_id, stock_qty, price_jpy) SELECT id, 1, 50000 FROM public.website_products WHERE sku LIKE 'RG%';
+INSERT INTO public.page365_listing_names(website_product_id, page365_product_id, page365_variant_id, last_p365_name, seen_names) VALUES
+  ((pg_temp.prod('RG1')).id, 870001, 8700010, 'RG1 Ring Plain', ARRAY['RG1 Ring Plain']),
+  ((pg_temp.prod('RG2')).id, 870002, 8700020, 'RG2 Ring Plain', ARRAY['RG2 Ring Plain']),
+  ((pg_temp.prod('RG3')).id, 870003, 8700030, 'RG3 Ring Plain', ARRAY['RG3 Ring Plain']),
+  ((pg_temp.prod('RG4')).id, 870004, 8700040, 'RG4 Ring B.T', ARRAY['RG4 Ring B.T']),
+  ((pg_temp.prod('RG5')).id, 870005, 8700050, 'RG5 Ring Plain', ARRAY['RG5 Ring Plain']);
+DELETE FROM public.staff_notifications; DELETE FROM public.audit_logs;
+CREATE OR REPLACE FUNCTION pg_temp.rg_read() RETURNS uuid LANGUAGE sql AS $$
+  SELECT pg_temp.run(jsonb_build_array(
+    pg_temp.p(870001, 'RG9001 Ring Plain', 1),                 -- code-only
+    pg_temp.p(870002, 'RG2 Ring Plain [Preloved]', 1),         -- name-only
+    pg_temp.p(870003, 'RG9003 Ring Plain [Preloved]', 1),      -- simultaneous, never completed
+    pg_temp.p(870004, 'RG9004 Ring B.T [Preloved]', 1),        -- simultaneous, staff completed
+    pg_temp.p(870005, 'RG9005 Ring Plain [Preloved]', 1))) $$; -- simultaneous, new code owned by another Hub product
+CREATE TEMP TABLE r4c AS SELECT pg_temp.rg_read() AS id;
+CREATE OR REPLACE FUNCTION pg_temp.ln(p_pid bigint) RETURNS public.page365_listing_names LANGUAGE sql AS $$
+  SELECT * FROM public.page365_listing_names WHERE page365_product_id = p_pid $$;
+-- code-only
+SELECT pg_temp.eq('4c code-only: sku and name code word follow, rest kept', (pg_temp.byp(870001)).sku || '|' || (pg_temp.byp(870001)).name, 'RG9001|RG9001 Ring Plain');
+SELECT pg_temp.eq('4c code-only: name_ja code word swapped, kept', (pg_temp.byp(870001)).name_ja, 'RG9001 リング');
+SELECT pg_temp.eq('4c code-only: no bell, not ja_pending, memory moved to the new text',
+  pg_temp.bells('page365_name_changed', (pg_temp.byp(870001)).id)::text || '|' || (pg_temp.ln(870001)).ja_pending::text || '|' || (pg_temp.ln(870001)).last_p365_name,
+  '0|false|RG9001 Ring Plain');
+SELECT pg_temp.eq('4c code-only: public once -> slug unchanged', (pg_temp.byp(870001)).slug, 'rg1-ring');
+-- name-only
+SELECT pg_temp.eq('4c name-only: sku unchanged, name followed', (pg_temp.byp(870002)).sku || '|' || (pg_temp.byp(870002)).name, 'RG2|RG2 Ring Plain [Preloved]');
+SELECT pg_temp.eq('4c name-only: name_ja cleared, ja_pending', ((pg_temp.byp(870002)).name_ja IS NULL)::text || '|' || (pg_temp.ln(870002)).ja_pending::text, 'true|true');
+SELECT pg_temp.eq('4c name-only: no code audit, one name audit',
+  (SELECT string_agg(action, ',' ORDER BY action) FROM public.audit_logs WHERE entity_id = (pg_temp.byp(870002)).id AND action LIKE 'page365_%followed'), 'page365_name_followed');
+-- simultaneous, never completed
+SELECT pg_temp.eq('4c simultaneous: sku follows AND the whole new name follows', (pg_temp.byp(870003)).sku || '|' || (pg_temp.byp(870003)).name, 'RG9003|RG9003 Ring Plain [Preloved]');
+SELECT pg_temp.eq('4c simultaneous: name_ja cleared, ja_pending, no bell',
+  ((pg_temp.byp(870003)).name_ja IS NULL)::text || '|' || (pg_temp.ln(870003)).ja_pending::text || '|' || pg_temp.bells('page365_name_changed', (pg_temp.byp(870003)).id),
+  'true|true|0');
+SELECT pg_temp.eq('4c simultaneous: item matched / code_followed', (pg_temp.item((SELECT id FROM r4c), 870003)).match_result || '/' || (pg_temp.item((SELECT id FROM r4c), 870003)).result_note, 'matched/code_followed');
+SELECT pg_temp.eq('4c simultaneous: the name audit says it was a re-code read',
+  (SELECT new_value_json->>'recoded' FROM public.audit_logs WHERE entity_id = (pg_temp.byp(870003)).id AND action = 'page365_name_followed'), 'true');
+-- simultaneous, staff completed
+SELECT pg_temp.eq('4c completed + simultaneous: sku follows, completed name KEPT (code word swapped)',
+  (pg_temp.byp(870004)).sku || '|' || (pg_temp.byp(870004)).name, 'RG9004|RG9004 Ring Blue Topaz');
+SELECT pg_temp.eq('4c completed + simultaneous: name_ja kept (code word swapped), not ja_pending',
+  (pg_temp.byp(870004)).name_ja || '|' || (pg_temp.ln(870004)).ja_pending::text, 'RG9004 リング|false');
+SELECT pg_temp.eq('4c completed + simultaneous: ONE bell, Page365 old -> new',
+  (SELECT metadata->>'page365_old' || ' -> ' || (metadata->>'page365_new') || ' | hub ' || (metadata->>'hub_name') FROM public.staff_notifications
+    WHERE type = 'page365_name_changed' AND metadata->>'website_product_id' = (pg_temp.byp(870004)).id::text),
+  'RG4 Ring B.T -> RG9004 Ring B.T [Preloved] | hub RG9004 Ring Blue Topaz');
+-- simultaneous, new code owned by another Hub product (duplicate-code protection)
+SELECT pg_temp.eq('4c blocked + simultaneous: the linked product is NOT renamed (sku, name, name_ja)',
+  (pg_temp.byp(870005)).sku || '|' || (pg_temp.byp(870005)).name || '|' || (pg_temp.byp(870005)).name_ja, 'RG5|RG5 Ring Plain|RG5 リング');
+SELECT pg_temp.eq('4c blocked + simultaneous: the other Hub product is NOT touched either', (pg_temp.prod('RG9005')).name, 'RG9005 Ring Other');
+SELECT pg_temp.eq('4c blocked + simultaneous: ONE recode_blocked bell, no name bell for either',
+  pg_temp.bells('page365_recode_blocked', (pg_temp.byp(870005)).id)::text || '|' || pg_temp.bells('page365_name_changed', (pg_temp.byp(870005)).id)
+    || '|' || pg_temp.bells('page365_name_changed', (pg_temp.prod('RG9005')).id), '1|0|0');
+SELECT pg_temp.eq('4c blocked + simultaneous: the item says why', (pg_temp.item((SELECT id FROM r4c), 870005)).result_note, 'code_exists_other_piece');
+SELECT pg_temp.eq('4c blocked + simultaneous: the linked product''s memory is untouched', (pg_temp.ln(870005)).last_p365_name || '|' || cardinality((pg_temp.ln(870005)).seen_names), 'RG5 Ring Plain|1');
+-- a second identical read: stable, silent
+SELECT pg_temp.rg_read();
+SELECT pg_temp.eq('4c second read: names stable',
+  (pg_temp.byp(870001)).name || '|' || (pg_temp.byp(870002)).name || '|' || (pg_temp.byp(870003)).name || '|' || (pg_temp.byp(870004)).name || '|' || (pg_temp.byp(870005)).name,
+  'RG9001 Ring Plain|RG2 Ring Plain [Preloved]|RG9003 Ring Plain [Preloved]|RG9004 Ring Blue Topaz|RG5 Ring Plain');
+SELECT pg_temp.eq('4c second read: no bell rings twice', pg_temp.bells('page365_name_changed')::text || '|' || pg_temp.bells('page365_recode_blocked'), '1|1');
+SELECT pg_temp.eq('4c second read: audits not repeated',
+  (SELECT count(*) FROM public.audit_logs WHERE action IN ('page365_code_followed', 'page365_name_followed')), 5::bigint);
+-- a THIRD read where Page365 changes the name AGAIN (no code change): the ordinary rule still applies after a re-code
+SELECT pg_temp.run(jsonb_build_array(
+  pg_temp.p(870001, 'RG9001 Ring Plain', 1), pg_temp.p(870002, 'RG2 Ring Plain [Preloved]', 1),
+  pg_temp.p(870003, 'RG9003 Ring Plain [Preloved] Resized', 1), pg_temp.p(870004, 'RG9004 Ring B.T [Preloved] Resized', 1),
+  pg_temp.p(870005, 'RG9005 Ring Plain [Preloved]', 1)));
+SELECT pg_temp.eq('4c later name-only change after a re-code: followed (never completed) / kept + second distinct bell (completed)',
+  (pg_temp.byp(870003)).name || '|' || (pg_temp.byp(870004)).name || '|' || pg_temp.bells('page365_name_changed', (pg_temp.byp(870004)).id),
+  'RG9003 Ring Plain [Preloved] Resized|RG9004 Ring Blue Topaz|2');
+
+-- 4d. REPAIR: a read BETWEEN the two releases already left the hybrid "new code + old words" name --------------------
+-- (step a3 renamed it, step h saw Page365-now = last seen and skipped; every later read matches it by the new code).
+INSERT INTO public.website_products(sku, slug, name, status, origin, metals, page365_product_id, page365_variant_id) VALUES
+  ('SH9001', 'sh1-ring', 'SH9001 Ring Old Rest', 'active', 'JAPAN', ARRAY['K18'], 880001, 8800010),
+  ('SH9002', 'sh2-ring', 'SH9002 Ring Blue Topaz', 'active', 'JAPAN', ARRAY['K18'], 880002, 8800020);
+INSERT INTO public.website_product_variants(product_id, stock_qty, price_jpy) SELECT id, 1, 50000 FROM public.website_products WHERE sku IN ('SH9001', 'SH9002');
+INSERT INTO public.page365_listing_names(website_product_id, page365_product_id, page365_variant_id, last_p365_name, seen_names) VALUES
+  ((pg_temp.prod('SH9001')).id, 880001, 8800010, 'SH9001 Ring New Rest', ARRAY['SH1 Ring Old Rest', 'SH9001 Ring New Rest']),
+  ((pg_temp.prod('SH9002')).id, 880002, 8800020, 'SH9002 Ring B.T [Preloved]', ARRAY['SH2 Ring B.T', 'SH9002 Ring B.T [Preloved]']);
+DELETE FROM public.staff_notifications;
+SELECT pg_temp.run(jsonb_build_array(pg_temp.p(880001, 'SH9001 Ring New Rest', 1), pg_temp.p(880002, 'SH9002 Ring B.T [Preloved]', 1)));
+SELECT pg_temp.eq('4d: an ordinary read cannot see the stuck hybrid (matched by code, Page365 = last seen)',
+  (pg_temp.byp(880001)).name, 'SH9001 Ring Old Rest');
+-- The fix migration's one-time pass (re-run here = also proves the file is re-runnable).
+\i supabase/migrations/20270221100000_page365_follow_recode_name.sql
+SELECT pg_temp.eq('4d: the pass repairs the never-completed hybrid to Page365''s text', (pg_temp.byp(880001)).name, 'SH9001 Ring New Rest');
+SELECT pg_temp.eq('4d: ... ja_pending', (pg_temp.ln(880001)).ja_pending, true);
+SELECT pg_temp.eq('4d: ... the completed one is kept', (pg_temp.byp(880002)).name, 'SH9002 Ring Blue Topaz');
+SELECT pg_temp.eq('4d: ... one summary bell, no per-product bell',
+  pg_temp.bells('page365_names_followed_summary')::text || '|' || pg_temp.bells('page365_name_changed'), '1|0');
+SELECT pg_temp.eq('4d: ... the pass audit row says once', (SELECT new_value_json->>'once' FROM public.audit_logs
+  WHERE entity_id = (pg_temp.byp(880001)).id AND action = 'page365_name_followed'), 'true');
+SELECT pg_temp.eq('4d: ... stock / price untouched', (SELECT stock_qty || '/' || price_jpy FROM public.website_product_variants WHERE product_id = (pg_temp.byp(880001)).id), '1/50000');
+\i supabase/migrations/20270221100000_page365_follow_recode_name.sql
+SELECT pg_temp.eq('4d: a second pass finds no difference (no second summary bell)', pg_temp.bells('page365_names_followed_summary'), 1::bigint);
 
 -- 5. PRICE is shown, never copied ----------------------------------------------------------------
 CREATE TEMP TABLE r5 AS SELECT pg_temp.run(jsonb_build_array(pg_temp.p(830101, 'RN1 Ring Diamond [Used]', 1, '[]'::jsonb, 77000))) AS id;
