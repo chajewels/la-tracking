@@ -241,6 +241,9 @@ export const SKIP_REASON: Record<string, string> = {
   matched_by_name: 'matched by name — this code is on 2 Page365 listings',
   duplicate_other_piece: 'another piece with the same code — not the Hub product',
   duplicate_unresolved: 'same code on 2 Page365 listings; the name did not tell them apart — give one its own code',
+  // 2026-10-29 — page365_inventory_follow_code (finish step a3): Page365 changed the code of a linked listing
+  code_followed: 'Page365 changed this listing’s code — the Hub product was renamed to match',
+  code_exists_other_piece: 'Page365 changed this listing’s code, but another Hub product already has that code — nothing renamed',
 };
 
 export function runStatusText(run: Pick<InventoryRun, 'status' | 'error'>): string {

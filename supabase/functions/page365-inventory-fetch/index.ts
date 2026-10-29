@@ -86,6 +86,8 @@ const CHUNK_RESERVE_MS = 30_000;
 const LAND_PHOTOS_PER_CALL = 12;
 const LAND_PRODUCTS_PER_QUERY = 10;
 const LAND_PHOTO_MAX_ATTEMPTS = 3;
+/** 2026-10-29: names to translate (name_ja) per tick, after a Hub name followed Page365. */
+const JA_NAMES_PER_TICK = 5;
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 async function getJson(url: string, timeoutMs: number): Promise<{ ok: true; json: unknown } | { ok: false; why: string }> {
@@ -333,6 +335,106 @@ export async function copyLandedPhotos(supabase: Supabase, deadline: number) {
   return out;
 }
 
+/**
+ * 2026-10-29: photos FOLLOW Page365 for linked products. The SQL half
+ * (page365_inventory_follow_listing, finish step h) already deleted removed
+ * photos and re-sorted the copied ones; this copies the ones Page365 added or
+ * replaced: matched, linked items of the latest ready run with photos_to_copy
+ * > 0, at most 3 tries (page365_inventory_items.photo_attempts) per read, the
+ * same copier and rate limit as the landed backlog. A "Don't sync with
+ * Page365" product is never in it (and copyItemPhotos skips it too).
+ */
+export async function copyFollowedPhotos(supabase: Supabase, deadline: number) {
+  const out = { items: 0, copied: 0, failed: 0 };
+  const { data: run } = await supabase.from("page365_inventory_runs").select("id")
+    .eq("status", "ready").order("created_at", { ascending: false }).limit(1).maybeSingle();
+  if (!run) return out;
+  const limit = createRateLimiter(4, 3);
+  const skip = new Set<string>();
+  const handled = new Set<string>();
+  while (Date.now() < deadline) {
+    const { data, error } = await supabase.from("page365_inventory_items")
+      .select("id, photo_attempts, website_products!inner(page365_product_id, page365_sync_disabled)")
+      .eq("run_id", run.id).eq("kind", "page365").eq("match_result", "matched").gt("photos_to_copy", 0)
+      .lt("photo_attempts", LAND_PHOTO_MAX_ATTEMPTS)
+      .not("website_products.page365_product_id", "is", null).eq("website_products.page365_sync_disabled", false)
+      .order("id", { ascending: true }).limit(LAND_PRODUCTS_PER_QUERY + handled.size);
+    if (error) {
+      // Before the 2026-10-29 migration there is no photo_attempts column.
+      if (!/photo_attempts/.test(error.message)) console.error("page365-inventory-fetch followed photos:", error.message);
+      break;
+    }
+    const pending = ((data ?? []) as { id: string; photo_attempts: number }[])
+      .filter(p => !handled.has(p.id)).slice(0, LAND_PRODUCTS_PER_QUERY);
+    if (pending.length === 0) break;
+    const r = await copyItemPhotos(supabase, pending.map(p => p.id), {
+      runId: run.id, skip, actor: null, maxPhotos: LAND_PHOTOS_PER_CALL, limit,
+    });
+    out.copied += r.copied + r.replaced;
+    out.failed += r.failed.length;
+    const failedItems = new Map<string, number>();
+    for (const f of r.failed) {
+      skip.add(`${f.item_id}:${f.photo_id}`);
+      failedItems.set(f.item_id, (failedItems.get(f.item_id) ?? 0) + 1);
+    }
+    for (const p of pending) {
+      const left = r.remainingByItem.get(p.id) ?? 0;
+      if (left > 0) continue; // more next call
+      handled.add(p.id);
+      out.items++;
+      const fails = failedItems.get(p.id) ?? 0;
+      const { error: upErr } = await supabase.from("page365_inventory_items")
+        .update(fails > 0 ? { photo_attempts: p.photo_attempts + 1 } : { photos_to_copy: 0 }).eq("id", p.id);
+      if (upErr) console.error("page365-inventory-fetch followed photos:", p.id, upErr.message);
+    }
+  }
+  return out;
+}
+
+/**
+ * 2026-10-29: a Hub name that followed Page365 had its name_ja cleared
+ * (page365_listing_names.ja_pending). Translate a few per tick through
+ * translate-product-description (a service-role call is allowed there), write
+ * name_ja, clear ja_pending. A failure leaves it pending; the storefront shows
+ * the English name meanwhile.
+ */
+export async function translatePendingNames(supabase: Supabase) {
+  const out = { translated: 0, failed: 0 };
+  // Reads and writes go through service-role RPCs: this function touches only
+  // its own page365_* tables directly (an outage changes nothing on the website).
+  const { data, error } = await supabase.rpc("page365_pending_ja_names", { p_limit: JA_NAMES_PER_TICK });
+  if (error) {
+    if (!/page365_pending_ja_names/.test(error.message)) console.error("page365-inventory-fetch ja names:", error.message);
+    return out;
+  }
+  for (const row of (data ?? []) as { o_product_id: string; o_name: string }[]) {
+    const name = String(row.o_name ?? "").trim();
+    if (!name) continue;
+    try {
+      const { data: tr, error: trErr } = await supabase.functions.invoke("translate-product-description", { body: { name } });
+      const ja = String((tr as { name_ja?: unknown } | null)?.name_ja ?? "").trim();
+      if (trErr || !ja) throw new Error(trErr?.message ?? "empty translation");
+      // Written only if the English name has not moved again since (SQL checks).
+      const { error: setErr } = await supabase.rpc("page365_set_name_ja", {
+        p_product_id: row.o_product_id, p_expected_name: name, p_name_ja: ja,
+      });
+      if (setErr) throw new Error(setErr.message);
+      out.translated++;
+    } catch (e) {
+      out.failed++;
+      console.error("page365-inventory-fetch ja name:", row.o_product_id, (e as Error).message);
+    }
+  }
+  return out;
+}
+
+/** After the landed photos: followed photos, then pending Japanese names. */
+async function followBacklogs(supabase: Supabase, deadline: number) {
+  const followed = await copyFollowedPhotos(supabase, deadline);
+  const names = await translatePendingNames(supabase);
+  return { followed, names };
+}
+
 /** PR 3: one cron tick. */
 async function scheduleTick(supabase: Supabase) {
   const t0 = Date.now();
@@ -362,7 +464,8 @@ async function scheduleTick(supabase: Supabase) {
   if (decision.act === "wait") {
     // Nothing to read this tick: copy landed products' photos instead.
     const photos = await copyLandedPhotos(supabase, t0 + SCHEDULE_BUDGET_MS - CHUNK_RESERVE_MS);
-    return { skipped: decision.reason, last_scheduled_at: last?.created_at, interval_minutes: intervalMinutes, photos };
+    const follow = await followBacklogs(supabase, t0 + SCHEDULE_BUDGET_MS - CHUNK_RESERVE_MS);
+    return { skipped: decision.reason, last_scheduled_at: last?.created_at, interval_minutes: intervalMinutes, photos, follow };
   }
 
   let runId: string;
@@ -398,8 +501,9 @@ async function scheduleTick(supabase: Supabase) {
   const photos = step?.run?.status && step.run.status !== "fetching"
     ? await copyLandedPhotos(supabase, t0 + SCHEDULE_BUDGET_MS - CHUNK_RESERVE_MS)
     : null;
+  const follow = photos ? await followBacklogs(supabase, t0 + SCHEDULE_BUDGET_MS - CHUNK_RESERVE_MS) : null;
   return { run_id: runId, interval_minutes: intervalMinutes, kind: step?.run?.kind, status: step?.run?.status ?? "fetching", fetched: step?.fetched,
-           open: step?.open, listed: step?.listed, finished: step?.finished ?? null, photos, elapsed_ms: Date.now() - t0 };
+           open: step?.open, listed: step?.listed, finished: step?.finished ?? null, photos, follow, elapsed_ms: Date.now() - t0 };
 }
 
 Deno.serve(async (req) => {

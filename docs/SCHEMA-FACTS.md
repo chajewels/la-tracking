@@ -2208,6 +2208,24 @@ looks like an anon write path. `extension_requests.portal_token` stays.
 - `item_type` "Accessory" on the wire comes only from
   `website_products.item_kind = 'accessory'` (ITEM_TYPE_OF in website/index.ts).
 
+## Page365 follow + Catalog delete (2026-10-29)
+
+Full text: `docs/PAGE365-IMPORT.md` "FOLLOW — code, name and photos follow Page365; Catalog delete".
+- `website_products.first_published_at` — stamped once when a product first becomes
+  active (trigger `trg_website_products_first_published`), never cleared; NULL =
+  never public. Only a never-public product may have its slug regenerated.
+- `page365_listing_names` (one row per linked product): `last_p365_name`,
+  `seen_names` (newest 30), `bell_name`, `ja_pending`. Service role writes; staff read.
+- `product_review_detached` — a deleted Catalog product's reviews by Page365 listing
+  (`was_linked` = product_review_products, `was_primary` = product_reviews.website_product_id).
+- `page365_inventory_items.photo_attempts`; index `idx_page365_inventory_items_product`
+  (partial, `website_product_id IS NOT NULL`) — without it every product delete scanned the table.
+- CHECK `page365_inventory_item_kind`: a `hub_only` item row MUST have a product, so a
+  product's hub_only rows are deleted before the product (delete_website_product_atomic).
+- Live-claim statuses (`website_claim_status`): held, paid, layaway, expired, released.
+  Only held / paid / layaway block a product delete.
+- Bell types: `page365_name_changed`, `page365_recode_blocked`, `page365_names_followed_summary`.
+
 ## Rules moved from CLAUDE.md (2026-10-28)
 
 Moved verbatim from CLAUDE.md on 2026-10-28 (Option A split); CLAUDE.md keeps a one-line pointer and every money rule.

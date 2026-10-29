@@ -90,12 +90,15 @@ function iconForType(type: string) {
       return <Ban className="h-3.5 w-3.5 text-destructive" />;
     case 'service_request_created':
       return <Wrench className="h-3.5 w-3.5 text-sky-400" />;
+    case 'page365_name_changed':
+    case 'page365_recode_blocked':
     case 'page365_stock_flag':
     case 'page365_inventory_run_failed':
     case 'page365_duplicate_code':
     case 'media_cutout_cap_near':
       return <AlertTriangle className="h-3.5 w-3.5 text-warning" />;
     case 'page365_inventory_auto_applied':
+    case 'page365_names_followed_summary':
     case 'page365_inventory_hidden':
       return <CheckCircle className="h-3.5 w-3.5 text-success" />;
     default:
@@ -202,6 +205,11 @@ export default function StaffNotificationBell() {
       const params = new URLSearchParams({ tab: 'audience' });
       if (inquiryId) params.set('inquiry', inquiryId);
       navigate(`${ROUTES.WEBSITE}?${params.toString()}#contact-inquiries`);
+      return;
+    }
+    // 2026-10-29: Page365 followed (or could not follow) a code / name — same place.
+    if (n.type === 'page365_name_changed' || n.type === 'page365_recode_blocked' || n.type === 'page365_names_followed_summary') {
+      navigate(`${ROUTES.WEBSITE}?tab=page365-stock`);
       return;
     }
     // A Page365 stock flag is dealt with on Website → Page365 stock (resolve
