@@ -55,12 +55,28 @@ Deno.test("L2: an AUTHORIZED read-back with no dates is still authorised, never 
   assertEquals(paidyProviderOutcome({ status: "AUTHORIZED", captures: [], expires_at: "2000-01-01T00:00:00Z" }), "expired");
 });
 
-Deno.test("M5: a source is recognised only when every address it carries is Paidy's", () => {
+// M5 was proven on live 2026-10-28 (paidy_webhook_events, two deliveries from
+// Paidy's own 52.199.62.26): the platform sets cf-connecting-ip from Cloudflare's
+// edge (the only path to this hostname: DNS → Cloudflare, `server: cloudflare`),
+// then Supabase's gateway appends its AWS Global Accelerator address
+// (13.248.0.0/16, ap-northeast-1) as the LAST x-forwarded-for hop. "Every
+// address must be Paidy's" could therefore never pass. The decision now rests
+// on the Cloudflare-set header alone; x-forwarded-for stays stored as evidence.
+Deno.test("M5 (2026-10-29): the Cloudflare-set cf-connecting-ip decides; platform hops in x-forwarded-for never reject", () => {
+  // The live pair that was wrongly rejected.
+  assertEquals(paidyWebhookSource(hdrs({ "cf-connecting-ip": "52.199.62.26", "x-forwarded-for": "52.199.62.26, 13.248.115.244" })).recognised, true);
   assertEquals(paidyWebhookSource(hdrs({ "cf-connecting-ip": "13.114.134.35", "x-forwarded-for": "13.114.134.35" })).recognised, true);
-  assertEquals(paidyWebhookSource(hdrs({ "x-forwarded-for": "9.9.9.9, 52.199.50.20" })).recognised, true);
-  assertEquals(paidyWebhookSource(hdrs({ "cf-connecting-ip": "13.114.134.35", "x-forwarded-for": "1.2.3.4" })).recognised, false, "a forged cf header alone is not enough");
-  assertEquals(paidyWebhookSource(hdrs({ "cf-connecting-ip": "1.2.3.4", "x-forwarded-for": "13.114.134.35" })).recognised, false, "a forged xff hop alone is not enough");
+  assertEquals(paidyWebhookSource(hdrs({ "cf-connecting-ip": "13.114.134.35" })).recognised, true);
+  // Fail safe: no cf-connecting-ip means the request did not arrive through
+  // Cloudflare's edge, so x-forwarded-for (client-writable) is never trusted alone.
+  assertEquals(paidyWebhookSource(hdrs({ "x-forwarded-for": "9.9.9.9, 52.199.50.20" })).recognised, false, "xff without the Cloudflare header is not a Paidy source");
+  assertEquals(paidyWebhookSource(hdrs({ "cf-connecting-ip": "1.2.3.4", "x-forwarded-for": "13.114.134.35" })).recognised, false, "a Paidy IP in a client-writable xff hop is not enough");
   assertEquals(paidyWebhookSource(hdrs({})).recognised, false);
+  // Duplicated or malformed cf-connecting-ip (the Headers API joins duplicates) is not one Paidy IP.
+  assertEquals(paidyWebhookSource(hdrs({ "cf-connecting-ip": "52.199.62.26, 52.199.62.26" })).recognised, false);
+  assertEquals(paidyWebhookSource(hdrs({ "cf-connecting-ip": " " })).recognised, false);
+  // The stored evidence string is unchanged ("cf|xff", last hop).
+  assertEquals(paidyWebhookSource(hdrs({ "cf-connecting-ip": "52.199.62.26", "x-forwarded-for": "52.199.62.26, 13.248.115.244" })).ips, "52.199.62.26|13.248.115.244");
   assertEquals(paidyWebhookSource(hdrs({ "cf-connecting-ip": "1.2.3.4", "x-forwarded-for": "5.6.7.8" })).ips, "1.2.3.4|5.6.7.8");
 });
 

@@ -727,12 +727,19 @@ blockers; its four should-fix items are in this release (M1 order, L7 reverted, 
   email intent (`payload.kind = provider_ended`) in one transaction; used by Confirm's `endSubmission`
   (only while its claim stands) and by `syncPaidyPayment`. The sweep replays the intent as
   `provider_ended`, never as a staff Reject.
-- **M5** — the webhook stores `source_ip` ("cf|last-xff") and `source_recognised`; recognised only when
-  every address present is one of Paidy's. The per-minute cap (20 unrecognised deliveries → 429, nothing
-  stored, no Paidy call; never for an id the Hub already knows) is **OFF** until edge secret
-  `PAIDY_WEBHOOK_RATE_CAP=on`. **Go-live check:** after the next real Paidy webhook, read its inbox row —
-  `source_recognised` must be true; only then may the owner turn the cap on. If false, the platform's
-  header is not what we assumed: tell the owner before changing anything.
+- **M5** — the webhook stores `source_ip` ("cf|last-xff") and `source_recognised`. The per-minute cap
+  (20 unrecognised deliveries → 429, nothing stored, no Paidy call; never for an id the Hub already
+  knows) is **OFF** until edge secret `PAIDY_WEBHOOK_RATE_CAP=on`.
+  **Go-live check outcome (2026-10-28/29):** the first two real Paidy deliveries (`paidy.payment.closed`
+  for CJ-W-900060's unused test authorisations) were stored as `source_recognised = false` with
+  `source_ip = 52.199.62.26|13.248.115.244` and `…|13.248.98.237`. The Cloudflare header carried
+  Paidy's own published address; the last x-forwarded-for hop is Supabase's AWS Global Accelerator
+  (ap-northeast-1), appended by the platform after Cloudflare. "Every address must be Paidy's" could
+  therefore never pass on this hostname (DNS → Cloudflare, `server: cloudflare`). **Corrected
+  2026-10-29:** recognised = the Cloudflare-set `cf-connecting-ip` is one of Paidy's IPs; x-forwarded-for
+  is client-writable and is never trusted alone (no Cloudflare header → not recognised). Processing was
+  never affected (the gate is soft); only the case + bell for an id Paidy does not know depends on it.
+  The cap stays off until a recognised delivery has been observed after the fix.
 - **M6** — `file_paidy_submission_atomic` refuses `card_payment_unresolved` before writing anything (the
   caller releases the authorisation); the Square Confirm capture refuses `paidy_lock` while
   `cash_order_payment_lock` says `paidy*`. Closes the OPEN-BUGS entry; required before `square_mode = on`.
