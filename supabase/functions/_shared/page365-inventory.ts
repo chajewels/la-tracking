@@ -285,6 +285,19 @@ export function nameScore(reference: string | null | undefined, listing: string 
   return new Set(nameWords(reference, code).filter(w => theirs.has(w))).size;
 }
 
+/** Twin of SQL public.page365_norm_name: lower-cased, every whitespace run
+ *  (incl. U+3000 and NBSP, which \s covers) one space, trimmed. 2026-10-29. */
+export function normalName(name: string | null | undefined): string {
+  return String(name ?? "").toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+/** Twin of SQL public.page365_swap_code: the name with its first word (the
+ *  code) replaced by `code`; the rest is kept as written. 2026-10-29. */
+export function swapCode(name: string | null | undefined, code: string): string {
+  const s = String(name ?? "");
+  return s.trim() === "" ? s : s.replace(/^\s*\S+/, code);
+}
+
 /** Exactly one listing whose code (first word, F2) is `code`; otherwise why
  *  not. Never a prefix match, never a guess between two. 2026-10-27 (owner
  *  rule): when 2+ listings share the code and the caller passes the line's own

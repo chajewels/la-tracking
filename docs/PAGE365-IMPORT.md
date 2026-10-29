@@ -1077,6 +1077,88 @@ notes (`SKIP_REASON` in `src/lib/page365-inventory.ts`).
 **Fix for an unresolved bell.** Give one of the Page365 listings its own code (or correct the Hub
 name so it matches its listing). The next read resolves it.
 
+## FOLLOW — code, name and photos follow Page365; Catalog delete (added 2026-10-29)
+
+Plan and review history: `docs/PAGE365-FOLLOW-AND-DELETE-PLAN.md`. Migration
+`20270220100000_page365_follow_and_catalog_delete.sql`; local SQL tests
+`docs/sql/20270220_page365_follow_local_tests.sql`; read-only dry run
+`docs/sql/20270220_page365_follow_dry_run.sql` (run it BEFORE the apply).
+
+**Why.** Listing 80622155 was re-coded N1073 → N9140 on Page365 (17 Oct). The Hub
+product stayed N1073 (draft, stock 0): `page365_inventory_finish` matched ONLY by
+code, so every read listed N9140 as `unmatched` / `new`, and
+`page365_inventory_land_run` skipped it as `already_landed` (the listing id was
+already linked) — silently, no bell.
+
+**What follows (linked products only — `website_products.page365_product_id`
+set, not "Don't sync with Page365", complete reads only).**
+- CODE — `page365_inventory_follow_code` (finish step a3, BEFORE matching): a
+  pending item whose `(page365_product_id, page365_variant_id)` is linked to
+  exactly one Hub product with a different code renames it (sku, name, name_ja
+  code word, presence code) so step (b) then matches by the new code. The new
+  code is another Hub product's → NO write, ONE bell `page365_recode_blocked`.
+  The slug is regenerated (land_run's recipe) ONLY while the product was never
+  public (`first_published_at IS NULL`); once public it never moves.
+- NAME — `page365_follow_names` (finish step h): change = Page365 now vs the
+  Page365 name last seen (`page365_listing_names.last_p365_name`), NEVER vs the
+  Hub name. If the Hub name is still exactly a Page365 name seen before
+  (`seen_names`, code word swapped) it is replaced (name_ja cleared,
+  `ja_pending`, the fetch tick translates it); otherwise staff completed it and
+  it is KEPT with ONE bell `page365_name_changed` per Page365 name (Page365 old →
+  new). A Hub-completed name is never cut back to Page365's text. Page365 caps
+  names near 80 characters, so completed names are normal.
+- PHOTOS — SQL half (`page365_inventory_follow_listing`): Page365-origin media
+  (`page365_photo_id IS NOT NULL`) removed on Page365 is deleted and the rest
+  re-sorted to Page365's order after the staff photos; an EMPTY photo list
+  deletes nothing; staff photos never move. Edge half
+  (`copyFollowedPhotos` in `page365-inventory-fetch`): adds / replaces, ≤ 3 tries
+  per read (`page365_inventory_items.photo_attempts`).
+- PRICE — never written. `price_differs` stays the staff-approval signal.
+- Reviews of a deleted piece come back (below). `page365_inventory_land_run` is
+  NOT edited; step (h) restores them right after landing.
+
+**first_published_at.** Stamped ONCE by trigger when a product first becomes
+active, never cleared; backfilled from any sign of past publication (status ≠
+draft, audit `website_product_published` / `page365_inventory_hidden`, an order,
+draft or cart line). NULL = never public.
+
+**One-time pass (the migration).** Seeds `page365_listing_names` from the full
+item history, then compares the Hub name with Page365's on the latest ready FULL
+read: never-completed names are updated, completed ones kept, ONE summary bell
+`page365_names_followed_summary`, no per-product bell. Idempotent.
+
+**Link backfill (the migration).** Links an unlinked product to its listing only
+when its code is on exactly ONE variant of the latest ready full read and
+nobody is linked to it. The migration REFUSES unless the candidates are within
+N1616, R7828, R3341 (8C100 is Hub-only, N4020 a website sample — never linked).
+An empty database (no complete full read) skips it.
+
+**Catalog delete — `delete_website_product_atomic` is the ONE path** (the Products
+card calls it; never a bare `.delete()`). Why a plain delete failed: deleting a
+product makes the FK SET NULL `website_product_id` on its `kind='hub_only'`
+`page365_inventory_items` rows, and the CHECK `page365_inventory_item_kind`
+refuses a hub_only row without a product (11 products had them). It also scanned
+~879k item rows (no index; 8 s `statement_timeout`) — now
+`idx_page365_inventory_items_product`. No FK was changed. The RPC:
+1. refuses with "This piece has an active live-selling claim." ONLY when a claim
+   on any variant is `held`, `paid` or `layaway`; deletes `expired` / `released`
+   claims first (FK stays NO ACTION);
+2. snapshots the product's reviews into `product_review_detached` by Page365
+   listing — BOTH links: `product_review_products` (storefront product page,
+   `website/index.ts` GET /reviews) and `product_reviews.website_product_id`
+   (the review's own product badge; the Hub ReviewsCard reads both);
+3. deletes the product's `hub_only` rows, audits (`website_product_deleted`),
+   deletes the product. Order, draft and cart lines keep their own saved code,
+   name and price; only the link is cleared (FKs as live).
+If Page365 still lists the piece in stock, the next complete read lands a FRESH
+unpublished draft (existing landing rules) and step (h) restores both review
+links by listing id. A Hub-only product simply deletes.
+
+**Deploy.** Migration is applied by Lovable AFTER the PR is merged to `main`
+(migrations must be on `main` first). Edge functions to deploy afterwards
+(separate deploy-only step): `page365-inventory-fetch` only (the shared helper
+`_shared/page365-inventory.ts` is bundled into it).
+
 ## Void sync — Page365 voided → Hub cancel, renewed → Hub restore (added 2026-10-21)
 
 Owner decisions 2026-10-21; plan in the project doc
