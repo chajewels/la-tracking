@@ -114,3 +114,79 @@ describe("wiring", () => {
     expect(e).toContain('.eq("website_products.page365_sync_disabled", false)');
   });
 });
+
+/**
+ * 2026-10-29 — code AND name changed in one Page365 edit (N1073 -> N9140).
+ * Migration 20270221100000_page365_follow_recode_name.sql; the behaviour is
+ * proved by docs/sql/20270220_page365_follow_local_tests.sql §0b / §4c / §4d
+ * (143 checks). These pins keep the wiring and the rules in place.
+ */
+const FIX = src("supabase/migrations/20270221100000_page365_follow_recode_name.sql");
+const SQL_TESTS = src("docs/sql/20270220_page365_follow_local_tests.sql");
+
+describe("re-code + rename in one Page365 edit (20270221100000)", () => {
+  it("compares with the Hub name ONLY in the read where (a3) renamed the product, NULL-safe", () => {
+    const c = code(FIX);
+    expect(c).toContain("(i.result_note IS NOT DISTINCT FROM 'code_followed') AS recoded");
+    expect(c).toContain("OR (r.recoded AND public.page365_norm_name(v_cur) IS DISTINCT FROM public.page365_norm_name(r.hub_name))");
+    // the ordinary rule stays: Page365 now vs Page365 last seen
+    expect(c).toContain("ELSE public.page365_norm_name(v_cur) IS DISTINCT FROM public.page365_norm_name(v_ln.last_p365_name)");
+    // a completed name is still never cut back: the follow is gated by seen_names
+    expect(c).toContain("v_never := EXISTS (SELECT 1 FROM unnest(v_ln.seen_names) s");
+    expect(c).toContain("IF v_never THEN");
+  });
+  it("the bell names the previous DISTINCT Page365 text, never 'from X to X'", () => {
+    const c = code(FIX);
+    expect(c).toContain("WHERE public.page365_norm_name(t.s) <> public.page365_norm_name(v_cur)");
+    expect(c).toContain("'page365_old', v_prev, 'page365_new', v_cur");
+  });
+  it("starts from the shipped body (md5-guarded), replaces only page365_follow_names, re-asserts grants", () => {
+    const c = code(FIX);
+    expect(c).toContain("'f94cc7a8650f239d705095e95dd677f1'");           // 20270220100000 body
+    expect(c).toContain("'df6874f35c21f527191d0d06153278c1'");           // this body (self-check)
+    expect(c.match(/CREATE OR REPLACE FUNCTION/g)?.length).toBe(1);
+    expect(c).toContain("CREATE OR REPLACE FUNCTION public.page365_follow_names(p_run_id uuid, p_once boolean DEFAULT false)");
+    expect(c).toContain("REVOKE ALL ON FUNCTION public.page365_follow_names(uuid, boolean) FROM PUBLIC, anon, authenticated;");
+    expect(c).toContain("GRANT EXECUTE ON FUNCTION public.page365_follow_names(uuid, boolean) TO service_role;");
+    // finish / follow_code untouched (self-check pins their md5s)
+    expect(c).toContain("'5c5704eb68e50cf4cf2a94d95f78efcf'");
+    expect(c).toContain("'ee37a40f30c9cc1fa394b2184486c5e1'");
+  });
+  it("changes no table, FK, index, policy or trigger, has no BEGIN/COMMIT, never writes price / stock / status", () => {
+    const c = code(FIX);
+    expect(c).not.toMatch(/ALTER TABLE/i);
+    expect(c).not.toMatch(/CREATE (TABLE|INDEX|POLICY|TRIGGER)/i);
+    expect(c).not.toMatch(/^\s*(BEGIN|COMMIT);/m);
+    expect(c).not.toMatch(/UPDATE public\.website_product_variants/i);
+    expect(c).not.toMatch(/SET\s+status\s*=/i);
+  });
+  it("keeps every comment OUTSIDE the function body (Lovable strips in-body comment lines)", () => {
+    const body = FIX.split("$fn$")[1];
+    expect(body).toBeDefined();
+    expect(body.split("\n").some(l => /^\s*--/.test(l))).toBe(false);
+    expect(FIX.includes(IDEOGRAPHIC) || FIX.includes(NBSP)).toBe(false);
+  });
+  it("runs the one-time pass again (repairs a product a read between the releases left hybrid) and self-checks", () => {
+    const c = code(FIX);
+    expect(c).toContain("v_res := public.page365_follow_names(v_run, true);");
+    expect(c).toContain("current_setting('page365.recode_name_before', true)");
+  });
+  it("the local SQL suite carries the regression matrix and the pre-release seed shape", () => {
+    for (const label of [
+      "0b: SIMULTANEOUS code + name, never completed: renamed to the new code",
+      "0b: ... AND the new Page365 name followed (not the old words behind the new code)",
+      "0b: SIMULTANEOUS, staff-completed: renamed to the new code",
+      "0b: ... the completed name is KEPT (code word swapped only)",
+      "4c code-only: sku and name code word follow, rest kept",
+      "4c name-only: sku unchanged, name followed",
+      "4c simultaneous: sku follows AND the whole new name follows",
+      "4c completed + simultaneous: sku follows, completed name KEPT (code word swapped)",
+      "4c blocked + simultaneous: the linked product is NOT renamed (sku, name, name_ja)",
+      "4d: the pass repairs the never-completed hybrid to Page365's text",
+    ]) expect(SQL_TESTS).toContain(label.replace("Page365's", "Page365''s"));
+    // the seed reproduces the live shape: re-coded + renamed before the release
+    expect(src("docs/sql/20270220_page365_follow_local_seed.sql")).toContain("'SD9140 Necklace Tiffany 3.30g Paloma [Preloved]'");
+    // the documented sequence applies the fix after the shipped migration
+    expect(src("docs/sql/20270220_page365_follow_local_stub.sql")).toContain("P supabase/migrations/20270221100000_page365_follow_recode_name.sql");
+  });
+});

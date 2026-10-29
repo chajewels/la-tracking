@@ -177,3 +177,11 @@ Lovable message asserts on SOURCE CONTENT (code-only unique string + line count 
 - **`page365_inventory_follow_code` is its own function** (step a3) next to `page365_inventory_follow_listing` (step h).
 - The finish return value gains a `followed` key.
 - Local harness only (not live): `docs/sql/20270220_page365_follow_local_stub.sql`, `…_seed.sql`, `…_tests.sql`; read-only owner dry run `docs/sql/20270220_page365_follow_dry_run.sql`.
+
+## 13. Fix after release (2026-10-29) — code + name changed in one Page365 edit
+Branch `fix/page365-follow-simultaneous-code-name`, migration `20270221100000_page365_follow_recode_name.sql`.
+- **What was wrong.** §2.2 (h) compares Page365-now with `last_p365_name`, never the Hub name — right in steady state, wrong for the one case the plan was written for: §1.1's listing was re-coded + renamed BEFORE the release, so §3 step 3's history seed already stored the NEW name as "last seen" while the Hub still carried the old text, and §4's pass skipped it (unmatched). First read: (a3) → `N9140 <old words>`; (h) → "unchanged". Hybrid name, no bell, never re-evaluated.
+- **Fix.** In the read where (a3) renamed the product (`result_note = 'code_followed'`), (h) also compares with the Hub name; everything else (seen_names gate, one bell, slug rule, price, photos, delete) unchanged. The bell names the previous distinct Page365 text. The one-time pass runs again (repairs a product a read between the releases already left hybrid).
+- **Proof.** Local suite §0b / §4c / §4d (143 checks, + the 46 duplicate-code checks unmodified). UNVERIFIED on live: the md5 of `page365_follow_names` (the pre-flight refuses anything but the 20270220100000 body or the fixed one).
+- **Not changed (noted for the owner).** (a3) swaps the FIRST WORD of the Hub name whatever it is; a Hub name that does not start with the code would lose its first word — no such product is known (names are copied from Page365), but a guard (`first_word(name) = old_code`, as already done for `name_ja`) is a candidate follow-up. A blocked re-code still lets step (b) match the listing to the OTHER product by code (pre-existing matcher behaviour, §2.2).
+
