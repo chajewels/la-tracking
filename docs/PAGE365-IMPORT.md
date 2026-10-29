@@ -1127,6 +1127,28 @@ item history, then compares the Hub name with Page365's on the latest ready FULL
 read: never-completed names are updated, completed ones kept, ONE summary bell
 `page365_names_followed_summary`, no per-product bell. Idempotent.
 
+**Code AND name changed in one Page365 edit (fix 2026-10-29, migration
+`20270221100000_page365_follow_recode_name.sql`).** The name rule compares
+Page365-now with the Page365 name LAST SEEN, and 20270220100000 seeded that
+memory from the full item history — which, for a listing re-coded BEFORE the
+release (80622155: N1073 → N9140 since 17 Oct), already held the NEW name. So the
+first read after the release renamed the product to the new code with the OLD
+words behind it ("N9140 <old words>"), step (h) saw "unchanged" and the hybrid
+name stayed, silently (no follow, no bell, no `ja_pending`); the one-time pass
+could not help because the listing was unmatched until step (a3) existed. Fix:
+in the read where (a3) renamed the product (item `result_note = 'code_followed'`)
+`page365_follow_names` ALSO compares Page365-now with the Hub name; the rest of
+the rule is unchanged (Hub name still a Page365 text seen before → replaced,
+else kept + ONE bell naming the previous distinct Page365 text). The migration
+re-runs the one-time pass to repair a product that a read between the two
+releases already left hybrid (no per-product bell; one summary bell only if any
+differed). Local proof: `docs/sql/20270220_page365_follow_local_tests.sql` §0b
+(the pre-release seed shape), §4c (code-only / name-only / simultaneous /
+completed + simultaneous / blocked + simultaneous), §4d (the repair) — 143
+checks; without the fix §0b fails with the hybrid name. Apply order matters: a
+RE-RUN of 20270220100000 puts its own `page365_follow_names` back — always
+re-apply 20270221100000 after it.
+
 **Link backfill (the migration).** Links an unlinked product to its listing only
 when its code is on exactly ONE variant of the latest ready full read and
 nobody is linked to it. The migration REFUSES unless the candidates are within

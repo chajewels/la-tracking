@@ -6541,3 +6541,27 @@ and migration 20270218100000 restores the key after the hinted deploy.
 Lesson: a new table with foreign keys to two tables that are already joined
 directly makes their embed ambiguous; test the existing PostgREST reads, not
 only the SQL, before applying.
+
+## Page365 re-code + rename in one edit left a hybrid Hub name (2026-10-29)
+Independent monitoring, after PR #670/#671 (Page365 follow): when Page365 changes the CODE and the NAME of a
+listing in the same edit — the N1073 → N9140 case the feature was built for (listing 80622155, re-coded on
+17 Oct) — the Hub product is renamed to the new code but keeps the OLD words behind it ("N9140 Necklace
+Tiffany 3.50g"), a name that was never on Page365; no bell, no name_ja regeneration, never re-evaluated.
+Cause: `page365_follow_names` (finish step h) decides "changed" by comparing Page365-now with
+`page365_listing_names.last_p365_name` (the Page365 name last seen, never the Hub name — by design, so a
+completed name is never cut back). Migration 20270220100000 seeded that memory from the FULL item history,
+and the history of a listing re-coded BEFORE the release already carried the new code and name, so the first
+read after the release saw Page365-now = last seen and skipped; its one-time pass only looked at MATCHED
+items, and a re-coded listing was unmatched until step (a3) existed. A code-only, a name-only or a
+simultaneous change made AFTER the release worked (last seen still held the previous text).
+Fix: migration `20270221100000_page365_follow_recode_name.sql` (md5-guarded on the 20270220100000 body
+f94cc7a8…): in the read where (a3) renamed the product (item result_note `code_followed`) the name is also
+compared with the Hub name (NULL-safe: `IS NOT DISTINCT FROM`); seen_names gate, one bell, slug/price/photo
+rules unchanged; the bell names the previous distinct Page365 text; the one-time pass runs again to repair a
+product a read between the two releases already left hybrid. Local proof: docs/sql/20270220_page365_follow_
+local_tests.sql §0b (the pre-release seed shape — fails without the fix), §4c (code-only / name-only /
+simultaneous / completed + simultaneous / blocked + simultaneous), §4d (repair) — 143 checks.
+Lesson: a memory seeded from history must be compared with what the Hub actually copied, not only with the
+newest history row; and a re-run of an earlier migration's CREATE OR REPLACE silently reverts a later fix —
+the fix migration must always follow it.
+

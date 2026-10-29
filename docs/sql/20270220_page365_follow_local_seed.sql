@@ -13,6 +13,16 @@
 --              "[Used]" -> "[Preloved]")             -> the pass UPDATES it
 --       SB200  completed by staff ("Blue Topaz" vs "B.T") -> the pass KEEPS it
 --       SC300  identical                                  -> untouched
+--   * (2026-10-29, fix/page365-follow-simultaneous-code-name) two linked
+--     listings RE-CODED ON PAGE365 BEFORE THE FOLLOW RELEASE — the live shape
+--     of N1073 -> N9140 (listing 80622155): the latest read already carries the
+--     NEW code AND a NEW name, so the migration's history seed puts the new
+--     name into page365_listing_names.last_p365_name while the Hub name is
+--     still the old text, and the one-time pass skips them (unmatched).
+--       SD400  draft, stock 0, never completed  -> the first read after the
+--              release must rename it SD9140 AND follow the new name
+--       SE500  active, completed by staff       -> renamed SE9500, name kept,
+--              ONE page365_name_changed bell
 -- ============================================================================
 \set ON_ERROR_STOP 1
 CREATE OR REPLACE FUNCTION pg_temp.p(pid bigint, name text, avail integer DEFAULT 1) RETURNS jsonb LANGUAGE sql AS $$
@@ -51,30 +61,48 @@ INSERT INTO public.website_products(sku, name, status, origin, metals, page365_s
   ('N4020', 'N4020 Website sample necklace', 'active', 'JAPAN', ARRAY['K18'], true),
   ('SA100', 'SA100 Ring Diamond [Used]', 'active', 'JAPAN', ARRAY['K18'], false),
   ('SB200', 'SB200 Necklace Blue Topaz 1.2ct', 'active', 'JAPAN', ARRAY['K18'], false),
-  ('SC300', 'SC300 Bracelet Pearl 18cm', 'active', 'JAPAN', ARRAY['K18'], false);
+  ('SC300', 'SC300 Bracelet Pearl 18cm', 'active', 'JAPAN', ARRAY['K18'], false),
+  ('SE500', 'SE500 Ring Blue Topaz 1.2ct', 'active', 'JAPAN', ARRAY['K18'], false);
+-- SD400: the N1073 shape — a landed draft, stock 0, never published, never completed.
+INSERT INTO public.website_products(sku, slug, name, status, origin, metals, page365_sync_disabled) VALUES
+  ('SD400', 'sd400-necklace-tiffany-3-50g', 'SD400 Necklace Tiffany 3.50g', 'draft', 'UNKNOWN', ARRAY['K18'], false);
 INSERT INTO public.website_product_variants(product_id, stock_qty, price_jpy)
 SELECT id, 1, 50000 FROM public.website_products WHERE status = 'active';
+INSERT INTO public.website_product_variants(product_id, stock_qty, price_jpy)
+SELECT id, 0, 50000 FROM public.website_products WHERE sku = 'SD400';
 -- name_ja on SA100 so the pass is seen clearing it
 UPDATE public.website_products SET name_ja = 'SA100 リング ダイヤ [中古]' WHERE sku = 'SA100';
 -- the three already-linked ones
 UPDATE public.website_products SET page365_product_id = 811005, page365_variant_id = 8110050 WHERE sku = 'SA100';
 UPDATE public.website_products SET page365_product_id = 811006, page365_variant_id = 8110060 WHERE sku = 'SB200';
 UPDATE public.website_products SET page365_product_id = 811007, page365_variant_id = 8110070 WHERE sku = 'SC300';
+UPDATE public.website_products SET page365_product_id = 811008, page365_variant_id = 8110080 WHERE sku = 'SD400';
+UPDATE public.website_products SET page365_product_id = 811009, page365_variant_id = 8110090 WHERE sku = 'SE500';
+UPDATE public.website_products SET name_ja = 'SE500 リング ブルートパーズ' WHERE sku = 'SE500';
 
 -- Two earlier complete reads (Page365 said "[Used]"), then the latest (it says "[Preloved]").
 SELECT pg_temp.run(jsonb_build_array(
   pg_temp.p(811001, 'N1616 Necklace K18 Diamond Pave'), pg_temp.p(811002, 'R7828 Ring PT900 Sapphire Halo'),
   pg_temp.p(811003, 'R3341 Ring K18 Ruby Solitaire'), pg_temp.p(811004, 'N4020 Website sample necklace'),
   pg_temp.p(811005, 'SA100 Ring Diamond [Used]'), pg_temp.p(811006, 'SB200 Necklace B.T 1.2ct'),
-  pg_temp.p(811007, 'SC300 Bracelet Pearl 18cm')));
+  pg_temp.p(811007, 'SC300 Bracelet Pearl 18cm'),
+  pg_temp.p(811008, 'SD400 Necklace Tiffany 3.50g', 0), pg_temp.p(811009, 'SE500 Ring B.T 1.2ct')));
 SELECT pg_temp.run(jsonb_build_array(
   pg_temp.p(811001, 'N1616 Necklace K18 Diamond Pave'), pg_temp.p(811002, 'R7828 Ring PT900 Sapphire Halo'),
   pg_temp.p(811003, 'R3341 Ring K18 Ruby Solitaire'), pg_temp.p(811004, 'N4020 Website sample necklace'),
   pg_temp.p(811005, 'SA100 Ring Diamond [Used]'), pg_temp.p(811006, 'SB200 Necklace B.T 1.2ct'),
-  pg_temp.p(811007, 'SC300 Bracelet Pearl 18cm')));
+  pg_temp.p(811007, 'SC300 Bracelet Pearl 18cm'),
+  pg_temp.p(811008, 'SD400 Necklace Tiffany 3.50g', 0), pg_temp.p(811009, 'SE500 Ring B.T 1.2ct')));
+-- The latest read: Page365 re-coded AND renamed 811008 / 811009 in one edit (the 17 Oct N1073 -> N9140 edit).
 SELECT pg_temp.run(jsonb_build_array(
   pg_temp.p(811001, 'N1616 Necklace K18 Diamond Pave'), pg_temp.p(811002, 'R7828 Ring PT900 Sapphire Halo'),
   pg_temp.p(811003, 'R3341 Ring K18 Ruby Solitaire'), pg_temp.p(811004, 'N4020 Website sample necklace'),
   pg_temp.p(811005, 'SA100 Ring Diamond [Preloved]'), pg_temp.p(811006, 'SB200 Necklace B.T 1.2ct'),
-  pg_temp.p(811007, 'SC300 Bracelet Pearl 18cm')));
+  pg_temp.p(811007, 'SC300 Bracelet Pearl 18cm'),
+  pg_temp.p(811008, 'SD9140 Necklace Tiffany 3.30g Paloma [Preloved]', 1), pg_temp.p(811009, 'SE9500 Ring B.T 1.2ct [Preloved]')));
 SELECT count(*) AS seed_runs FROM public.page365_inventory_runs WHERE status = 'ready';
+-- Before the follow release the re-coded listings are stranded: unmatched / new, not landed twice.
+SELECT i.code, i.match_result, i.category, i.result_note
+  FROM public.page365_inventory_items i
+ WHERE i.run_id = (SELECT id FROM public.page365_inventory_runs ORDER BY created_at DESC LIMIT 1)
+   AND i.page365_product_id IN (811008, 811009) ORDER BY i.code;
