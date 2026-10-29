@@ -5029,6 +5029,7 @@ export type Database = {
           page365_price_jpy: number | null
           page365_product_id: number | null
           page365_variant_id: number | null
+          photo_attempts: number
           photos_removed: number
           photos_to_copy: number
           photos_total: number
@@ -5065,6 +5066,7 @@ export type Database = {
           page365_price_jpy?: number | null
           page365_product_id?: number | null
           page365_variant_id?: number | null
+          photo_attempts?: number
           photos_removed?: number
           photos_to_copy?: number
           photos_total?: number
@@ -5101,6 +5103,7 @@ export type Database = {
           page365_price_jpy?: number | null
           page365_product_id?: number | null
           page365_variant_id?: number | null
+          photo_attempts?: number
           photos_removed?: number
           photos_to_copy?: number
           photos_total?: number
@@ -5439,6 +5442,47 @@ export type Database = {
             columns: ["variant_id"]
             isOneToOne: false
             referencedRelation: "website_product_variants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      page365_listing_names: {
+        Row: {
+          bell_name: string | null
+          ja_pending: boolean
+          last_p365_name: string | null
+          page365_product_id: number | null
+          page365_variant_id: number | null
+          seen_names: string[]
+          updated_at: string
+          website_product_id: string
+        }
+        Insert: {
+          bell_name?: string | null
+          ja_pending?: boolean
+          last_p365_name?: string | null
+          page365_product_id?: number | null
+          page365_variant_id?: number | null
+          seen_names?: string[]
+          updated_at?: string
+          website_product_id: string
+        }
+        Update: {
+          bell_name?: string | null
+          ja_pending?: boolean
+          last_p365_name?: string | null
+          page365_product_id?: number | null
+          page365_variant_id?: number | null
+          seen_names?: string[]
+          updated_at?: string
+          website_product_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "page365_listing_names_website_product_id_fkey"
+            columns: ["website_product_id"]
+            isOneToOne: true
+            referencedRelation: "website_products"
             referencedColumns: ["id"]
           },
         ]
@@ -7119,6 +7163,41 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      product_review_detached: {
+        Row: {
+          detached_at: string
+          page365_product_id: number
+          page365_variant_id: number
+          review_id: string
+          was_linked: boolean
+          was_primary: boolean
+        }
+        Insert: {
+          detached_at?: string
+          page365_product_id: number
+          page365_variant_id: number
+          review_id: string
+          was_linked?: boolean
+          was_primary?: boolean
+        }
+        Update: {
+          detached_at?: string
+          page365_product_id?: number
+          page365_variant_id?: number
+          review_id?: string
+          was_linked?: boolean
+          was_primary?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "product_review_detached_review_id_fkey"
+            columns: ["review_id"]
+            isOneToOne: false
+            referencedRelation: "product_reviews"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       product_review_products: {
         Row: {
@@ -10982,6 +11061,7 @@ export type Database = {
           created_at: string
           description_en: string | null
           description_ja: string | null
+          first_published_at: string | null
           id: string
           item_kind: string
           karat: Database["public"]["Enums"]["website_product_karat"] | null
@@ -11007,6 +11087,7 @@ export type Database = {
           created_at?: string
           description_en?: string | null
           description_ja?: string | null
+          first_published_at?: string | null
           id?: string
           item_kind?: string
           karat?: Database["public"]["Enums"]["website_product_karat"] | null
@@ -11032,6 +11113,7 @@ export type Database = {
           created_at?: string
           description_en?: string | null
           description_ja?: string | null
+          first_published_at?: string | null
           id?: string
           item_kind?: string
           karat?: Database["public"]["Enums"]["website_product_karat"] | null
@@ -11884,6 +11966,10 @@ export type Database = {
           p_reason: string
           p_schedule_row_id: string
         }
+        Returns: Json
+      }
+      delete_website_product_atomic: {
+        Args: { p_product_id: string; p_reason?: string }
         Returns: Json
       }
       derive_cash_order_loyalty_jpy: {
@@ -13040,6 +13126,10 @@ export type Database = {
       }
       page365_clean_description: { Args: { p_text: string }; Returns: string }
       page365_first_word: { Args: { p_name: string }; Returns: string }
+      page365_follow_names: {
+        Args: { p_once?: boolean; p_run_id: string }
+        Returns: Json
+      }
       page365_inventory_apply: {
         Args: {
           p_decrease_ids: string[]
@@ -13062,6 +13152,14 @@ export type Database = {
       }
       page365_inventory_finish: { Args: { p_run_id: string }; Returns: Json }
       page365_inventory_follow: { Args: { p_run_id: string }; Returns: Json }
+      page365_inventory_follow_code: {
+        Args: { p_run_id: string }
+        Returns: Json
+      }
+      page365_inventory_follow_listing: {
+        Args: { p_run_id: string }
+        Returns: Json
+      }
       page365_inventory_hide: {
         Args: { p_item_ids: string[]; p_run_id: string }
         Returns: Json
@@ -13140,6 +13238,15 @@ export type Database = {
         Returns: string
       }
       page365_listing_text: { Args: { p_item_id: string }; Returns: string }
+      page365_make_slug: {
+        Args: {
+          p_code: string
+          p_exclude: string
+          p_name: string
+          p_variant_id: number
+        }
+        Returns: string
+      }
       page365_match_line: {
         Args: { p_name: string }
         Returns: {
@@ -13159,9 +13266,37 @@ export type Database = {
         Args: { p_code: string; p_name: string }
         Returns: string[]
       }
+      page365_norm_name: { Args: { p_name: string }; Returns: string }
+      page365_pending_ja_names: {
+        Args: { p_limit?: number }
+        Returns: {
+          o_name: string
+          o_product_id: string
+        }[]
+      }
       page365_record_check_error: {
         Args: { p_error: string; p_page365_no: number }
         Returns: undefined
+      }
+      page365_restore_reviews: {
+        Args: {
+          p_page365_product_id: number
+          p_page365_variant_id: number
+          p_product_id: string
+        }
+        Returns: number
+      }
+      page365_set_name_ja: {
+        Args: {
+          p_expected_name: string
+          p_name_ja: string
+          p_product_id: string
+        }
+        Returns: boolean
+      }
+      page365_swap_code: {
+        Args: { p_code: string; p_name: string }
+        Returns: string
       }
       page365_web_holds: { Args: { p_variant_id: string }; Returns: number }
       paidy_case_bell_missing: {
