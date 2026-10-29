@@ -774,20 +774,23 @@ export function paidyWebhookSourceIp(headers: { get(name: string): string | null
 }
 
 /**
- * M5 (Paidy QC 2026-10-09): EVERY address the request carries must be one of
- * Paidy's. Which of the two headers the platform sets (and which a caller can
- * forge) is not yet proven on live, so neither is trusted alone: a caller who
- * forges one still shows its real address in the other. At least one must be
- * present. `ips` is stored on the inbox row as evidence ("cf|xff").
+ * M5 (Paidy QC 2026-10-09; corrected 2026-10-29): the Cloudflare-set
+ * `cf-connecting-ip` decides. Proven on live 2026-10-28 (paidy_webhook_events):
+ * the function's hostname is served only through Cloudflare's edge, which sets
+ * `cf-connecting-ip` to the connecting client (Paidy's 52.199.62.26), and
+ * Supabase's gateway then appends its own AWS Global Accelerator address as the
+ * LAST x-forwarded-for hop — so "every address must be Paidy's" could never
+ * pass. x-forwarded-for is client-writable and is never trusted on its own: a
+ * request without the Cloudflare header did not come through the edge and is
+ * not recognised. Both addresses are still stored on the inbox row ("cf|xff").
  */
 export function paidyWebhookSource(headers: { get(name: string): string | null }): { ips: string; recognised: boolean } {
   const cf = String(headers.get("cf-connecting-ip") ?? "").trim();
   const entries = String(headers.get("x-forwarded-for") ?? "").split(",").map((e) => e.trim()).filter(Boolean);
   const xff = entries.length ? entries[entries.length - 1] : "";
-  const seen = [cf, xff].filter(Boolean);
   return {
     ips: `${cf || "-"}|${xff || "-"}`.slice(0, 120),
-    recognised: seen.length > 0 && seen.every((ip) => isPaidyWebhookIp(ip)),
+    recognised: isPaidyWebhookIp(cf),
   };
 }
 
