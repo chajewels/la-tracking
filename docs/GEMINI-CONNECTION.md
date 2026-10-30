@@ -1,6 +1,7 @@
 # Direct Gemini connection (`gemini-product-enhance`)
 
-Status: source only. NOT deployed, NOT called live. Deploy and the first live call need the owner's approval.
+Status: DEPLOYED (Lovable, from main) and live-tested by the owner's approval on 2026-10-31 (connectivity test: 200, `ok: true`).
+Used by: the product editor button "Suggest styling text (AI)" (branch `feat/ai-styling-suggestion`, catalog staff only). The editor sends the English name, weight and English description plus the first photo (shrunk to a JPEG <= 1 MB; skipped if it cannot be read), checks the reply against the business rules (no layaway/payment plans, no "Made in Japan"/日本製, no country gold, no karat wording, no authenticity/guarantee claims, no price/sale/points, no new numbers, one paragraph <= 800 chars) and shows it for "Add to description" / "Discard". Add appends to the English description only; nothing is saved until Save; the Japanese description is never touched.
 
 Flow: Hub (staff JWT) -> edge function `gemini-product-enhance` -> Google Gemini API -> structured reply.
 

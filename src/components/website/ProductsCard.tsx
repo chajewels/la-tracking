@@ -27,6 +27,8 @@ import { ChevronDown, ChevronLeft, ChevronRight, Download, Loader2, Plus, Refres
 import ProductImportDialog from "@/components/website/ProductImportDialog";
 import ProductDialog from "@/components/website/ProductDialog";
 import { translateJa } from "@/components/website/translate";
+import { appendStyling, checkStylingSuggestion, stylingProduct, stylingStillApplies, type StylingAsk } from "@/components/website/ai-styling";
+import { requestStyling } from "@/components/website/ai-styling-client";
 import {
   applyTranslatedDescription, descriptionWrites, needsDescriptionTranslation,
 } from "@/components/website/description-ja";
@@ -136,6 +138,9 @@ export default function ProductsCard() {
   const [partial, setPartial] = useState<{ session: number; productId: string } | null>(null);
   const [translating, setTranslating] = useState(false);
   const [translatingName, setTranslatingName] = useState(false);
+  /** "Suggest styling text (AI)": the request in flight, and a checked suggestion waiting for Add / Discard. */
+  const [suggestingStyling, setSuggestingStyling] = useState(false);
+  const [styling, setStyling] = useState<{ ask: StylingAsk; text: string; usedPhoto: boolean } | null>(null);
   // Bumped on every open; a translation that comes back after the editor was
   // reopened belongs to a form that no longer exists and is discarded.
   const editSession = useRef(0);
@@ -498,6 +503,56 @@ export default function ProductsCard() {
     } finally {
       if (editSession.current === ask.session) setTranslating(false);
     }
+  }
+
+  /**
+   * "Suggest styling text (AI)" (owner 2026-10-31): catalog staff only. Sends the
+   * English name, weight, English description and the first photo to the
+   * read-only gemini-product-enhance function, checks the reply against the
+   * business rules, and shows it for "Add to description" / "Discard". Nothing
+   * is written to the form until staff add it, nothing is saved until Save, and
+   * the Japanese description is never touched. A reply for another product or a
+   * reopened editor is discarded.
+   */
+  async function suggestStyling() {
+    if (!canManage || save.isPending || suggestingStyling) return;
+    const product = stylingProduct(form);
+    if (!product.name) {
+      toast({ title: "Nothing to describe", description: "Write the English name first." });
+      return;
+    }
+    const ask: StylingAsk = { session: editSession.current, id: form.id };
+    // The first photo the customer sees: first variant with photos, lowest sort.
+    const photo = form.variants
+      .map((v) => [...v.media].filter((m) => !!m.url).sort((x, y) => x.sort - y.sort)[0])
+      .find(Boolean)?.url ?? null;
+    setStyling(null);
+    setSuggestingStyling(true);
+    try {
+      const reply = await requestStyling(product, photo);
+      if (!stylingStillApplies(ask, editSession.current, formRef.current.id)) return;
+      const check = checkStylingSuggestion(reply.text, stylingProduct(formRef.current));
+      if (!check.ok) {
+        toast({ title: "Suggestion not shown", description: `The AI text was held back because ${check.reason}. Nothing was changed. You can try again.`, variant: "destructive" });
+        return;
+      }
+      setStyling({ ask, text: check.text, usedPhoto: reply.usedPhoto });
+    } catch (e) {
+      if (stylingStillApplies(ask, editSession.current, formRef.current.id)) {
+        toast({ title: "Could not get a suggestion", description: `${(e as Error).message} Nothing was changed.`, variant: "destructive" });
+      }
+    } finally {
+      // Always clear: the button guard above means only one request runs at a time.
+      setSuggestingStyling(false);
+    }
+  }
+
+  function acceptStyling() {
+    const s = styling;
+    if (!s || !stylingStillApplies(s.ask, editSession.current, formRef.current.id)) { setStyling(null); return; }
+    setForm((f) => ({ ...f, description_en: appendStyling(f.description_en, s.text) }));
+    setStyling(null);
+    toast({ title: "Added to the English description", description: "Press Save to keep it. The Japanese description was not changed — use Translate from English if you want it updated." });
   }
 
   /**
@@ -1396,6 +1451,12 @@ export default function ProductsCard() {
         canRegenerateName={canManage}
         translatingName={translatingName}
         onRegenerateJapaneseName={regenerateJapaneseName}
+        canSuggestStyling={canManage}
+        suggestingStyling={suggestingStyling}
+        styling={styling && stylingStillApplies(styling.ask, editSession.current, form.id) ? { text: styling.text, usedPhoto: styling.usedPhoto } : null}
+        onSuggestStyling={suggestStyling}
+        onAcceptStyling={acceptStyling}
+        onDiscardStyling={() => setStyling(null)}
         onUploadMedia={uploadMedia}
         recovery={partial && partial.session === editSession.current ? partial : null}
         onOpenSaved={openSavedProduct}

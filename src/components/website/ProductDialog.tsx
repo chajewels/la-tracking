@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Switch } from "@/components/ui/switch";
-import { Film, Loader2, Plus, RefreshCw, Trash2, Upload } from "lucide-react";
+import { Film, Loader2, Plus, RefreshCw, Sparkles, Trash2, Upload } from "lucide-react";
 import { VIDEO_MAX_BYTES } from "@/lib/product-video";
 import { MultiPick } from "@/components/website/MultiPick";
 import {
@@ -80,6 +80,7 @@ export default function ProductDialog({
   open, onOpenChange, form, setForm, collections, categories, isAdmin,
   translating, uploadingKeys, peso, saving, onSave, onTranslateDescription,
   canRegenerateName, translatingName, onRegenerateJapaneseName,
+  canSuggestStyling, suggestingStyling, styling, onSuggestStyling, onAcceptStyling, onDiscardStyling,
   onUploadMedia, onPatchVariant, onUploadVideo, onRemoveVideo, recovery, recovering, onOpenSaved,
 }: {
   open: boolean;
@@ -102,6 +103,14 @@ export default function ProductDialog({
   translatingName?: boolean;
   /** Translate the English NAME into the Japanese name field (form only, not saved). Never touches a description. */
   onRegenerateJapaneseName?: () => void;
+  /** "Suggest styling text (AI)": catalog staff only; absent or false hides it. */
+  canSuggestStyling?: boolean;
+  suggestingStyling?: boolean;
+  /** A checked suggestion waiting for "Add to description" or "Discard". Nothing is in the form yet. */
+  styling?: { text: string; usedPhoto: boolean } | null;
+  onSuggestStyling?: () => void;
+  onAcceptStyling?: () => void;
+  onDiscardStyling?: () => void;
   /** Attaches by the variant's stable key, not its array position. */
   onUploadMedia: (variantKey: string, files: FileList | null) => void;
   onPatchVariant: (i: number, patch: Partial<VariantRow>) => void;
@@ -369,6 +378,34 @@ export default function ProductDialog({
                   onChange={(e) => setForm((f) => ({ ...f, description_en: e.target.value }))}
                   placeholder="K18 gold, 40cm, 2.0g."
                 />
+                {canSuggestStyling && onSuggestStyling && (
+                  <div className="space-y-2">
+                    <Button
+                      type="button" variant="outline" size="sm" data-testid="suggest-styling"
+                      onClick={onSuggestStyling}
+                      disabled={!!suggestingStyling || saving || !form.name.trim()}
+                    >
+                      {suggestingStyling
+                        ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                        : <Sparkles className="mr-1 h-3.5 w-3.5" />}
+                      Suggest styling text (AI)
+                    </Button>
+                    {styling && (
+                      <div data-testid="styling-suggestion" className="space-y-2 rounded-md border bg-muted/40 p-3">
+                        <p className="text-xs font-medium">AI suggestion — check it before adding</p>
+                        <p className="whitespace-pre-wrap text-sm">{styling.text}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {styling.usedPhoto ? "Written from the details above and the first photo." : "Written from the details above only (no photo was sent)."}{" "}
+                          Add puts it at the end of the English description. Nothing is saved until you press Save, and the Japanese description is not changed.
+                        </p>
+                        <div className="flex gap-2">
+                          <Button type="button" size="sm" onClick={onAcceptStyling} disabled={saving}>Add to description</Button>
+                          <Button type="button" size="sm" variant="ghost" onClick={onDiscardStyling}>Discard</Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div className="space-y-1.5">
