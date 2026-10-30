@@ -86,3 +86,21 @@ describe("migration 20270223100000_page365_prefill_from_name_fixes (independent 
     expect(F).toContain("('Mikimoto')");
   });
 });
+
+describe("migration 20270224100000_page365_prefill_on_name_follow (owner 2026-10-30, N5140)", () => {
+  const G = src("supabase/migrations/20270224100000_page365_prefill_on_name_follow.sql");
+  it("is ASCII; runs only on page365_name_followed; edits neither follow_names nor prefill_from_name", () => {
+    expect(/[^\x00-\x7F]/.test(G)).toBe(false);
+    expect(G).toContain("WHEN (NEW.action = 'page365_name_followed' AND NEW.entity_type = 'website_product' AND NEW.entity_id IS NOT NULL)");
+    expect(G).not.toMatch(/FUNCTION public\.page365_follow_names|FUNCTION public\.page365_prefill_from_name/);
+    expect(G).toContain("('page365_follow_names(uuid,boolean)',   'df6874f35c21f527191d0d06153278c1')");
+  });
+  it("published products: never condition / origin / brand / stock / price / status", () => {
+    const f = G.match(/FUNCTION public\.page365_prefill_blank_fields\([\s\S]*?AS \$fn\$([\s\S]*?)\$fn\$/)![1];
+    expect(f).not.toMatch(/SET\s+(condition|origin|brand|status|stock_qty|price_jpy)/);
+    expect(f).toContain("UPDATE public.website_products SET weight_g = v_weight WHERE id = p_product_id;");
+  });
+  it("one-time pass is weight / size / stone only", () => {
+    expect(G).toContain("PERFORM public.page365_prefill_blank_fields(r.id, false);");
+  });
+});
