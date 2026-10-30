@@ -31,7 +31,7 @@ import {
   applyTranslatedDescription, descriptionWrites, needsDescriptionTranslation,
 } from "@/components/website/description-ja";
 import {
-  NAME_JA_EMPTY, applyRegeneratedName, bulkNameSummary, missingNameTargets, needsNameTranslation,
+  FillClient, applyRegeneratedName, fillMissingJapanese, fillSkipReason, bulkNameSummary, missingNameTargets, needsNameTranslation,
 } from "@/components/website/name-ja";
 import { uploadWebsiteImage } from "@/components/website/HeroImageField";
 import { CATEGORIES_QUERY_KEY, fetchCategories } from "@/components/website/CategoriesCard";
@@ -415,6 +415,7 @@ export default function ProductsCard() {
    * arrives after the text was edited, or the editor reopened, is discarded.
    */
   async function translateDescription() {
+    if (save.isPending) return;
     const en = form.description_en.trim();
     if (!en) {
       toast({ title: "Nothing to translate", description: "Write the English description first." });
@@ -451,7 +452,7 @@ export default function ProductsCard() {
    * edited, another product opened or the editor reopened is discarded.
    */
   async function regenerateJapaneseName() {
-    if (!canManage) return;
+    if (!canManage || save.isPending) return;
     const name = form.name.trim();
     if (!name) {
       toast({ title: "Nothing to translate", description: "Write the English name first." });
@@ -478,6 +479,21 @@ export default function ProductsCard() {
     }
   }
 
+  /**
+   * Save is refused while an explicit translation is pending (and the
+   * translation buttons are disabled while a Save runs), so a half-finished
+   * translation can never be saved or land on a form that is already being
+   * written. Nothing is discarded: the button simply waits, edits stay put.
+   */
+  function submitForm() {
+    if (save.isPending) return;
+    if (translating || translatingName) {
+      toast({ title: "Translation in progress", description: "Wait for the translation to finish, then press Save." });
+      return;
+    }
+    save.mutate(form);
+  }
+
   /** Products the bulk pass would fill right now: an English name and no Japanese name. */
   const missingNames = missingNameTargets(products.data ?? []);
 
@@ -498,29 +514,40 @@ export default function ProductsCard() {
     const skippedAtStart = rows.length - targets.length;
     if (!confirm(`Generate the Japanese name for ${targets.length} product${targets.length === 1 ? "" : "s"} that have none? ${skippedAtStart} with a Japanese name are left as they are. Descriptions and English text are not changed.`)) return;
     setBulk({ done: 0, total: targets.length });
-    const failed: string[] = [];
+    const translationFailed: string[] = [];
+    const databaseFailed: string[] = [];
     let filled = 0;
-    let skipped = skippedAtStart;
+    let skippedExisting = skippedAtStart;
+    let sourceChanged = 0;
     for (const [i, p] of targets.entries()) {
+      const label = String(p.sku ?? p.name);
       try {
-        const out = await translateJa({ name: String(p.name).trim() });
-        const { data, error } = await supabase.from("website_products")
-          .update({ name_ja: out.name_ja })
-          .eq("id", p.id)
-          .or(NAME_JA_EMPTY)
-          .select("id");
-        if (error) throw error;
-        if (data?.length) filled += 1;
-        else skipped += 1;
-      } catch (e) {
-        failed.push(`${p.sku ?? p.name}: ${(e as Error).message}`);
+        let ja: string;
+        try {
+          ja = (await translateJa({ name: String(p.name).trim() })).name_ja;
+        } catch (e) {
+          translationFailed.push(`${label}: ${(e as Error).message}`);
+          continue;
+        }
+        try {
+          // Guarded on the English name it was translated from AND on the
+          // Japanese name still being missing; a zero-row result is classified.
+          const o = await fillMissingJapanese(supabase as unknown as FillClient, {
+            id: p.id, column: "name_ja", source: String(p.name), observed: p.name_ja, text: ja,
+          });
+          if (o === "filled") filled += 1;
+          else if (o === "source_changed") sourceChanged += 1;
+          else skippedExisting += 1;
+        } catch (e) {
+          databaseFailed.push(`${label}: ${(e as Error).message}`);
+        }
       } finally {
         setBulk({ done: i + 1, total: targets.length });
       }
     }
     setBulk(null);
     qc.invalidateQueries({ queryKey: ["website-products"] });
-    const s = bulkNameSummary(targets.length, { filled, failed, skipped });
+    const s = bulkNameSummary(targets.length, { filled, skippedExisting, sourceChanged, translationFailed, databaseFailed });
     toast({ title: s.title, description: s.description, variant: s.failed ? "destructive" : undefined });
   }
 
@@ -591,10 +618,14 @@ export default function ProductsCard() {
           .finally(() => setTranslating(false));
       }
 
+      const identity = identityWrites(f, slug);
+      // The English name as STORED once this Save has run: what the generated
+      // Japanese name is guarded against.
+      const storedName = identity.name ?? f.loaded?.name ?? name;
       const productPayload = {
         // SKU, slug, name and Japanese name: only the ones staff changed (new
         // product: all). A fresh Japanese name follows in the final update.
-        ...identityWrites(f, slug),
+        ...identity,
         item_kind: f.itemKind,
         metals: f.metals,
         weight_g: f.weight_g,
@@ -752,14 +783,22 @@ export default function ProductsCard() {
         }
       }
       // The generated Japanese NAME goes in its own guarded write: it lands only
-      // while the name is still empty, so a Japanese name filled in meanwhile
-      // (another tab, the importer) is never replaced.
+      // while the name is still missing AND the English name is still the one it
+      // was translated from, so a Japanese name filled in meanwhile (another tab,
+      // the importer) or an English rename is never overwritten. Zero rows is
+      // reported, never shown as success.
       if (nameJa) {
-        const { error } = await supabase.from("website_products")
-          .update({ name_ja: nameJa })
-          .eq("id", productId!)
-          .or(NAME_JA_EMPTY);
-        if (error) throw new Error(`Saved, but the Japanese name was not updated: ${error.message}`);
+        let o;
+        try {
+          o = await fillMissingJapanese(supabase as unknown as FillClient, {
+            id: productId!, column: "name_ja", source: storedName, observed: f.name_ja, text: nameJa,
+          });
+        } catch (e) {
+          throw new Error(`Saved, but the Japanese name was not updated: ${(e as Error).message}`);
+        }
+        if (o !== "filled") {
+          toast({ title: "Japanese name not generated", description: `The product saved. ${fillSkipReason(o, "A Japanese name")}` });
+        }
       }
       return productId!;
     },
@@ -1153,7 +1192,7 @@ export default function ProductsCard() {
         uploadingKey={uploadingKey}
         peso={peso}
         saving={save.isPending}
-        onSave={() => save.mutate(form)}
+        onSave={submitForm}
         onTranslateDescription={translateDescription}
         canRegenerateName={canManage}
         translatingName={translatingName}

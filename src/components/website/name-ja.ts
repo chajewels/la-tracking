@@ -57,15 +57,116 @@ export function missingNameTargets<T extends NameRow>(rows: readonly T[]): T[] {
   return rows.filter((p) => !!norm(p.name) && !norm(p.name_ja));
 }
 
-/** The outcome the bulk pass reports. `skipped` = already had a Japanese name (or none to translate). */
-export interface BulkNameOutcome { filled: number; failed: string[]; skipped: number }
+/**
+ * The outcome the bulk pass reports. `skippedExisting` = already had a Japanese
+ * name (at the start or filled meanwhile); `sourceChanged` = the English name
+ * changed while it was translating; the two failure kinds name the product.
+ */
+export interface BulkNameOutcome {
+  filled: number;
+  skippedExisting: number;
+  sourceChanged: number;
+  translationFailed: string[];
+  databaseFailed: string[];
+}
 
 export function bulkNameSummary(total: number, o: BulkNameOutcome): { title: string; description?: string; failed: boolean } {
-  const base = `Japanese names filled: ${o.filled}. Skipped: ${o.skipped}. Failed: ${o.failed.length}.`;
-  return o.failed.length
-    ? { title: base, description: o.failed.join(" · "), failed: true }
+  const failedN = o.translationFailed.length + o.databaseFailed.length;
+  const base = `Japanese names filled: ${o.filled}. Skipped (already had one): ${o.skippedExisting}. `
+    + `Skipped (English changed): ${o.sourceChanged}. Translation failed: ${o.translationFailed.length}. `
+    + `Database failed: ${o.databaseFailed.length}.`;
+  return failedN
+    ? { title: base, description: [...o.translationFailed, ...o.databaseFailed].join(" · "), failed: true }
     : { title: base, description: total ? undefined : "Nothing to fill.", failed: false };
 }
 
+/** A Japanese value counts as missing when it is null, empty or only whitespace. */
+export const isMissingJa = (v: string | null | undefined) => !norm(v);
+
+export type JaColumn = "name_ja" | "description_ja";
+const SOURCE_COLUMN: Record<JaColumn, "name" | "description_en"> = {
+  name_ja: "name",
+  description_ja: "description_en",
+};
+
+/**
+ * PostgREST `or` filter for a Japanese column that is still missing. PostgREST
+ * cannot trim, so null and "" are matched structurally and a whitespace-only
+ * value only when it is exactly the one this write SAW (`observed`): the
+ * application and the database agree on "missing" without the database ever
+ * matching a different whitespace value someone typed since.
+ */
+export function jaMissingFilter(column: JaColumn, observed?: string | null): string {
+  const base = `${column}.is.null,${column}.eq.`;
+  const seen = observed ?? "";
+  if (seen !== "" && !norm(seen)) {
+    return `${base},${column}.eq."${seen.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+  }
+  return base;
+}
+
 /** PostgREST filter matching a Japanese name that is still empty (null or ""). */
-export const NAME_JA_EMPTY = "name_ja.is.null,name_ja.eq.";
+export const NAME_JA_EMPTY = jaMissingFilter("name_ja");
+
+/** The slice of the Supabase client the guarded fill needs (mockable in tests). */
+interface FillResult<T> { data: T | null; error: { message: string } | null }
+export interface FillFilter {
+  eq(column: string, value: string): FillFilter;
+  or(filter: string): FillFilter;
+  select(columns: string): PromiseLike<FillResult<{ id: string }[]>> & FillFilter;
+  maybeSingle(): PromiseLike<FillResult<Record<string, string | null> | null>>;
+}
+export interface FillClient {
+  from(table: "website_products"): {
+    update(values: Record<string, unknown>): FillFilter;
+    select(columns: string): FillFilter;
+  };
+}
+
+/**
+ * Why a generated Japanese value was or was not written.
+ * - filled: the row was updated.
+ * - has_value: another Japanese value exists now (nothing replaced).
+ * - source_changed: the English text it was translated from changed meanwhile.
+ * - gone: the product no longer exists.
+ * - not_eligible: the row matched neither reason (e.g. a different whitespace value).
+ */
+export type FillOutcome = "filled" | "has_value" | "source_changed" | "gone" | "not_eligible";
+
+/**
+ * Write a generated Japanese value ONLY while the column is still missing AND
+ * the English text it was translated from is still the stored text. A database
+ * error throws; a zero-row result is classified by re-reading the product, so
+ * "nothing updated" is never reported as success.
+ */
+export async function fillMissingJapanese(
+  client: FillClient,
+  a: { id: string; column: JaColumn; source: string; observed?: string | null; text: string },
+): Promise<FillOutcome> {
+  const srcCol = SOURCE_COLUMN[a.column];
+  const { data, error } = await client.from("website_products")
+    .update({ [a.column]: a.text })
+    .eq("id", a.id)
+    .eq(srcCol, a.source)
+    .or(jaMissingFilter(a.column, a.observed))
+    .select("id");
+  if (error) throw new Error(error.message);
+  if (data?.length) return "filled";
+  const { data: row, error: readErr } = await client.from("website_products")
+    .select(`${srcCol}, ${a.column}`).eq("id", a.id).maybeSingle();
+  if (readErr) throw new Error(readErr.message);
+  if (!row) return "gone";
+  if (!isMissingJa(row[a.column])) return "has_value";
+  if (row[srcCol] !== a.source) return "source_changed";
+  return "not_eligible";
+}
+
+/** Customer-readable reason for a generated value that was not written. */
+export function fillSkipReason(o: Exclude<FillOutcome, "filled">, what: string): string {
+  switch (o) {
+    case "has_value": return `${what} was filled in meanwhile, so the existing one was kept.`;
+    case "source_changed": return `The English text changed while it was translating, so the ${what.toLowerCase()} was not written.`;
+    case "gone": return `The product no longer exists, so the ${what.toLowerCase()} was not written.`;
+    default: return `The ${what.toLowerCase()} could not be written because the product changed.`;
+  }
+}

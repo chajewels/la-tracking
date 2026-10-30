@@ -145,7 +145,7 @@ export default function ProductDialog({
                     <Button
                       type="button" variant="outline" size="sm"
                       onClick={() => (nameRegenerationNeedsConfirm(form) ? setConfirmName(true) : onRegenerateJapaneseName())}
-                      disabled={!!translatingName || !form.name.trim()}
+                      disabled={!!translatingName || saving || !form.name.trim()}
                     >
                       {translatingName
                         ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
@@ -337,7 +337,7 @@ export default function ProductDialog({
                   <Button
                     type="button" variant="outline" size="sm"
                     onClick={() => (translationNeedsConfirm(form) ? setConfirmTranslate(true) : onTranslateDescription())}
-                    disabled={translating || !form.description_en.trim()}
+                    disabled={translating || saving || !form.description_en.trim()}
                   >
                     {translating
                       ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
@@ -558,7 +558,7 @@ export default function ProductDialog({
 
           <DialogFooter>
             <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-            <Button onClick={onSave} disabled={saving || form.variants.some((v) => saleError(v) !== null)}>
+            <Button onClick={onSave} disabled={saving || !!translatingName || (translating && !saving) || form.variants.some((v) => saleError(v) !== null)}>
               {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Save product
             </Button>

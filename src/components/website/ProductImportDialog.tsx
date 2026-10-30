@@ -21,6 +21,8 @@ import {
   TEMPLATE_IMAGE_COLUMNS,
 } from "@/lib/website-catalog-import";
 import type { TranslateFn } from "@/lib/website-catalog-import";
+import type { FillClient } from "@/components/website/name-ja";
+import { fillImportedJapanese, importJapanesePayload, planImportJapanese } from "@/components/website/import-ja";
 
 /**
  * Spreadsheet import for the Website Catalog.
@@ -165,7 +167,7 @@ export default function ProductImportDialog({ collections, categories, isAdmin, 
   }
 
   /** Mirrors the edit modal's save sequence for a single one-variant product. */
-  async function importRow(row: ImportRow): Promise<"create" | "update"> {
+  async function importRow(row: ImportRow, jaNotes: string[]): Promise<"create" | "update"> {
     const v = row.value!;
 
     const { data: found, error: findErr } = await supabase
@@ -177,25 +179,17 @@ export default function ProductImportDialog({ collections, categories, isAdmin, 
     const existingProduct = found;
     const action: "create" | "update" = existingProduct ? "update" : "create";
 
-    // Japanese DESCRIPTION only when none exists yet: an existing one (possibly
-    // hand-approved) is never replaced by an import, even if the sheet's English
-    // changed. The Japanese NAME is filled only when missing: an existing one is
-    // never replaced by an import, even if the sheet's English name changed.
-    let ja = String(existingProduct?.description_ja ?? "");
-    let nameJa = String(existingProduct?.name_ja ?? "");
-    const needDesc = !!v.description_en && !ja;
-    const needName = !nameJa;
-    if (translateJa && (needDesc || needName)) {
-      try {
-        const out = await translate({
-          name: needName ? v.name : undefined,
-          description: needDesc ? v.description_en : undefined,
-        });
-        if (needName) nameJa = out.name_ja;
-        if (needDesc) ja = out.description_ja;
-      } catch (e) {
-        throw new Error(`Japanese translation failed: ${(e as Error).message}`);
-      }
+    // Japanese text on an EXISTING product is staff-owned: an update payload
+    // never carries name_ja or description_ja, so an import cannot rewrite or
+    // clear either, even when the sheet's English changed. A MISSING one (null,
+    // empty or whitespace-only) is filled afterwards by a guarded write that
+    // lands only while it is still missing and the English text is still the
+    // one that was translated. A NEW product just gets what was generated.
+    let plan;
+    try {
+      plan = await planImportJapanese(existingProduct, v, translateJa ? translate : null);
+    } catch (e) {
+      throw new Error(`Japanese translation failed: ${(e as Error).message}`);
     }
 
     const payload = {
@@ -203,15 +197,14 @@ export default function ProductImportDialog({ collections, categories, isAdmin, 
       // Keep the existing web address on update — changing it breaks live links.
       slug: existingProduct?.slug ?? v.slug,
       name: v.name,
-      name_ja: nameJa || null,
       metals: v.metals,
       weight_g: v.weight_g,
       description_en: v.description_en,
-      description_ja: ja || null,
       condition: v.condition,
       origin: v.origin,
       brand: v.brand,
       status: v.status,
+      ...importJapanesePayload(existingProduct, plan),
     };
 
     let productId: string;
@@ -220,6 +213,9 @@ export default function ProductImportDialog({ collections, categories, isAdmin, 
       const { error } = await supabase.from("website_products")
         .update(payload).eq("id", productId);
       if (error) throw error;
+      for (const r of await fillImportedJapanese(supabase as unknown as FillClient, productId, existingProduct, v, plan)) {
+        jaNotes.push(`${row.sku} ${r.column} (${r.outcome})`);
+      }
     } else {
       const { data, error } = await supabase.from("website_products")
         .insert(payload).select("id").single();
@@ -334,11 +330,12 @@ export default function ProductImportDialog({ collections, categories, isAdmin, 
     const queue = okRows;
     setProgress({ done: 0, total: queue.length });
     let created = 0, updated = 0, skipped = errorCount;
+    const jaNotes: string[] = [];
     const failures: { row: number; sku: string; error: string }[] = [];
 
     for (const [i, row] of queue.entries()) {
       try {
-        const action = await importRow(row);
+        const action = await importRow(row, jaNotes);
         if (action === "create") created++; else updated++;
       } catch (e) {
         skipped++;
@@ -386,7 +383,8 @@ export default function ProductImportDialog({ collections, categories, isAdmin, 
     } else {
       toast({
         title: "Import complete",
-        description: `${created} created, ${updated} updated${skipped ? `, ${skipped} skipped` : ""}.`,
+        description: `${created} created, ${updated} updated${skipped ? `, ${skipped} skipped` : ""}.`
+          + (jaNotes.length ? ` Japanese not filled (kept as it was): ${jaNotes.slice(0, 5).join(", ")}${jaNotes.length > 5 ? "…" : ""}.` : ""),
       });
     }
   }

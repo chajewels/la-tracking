@@ -189,7 +189,8 @@ describe("wiring (source-anchored)", () => {
 
   it("Save builds its payload from the guarded helpers, with no inline description or identity write", () => {
     const payload = between(saveFn, "const productPayload = {", "let productId = f.id;");
-    expect(payload).toContain("...identityWrites(f, slug),");
+    expect(saveFn).toContain("const identity = identityWrites(f, slug);");
+    expect(payload).toContain("...identity,");
     expect(payload).toContain("...descriptionWrites(f),");
     expect(payload).not.toMatch(/\bsku:|\bslug:|\bname:|name_ja:|description_en:|description_ja:/);
   });
@@ -213,7 +214,9 @@ describe("wiring (source-anchored)", () => {
   });
   it("the importer fills a Japanese description only when none exists", () => {
     const imp = code(src("src/components/website/ProductImportDialog.tsx"));
-    expect(imp).toContain("const needDesc = !!v.description_en && !ja;");
+    const rules = code(src("src/components/website/import-ja.ts"));
+    expect(rules).toContain("const needDesc = !!v.description_en && isMissingJa(existing?.description_ja);");
+    expect(imp).toContain("planImportJapanese(existingProduct, v,");
     expect(imp).not.toContain("v.description_en !== prevEn");
   });
   it("nothing server-side writes description_ja behind the editor's back", () => {

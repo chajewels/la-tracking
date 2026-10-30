@@ -166,13 +166,14 @@ describe("bulk: Generate missing Japanese names", () => {
     expect(missingNameTargets(rows).some((r) => r.id === "3")).toBe(false);
   });
   it("reports filled, skipped and failed", () => {
-    const s = bulkNameSummary(3, { filled: 2, failed: ["B: rate limit"], skipped: 1 });
-    expect(s.title).toBe("Japanese names filled: 2. Skipped: 1. Failed: 1.");
+    const s = bulkNameSummary(3, { filled: 2, skippedExisting: 1, sourceChanged: 0, translationFailed: ["B: rate limit"], databaseFailed: [] });
+    expect(s.title).toContain("Japanese names filled: 2. Skipped (already had one): 1.");
+    expect(s.title).toContain("Translation failed: 1. Database failed: 0.");
     expect(s.description).toBe("B: rate limit");
     expect(s.failed).toBe(true);
   });
   it("a clean run is not an error", () => {
-    expect(bulkNameSummary(2, { filled: 2, failed: [], skipped: 0 }).failed).toBe(false);
+    expect(bulkNameSummary(2, { filled: 2, skippedExisting: 0, sourceChanged: 0, translationFailed: [], databaseFailed: [] }).failed).toBe(false);
   });
   it("the write guard matches a null or empty Japanese name only", () => {
     expect(NAME_JA_EMPTY).toBe("name_ja.is.null,name_ja.eq.");
@@ -250,7 +251,7 @@ describe("ProductDialog: Regenerate Japanese name", () => {
 describe("wiring (source-anchored)", () => {
   const card = code(src("src/components/website/ProductsCard.tsx"));
   const saveFn = between(card, "const save = useMutation({", "const remove = useMutation({");
-  const regen = between(card, "async function regenerateJapaneseName()", "const missingNames");
+  const regen = between(card, "async function regenerateJapaneseName()", "function submitForm()");
   const bulk = between(card, "async function fillMissingJapaneseNames()", "async function refreshProduct(");
 
   it("Save translates the name only when it is missing", () => {
@@ -259,8 +260,8 @@ describe("wiring (source-anchored)", () => {
   });
   it("Save writes the generated name in its own guarded update, never in the payload or description patch", () => {
     expect(saveFn).toContain("const jaPatch: { description_ja?: string | null } = {};");
-    expect(saveFn).toContain(".update({ name_ja: nameJa })");
-    expect(saveFn).toContain(".or(NAME_JA_EMPTY)");
+    expect(saveFn).toContain("fillMissingJapanese(supabase as unknown as FillClient");
+    expect(saveFn).toContain('column: "name_ja", source: storedName, observed: f.name_ja, text: nameJa');
     expect(between(saveFn, "const productPayload = {", "let productId = f.id;")).not.toMatch(/name_ja:/);
   });
   it("a failed translation writes nothing and says how to retry", () => {
@@ -269,10 +270,10 @@ describe("wiring (source-anchored)", () => {
     expect(saveFn).toContain("if (nameJa) {");
   });
   it("Regenerate Japanese name needs permission, translates the name only and never saves", () => {
-    expect(regen).toContain("if (!canManage) return;");
+    expect(regen).toContain("if (!canManage || save.isPending) return;");
     expect(regen).toContain("translateJa({ name })");
     expect(regen).not.toMatch(/description_(en|ja)|translateJa\(\{[^}]*description/);
-    expect(regen).not.toMatch(/supabase|\.update\(|\.insert\(|onSave|save\./);
+    expect(regen).not.toMatch(/supabase|\.update\(|\.insert\(|onSave|save\.mutate/);
   });
   it("Regenerate Japanese name rejects stale responses and keeps unrelated edits", () => {
     expect(regen).toContain("applyRegeneratedName(formRef.current, ask, editSession.current, out.name_ja)");
@@ -283,11 +284,9 @@ describe("wiring (source-anchored)", () => {
     expect(bulk).toContain("if (!canManage) return;");
     expect(bulk).toContain("const targets = missingNames;");
     expect(bulk).toContain("translateJa({ name: String(p.name).trim() })");
-    expect(bulk).toContain(".update({ name_ja: out.name_ja })");
-    expect(bulk).toContain(".or(NAME_JA_EMPTY)");
+    expect(bulk).toContain('column: "name_ja"');
     expect(bulk).not.toMatch(/description_(en|ja)|translateJa\(\{[^}]*description|\bsku:|\bslug:/);
-    expect(bulk.match(/\.update\(/g)).toHaveLength(1);
-    expect(bulk).not.toMatch(/\.update\(\{(?! name_ja: out\.name_ja )/);
+    expect(bulk).not.toMatch(/\.update\(|\.insert\(/);   // the only write is the guarded helper
   });
   it("the old overwrite-everything bulk action is gone", () => {
     expect(card).not.toContain("regenerateAllJapanese");
@@ -296,7 +295,9 @@ describe("wiring (source-anchored)", () => {
   });
   it("the importer fills a Japanese name only when missing", () => {
     const imp = code(src("src/components/website/ProductImportDialog.tsx"));
-    expect(imp).toContain("const needName = !nameJa;");
+    const rules = code(src("src/components/website/import-ja.ts"));
+    expect(rules).toContain("const needName = isMissingJa(existing?.name_ja);");
+    expect(imp).toContain("...importJapanesePayload(existingProduct, plan),");
     expect(imp).not.toContain("v.name !== prevName");
   });
   it("none of this touches Gemini, the AI panel or the Gemini function", () => {
