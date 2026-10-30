@@ -478,7 +478,7 @@ export default function PayslipsTab({
           <AlertDialogHeader>
             <AlertDialogTitle>Finalize payslip?</AlertDialogTitle>
             <AlertDialogDescription>
-              {confirmFinalize?.name}, {longLabel(monthKey)}: total {confirmFinalize?.figures ? formatPeso(confirmFinalize.figures.total_php) : '—'}
+              {confirmFinalize?.name}, {longLabel(monthKey)}: total {confirmFinalize?.figures ? formatPeso(confirmBreakdown ? confirmBreakdown.earnings : confirmFinalize.figures.total_php) : '—'}
               {confirmBreakdown ? `, amount due ${formatPeso(confirmBreakdown.due)}` : ''}.
               The figures and staff details freeze. {features.edit_figures
                 ? 'To change them later, use Edit figures (the payslip is re-issued).'
