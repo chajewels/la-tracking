@@ -23,11 +23,11 @@ Owner-confirmed plan 2026-10-30. Migration `20270225100000_commission_cutoff_arc
 ## Safe before the migration is applied
 The frontend reaches production before the Lovable apply (docs/GIT-WORKFLOW.md). Every `commission_splits` read goes through `fetchCommissionSplits`: if the select including `cutoff_day` fails with an undefined-column error it retries once without it and treats every cut-off as null. Until the column exists the Config tab hides Cut-off and nothing is archived (the Sales Log shows everything, as before).
 
-## Known follow-up (not in this change)
-`PayslipsTab.fetchMonthSales` fetches the CALENDAR month. For a period that crosses months (Dec 2026 = Nov 21–Dec 20) the payslip commission would miss Nov 21–30 and count nothing after Dec 20. Fine for Nov 2026 and earlier; fix it (fetch `periodRange(monthKey)`) BEFORE the December 2026 payslips are finalized.
+## Payslips
+The payslip commission loads the commission PERIOD of the pay month (`periodRange(monthKey, splits)` → `.gte('sale_date', start).lte('sale_date', end)`; splits are read first), so Dec 2026 = Nov 21–Dec 20 and Nov 2026 = Nov 1–20. With no cut-off (or before the migration) it is the calendar month, exactly as before. Already-finalized payslips stay frozen.
 
 ## Tests
-`src/test/commission-cutoff-engine.test.ts`, `src/test/commission-cutoff-screens.test.tsx`, SQL harness `supabase/tests/commission_archive/run.sh` (see its header).
+`src/test/commission-cutoff-engine.test.ts`, `src/test/commission-cutoff-screens.test.tsx`, `src/test/payslip-period-fetch.test.tsx`, SQL harness `supabase/tests/commission_archive/run.sh` (see its header).
 
 ## Release order
 PR merged to develop → owner releases develop → main → after the owner's OK, Claude Code (sole sender) sends the Lovable apply message for the migration → Admin adds Nov 2026 in Commissions → Config with Cut-off 20.

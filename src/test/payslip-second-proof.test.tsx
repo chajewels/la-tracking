@@ -17,7 +17,7 @@ const rpc = vi.fn();
 const upload = vi.fn();
 function query(rows: unknown[]) {
   const q: Record<string, unknown> = {};
-  for (const k of ["select", "gte", "lt", "order"]) q[k] = () => q;
+  for (const k of ["select", "gte", "lt", "lte", "order"]) q[k] = () => q;
   q.range = async () => ({ data: rows, error: null });
   q.then = (res: (v: unknown) => unknown) => res({ data: rows, error: null });
   return q;

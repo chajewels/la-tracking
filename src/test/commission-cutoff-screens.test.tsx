@@ -38,7 +38,7 @@ function query(table: string) {
   };
   const q: Record<string, unknown> = {};
   q.select = (c: string) => { cols = c; return q; };
-  for (const k of ["gte", "lt", "order", "eq"]) q[k] = () => q;
+  for (const k of ["gte", "lt", "lte", "order", "eq"]) q[k] = () => q;
   q.range = async () => result();
   q.then = (res: (v: unknown) => unknown) => res(result());
   return q;
