@@ -22,6 +22,20 @@ export function needsNameTranslation(f: Pick<ProductForm, "name" | "name_ja">): 
 /** Existing Japanese would be replaced: the editor asks first. */
 export const nameRegenerationNeedsConfirm = (f: Pick<ProductForm, "name_ja">) => !!norm(f.name_ja);
 
+/**
+ * The Japanese name may now describe an OLD English name (owner 2026-10-31:
+ * an existing Japanese name is kept, but staff are told). True when the English
+ * name differs from `wasName` while a Japanese name exists and is still the one
+ * it was (`wasJa`) — after "Regenerate Japanese name" the warning goes away.
+ */
+export function japaneseNameMayBeOutdated(
+  a: { name: string | null | undefined; nameJa: string | null | undefined; wasName: string | null | undefined; wasJa: string | null | undefined },
+): boolean {
+  if (isMissingJa(a.nameJa)) return false;
+  if (norm(a.name) === norm(a.wasName)) return false;
+  return norm(a.nameJa) === norm(a.wasJa);
+}
+
 /** What the form looked like when a name regeneration was requested. */
 export interface NameAsk {
   /** Bumped each time the editor is opened; a reopened editor is a different session. */

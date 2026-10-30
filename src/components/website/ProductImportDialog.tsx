@@ -22,7 +22,7 @@ import {
 } from "@/lib/website-catalog-import";
 import type { TranslateFn } from "@/lib/website-catalog-import";
 import type { FillClient } from "@/components/website/name-ja";
-import { fillImportedJapanese, importJapanesePayload, planImportJapanese } from "@/components/website/import-ja";
+import { fillImportedJapanese, importJapanesePayload, importKeptOutdatedJapaneseName, planImportJapanese } from "@/components/website/import-ja";
 
 /**
  * Spreadsheet import for the Website Catalog.
@@ -40,7 +40,7 @@ interface Props {
   translate: TranslateFn;
 }
 
-interface Summary { created: number; updated: number; skipped: number; jaNotes: string[] }
+interface Summary { created: number; updated: number; skipped: number; jaNotes: string[]; nameJaKept: string[] }
 
 /**
  * How a row's jewelry types and categories land on an existing product.
@@ -167,7 +167,7 @@ export default function ProductImportDialog({ collections, categories, isAdmin, 
   }
 
   /** Mirrors the edit modal's save sequence for a single one-variant product. */
-  async function importRow(row: ImportRow, jaNotes: string[]): Promise<"create" | "update"> {
+  async function importRow(row: ImportRow, jaNotes: string[], nameJaKept: string[]): Promise<"create" | "update"> {
     const v = row.value!;
 
     const { data: found, error: findErr } = await supabase
@@ -216,6 +216,8 @@ export default function ProductImportDialog({ collections, categories, isAdmin, 
       for (const r of await fillImportedJapanese(supabase as unknown as FillClient, productId, existingProduct, v, plan)) {
         jaNotes.push(`${row.sku} ${r.column} (${r.outcome})`);
       }
+      // The English name changed but the existing Japanese name was kept (owner 2026-10-31): list it.
+      if (importKeptOutdatedJapaneseName(existingProduct, v)) nameJaKept.push(row.sku);
     } else {
       const { data, error } = await supabase.from("website_products")
         .insert(payload).select("id").single();
@@ -331,11 +333,12 @@ export default function ProductImportDialog({ collections, categories, isAdmin, 
     setProgress({ done: 0, total: queue.length });
     let created = 0, updated = 0, skipped = errorCount;
     const jaNotes: string[] = [];
+    const nameJaKept: string[] = [];
     const failures: { row: number; sku: string; error: string }[] = [];
 
     for (const [i, row] of queue.entries()) {
       try {
-        const action = await importRow(row, jaNotes);
+        const action = await importRow(row, jaNotes, nameJaKept);
         if (action === "create") created++; else updated++;
       } catch (e) {
         skipped++;
@@ -371,7 +374,7 @@ export default function ProductImportDialog({ collections, categories, isAdmin, 
     }
 
     setProgress(null);
-    setSummary({ created, updated, skipped, jaNotes });
+    setSummary({ created, updated, skipped, jaNotes, nameJaKept });
     qc.invalidateQueries({ queryKey: ["website-products"] });
 
     // Two different things are reported, always, and never merged: ROWS THAT
@@ -380,16 +383,19 @@ export default function ProductImportDialog({ collections, categories, isAdmin, 
     const jaLine = jaNotes.length
       ? `Japanese not filled (kept as it was): ${jaNotes.slice(0, 5).join(", ")}${jaNotes.length > 5 ? `, +${jaNotes.length - 5} more` : ""}.`
       : "";
+    const keptLine = nameJaKept.length
+      ? `English name changed, Japanese name kept — regenerate it in the editor: ${nameJaKept.slice(0, 5).join(", ")}${nameJaKept.length > 5 ? `, +${nameJaKept.length - 5} more` : ""}.`
+      : "";
     if (failures.length) {
       toast({
         title: `${failures.length} row${failures.length === 1 ? "" : "s"} failed to save`,
-        description: [failures.slice(0, 3).map((f) => `Row ${f.row}: ${f.error}`).join(" · "), jaLine].filter(Boolean).join("\n"),
+        description: [failures.slice(0, 3).map((f) => `Row ${f.row}: ${f.error}`).join(" · "), jaLine, keptLine].filter(Boolean).join("\n"),
         variant: "destructive",
       });
     } else {
       toast({
         title: "Import complete",
-        description: [`${created} created, ${updated} updated${skipped ? `, ${skipped} skipped` : ""}.`, jaLine].filter(Boolean).join(" "),
+        description: [`${created} created, ${updated} updated${skipped ? `, ${skipped} skipped` : ""}.`, jaLine, keptLine].filter(Boolean).join(" "),
       });
     }
   }
@@ -531,6 +537,16 @@ export default function ProductImportDialog({ collections, categories, isAdmin, 
                     <p className="font-medium text-foreground">Saved, but Japanese not filled ({summary.jaNotes.length})</p>
                     <ul className="list-disc pl-5 text-xs text-muted-foreground">
                       {summary.jaNotes.map((n) => <li key={n}>{n}</li>)}
+                    </ul>
+                  </div>
+                )}
+                {summary.nameJaKept.length > 0 && (
+                  <div className="mt-2" data-testid="import-name-ja-kept">
+                    <p className="font-medium text-foreground">
+                      English name changed, Japanese name kept ({summary.nameJaKept.length}) — open each and press Regenerate Japanese name, then Save
+                    </p>
+                    <ul className="list-disc pl-5 text-xs text-muted-foreground">
+                      {summary.nameJaKept.map((n) => <li key={n}>{n}</li>)}
                     </ul>
                   </div>
                 )}
