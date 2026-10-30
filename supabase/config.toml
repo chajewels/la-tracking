@@ -230,6 +230,8 @@ project_id = "pfoicalpzdcmyxzvwyhz"
     verify_jwt = true
   [functions.translate-review]
     verify_jwt = true
+  [functions.gemini-product-enhance]
+    verify_jwt = true
   [functions.page365-fetch-order]
     verify_jwt = true
   [functions.page365-inventory-fetch]
