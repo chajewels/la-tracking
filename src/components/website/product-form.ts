@@ -66,6 +66,11 @@ export interface MediaRow {
   page365_photo_version?: string | null;
 }
 export interface VariantRow {
+  /** Client-side identity of this row, never written to the database: the variant's id
+   *  when it was loaded, a fresh "new-N" for one added in the editor. Index positions
+   *  shift when a row is removed, so anything asynchronous (a photo upload) attaches by
+   *  this key, never by array index. */
+  key: string;
   id?: string;
   size: string | null;
   stone: string | null;
@@ -179,7 +184,9 @@ export const sameMedia = (
     (m.page365_photo_id ?? null) === (was[i].page365_photo_id ?? null) &&
     (m.page365_photo_version ?? null) === (was[i].page365_photo_version ?? null));
 
+let variantSeq = 0;
 export const emptyVariant = (sort: number): VariantRow => ({
+  key: `new-${++variantSeq}`,
   size: "", stone: "", price_jpy: 0, sale_price_jpy: null, cost_basis: null, stock_qty: 0, sort, media: [],
 });
 

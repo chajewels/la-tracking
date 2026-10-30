@@ -216,9 +216,25 @@ export function jaGuards(
   return out;
 }
 
+/** The slice of a supabase update builder the guard needs (mockable, and usable by a test harness). */
+export interface GuardedUpdate {
+  is(column: string, value: null): GuardedUpdate;
+  eq(column: string, value: string): GuardedUpdate;
+  select(columns: string): PromiseLike<FillResult<{ id: string }[]>>;
+}
+
+/** Add one condition per guard: NULL stays IS NULL, anything else must still be EXACTLY the stored value. */
+export function applyJaGuards(q: GuardedUpdate, guards: JaGuard[]): GuardedUpdate {
+  let out = q;
+  for (const g of guards) out = g.stored === null ? out.is(g.column, null) : out.eq(g.column, g.stored);
+  return out;
+}
+
 /** Thrown when a conditional Japanese update matched no row. The editor keeps the unsaved form. */
 export class JaConflictError extends Error {
-  constructor(message: string, readonly columns: JaColumn[]) {
+  /** conflict = a newer value exists; gone = no such product; unknown = nothing differs in the
+   *  guarded columns; verify_failed = the follow-up read FAILED, so the cause is not known. */
+  constructor(message: string, readonly columns: JaColumn[], readonly kind: "conflict" | "gone" | "unknown" | "verify_failed" = "conflict") {
     super(message);
     this.name = "JaConflictError";
   }
@@ -230,12 +246,20 @@ const COLUMN_WORDS: Record<JaColumn, string> = { name_ja: "Japanese name", descr
 export async function explainJaConflict(
   client: FillClient, id: string, guards: JaGuard[],
 ): Promise<JaConflictError> {
-  const { data: row } = await client.from("website_products")
+  const { data: row, error } = await client.from("website_products")
     .select(guards.map((g) => g.column).join(", ")).eq("id", id).maybeSingle();
-  if (!row) return new JaConflictError("Not saved: this product no longer exists. Your edits are still in the editor.", []);
+  // A failed read says nothing about the row: never turn it into "deleted" or "changed".
+  if (error) {
+    return new JaConflictError(
+      `Not saved: the Japanese text was not written, and the product could not be re-checked to find out why (${error.message}). `
+      + "Nothing was overwritten and your edits are still in the editor. Check your connection, then press Save again if you want to try.",
+      [], "verify_failed",
+    );
+  }
+  if (!row) return new JaConflictError("Not saved: this product no longer exists. Your edits are still in the editor.", [], "gone");
   const changed = guards.filter((g) => (row[g.column] ?? null) !== g.stored).map((g) => g.column);
   if (!changed.length) {
-    return new JaConflictError("Not saved: the product changed while you were editing. Your edits are still in the editor; reopen the product and try again.", []);
+    return new JaConflictError("Not saved: the product changed while you were editing. Your edits are still in the editor; reopen the product and try again.", [], "unknown");
   }
   const words = changed.map((c) => COLUMN_WORDS[c]).join(" and ");
   return new JaConflictError(

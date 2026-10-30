@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -80,7 +80,7 @@ export default function ProductDialog({
   open, onOpenChange, form, setForm, collections, categories, isAdmin,
   translating, uploadingKey, peso, saving, onSave, onTranslateDescription,
   canRegenerateName, translatingName, onRegenerateJapaneseName,
-  onUploadMedia, onPatchVariant, onUploadVideo,
+  onUploadMedia, onPatchVariant, onUploadVideo, recovery, onOpenSaved,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -101,14 +101,22 @@ export default function ProductDialog({
   translatingName?: boolean;
   /** Translate the English NAME into the Japanese name field (form only, not saved). Never touches a description. */
   onRegenerateJapaneseName?: () => void;
-  onUploadMedia: (variantIndex: number, files: FileList | null) => void;
+  /** Attaches by the variant's stable key, not its array position. */
+  onUploadMedia: (variantKey: string, files: FileList | null) => void;
   onPatchVariant: (i: number, patch: Partial<VariantRow>) => void;
   /** Upload the product's MP4 (one per product). Absent = no video section. */
   onUploadVideo?: (files: FileList | null) => void;
+  /** Set when a NEW product was created but the rest of its Save failed: Save is disabled
+   *  (pressing it again would create a second product) and the saved product can be opened. */
+  recovery?: { productId: string } | null;
+  onOpenSaved?: () => void;
 }) {
   const formId = useId();
   const [confirmTranslate, setConfirmTranslate] = useState(false);
   const [confirmName, setConfirmName] = useState(false);
+  const [statusOpen, setStatusOpen] = useState(false);
+  // The status list is portaled outside the fieldset: close it the moment a Save starts.
+  useEffect(() => { if (saving) setStatusOpen(false); }, [saving]);
   const jaStale = !!form.id && !!form.description_ja.trim() && form.description_en.trim() !== form.jaSourceEn.trim();
   return (
       <Dialog open={open} onOpenChange={onOpenChange}>
@@ -116,6 +124,17 @@ export default function ProductDialog({
           <DialogHeader>
             <DialogTitle>{form.id ? "Edit product" : "New product"}</DialogTitle>
           </DialogHeader>
+
+          {recovery && (
+            <div role="alert" data-testid="product-recovery" className="space-y-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm">
+              <p className="font-medium text-foreground">This product was created, but saving did not finish.</p>
+              <p className="text-muted-foreground">
+                Pressing Save again would create a second product, so Save is off. Your text stays here until you
+                open the saved product, which shows what actually reached the catalog.
+              </p>
+              {onOpenSaved && <Button type="button" variant="outline" size="sm" onClick={onOpenSaved}>Open the saved product</Button>}
+            </div>
+          )}
 
           {/* While a Save runs every field is locked: a keystroke typed after the
               Save started would be silently dropped when the editor closes. */}
@@ -192,6 +211,7 @@ export default function ProductDialog({
                   // English and left staff guessing which one was which.
                   options={collections.map((c) => ({ id: c.id, label: c.name }))}
                   value={form.collectionIds}
+                  disabled={saving}
                   onChange={(collectionIds) => setForm((f) => ({ ...f, collectionIds }))}
                 />
               </div>
@@ -204,6 +224,7 @@ export default function ProductDialog({
                   emptyText="No category matches."
                   options={categories.map((c) => ({ id: c.id, label: c.published ? c.name : `${c.name} (unpublished)` }))}
                   value={form.categoryIds}
+                  disabled={saving}
                   onChange={(categoryIds) => setForm((f) => ({ ...f, categoryIds }))}
                 />
               </div>
@@ -438,7 +459,7 @@ export default function ProductDialog({
               </div>
 
               {form.variants.map((v, i) => (
-                <div key={v.id ?? `new-${i}`} className="space-y-3 rounded-lg border border-border p-3">
+                <div key={v.key} className="space-y-3 rounded-lg border border-border p-3">
                   <div className="grid gap-3 sm:grid-cols-4">
                     <div className="space-y-1">
                       <Label className="text-xs">Size</Label>
@@ -510,14 +531,14 @@ export default function ProductDialog({
                       </div>
                     ))}
                     <label className="flex cursor-pointer items-center gap-2 rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground hover:text-foreground">
-                      {uploadingKey === `v${i}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+                      {uploadingKey === `v:${v.key}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
                       Add photos
-                      <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => onUploadMedia(i, e.target.files)} />
+                      <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => onUploadMedia(v.key, e.target.files)} />
                     </label>
                     {form.variants.length > 1 && (
                       <Button
                         type="button" variant="ghost" size="sm" className="ml-auto text-destructive"
-                        onClick={() => setForm((f) => ({ ...f, variants: f.variants.filter((_, x) => x !== i) }))}
+                        onClick={() => setForm((f) => ({ ...f, variants: f.variants.filter((x) => x.key !== v.key) }))}
                       >
                         Remove variant
                       </Button>
@@ -529,7 +550,7 @@ export default function ProductDialog({
 
             <div className="space-y-1.5">
               <Label>Status</Label>
-              <Select value={form.status} onValueChange={(v) => setForm((f) => ({ ...f, status: v as Status }))}>
+              <Select open={statusOpen && !saving} onOpenChange={(o) => setStatusOpen(o && !saving)} disabled={saving} value={form.status} onValueChange={(v) => setForm((f) => ({ ...f, status: v as Status }))}>
                 <SelectTrigger className="sm:max-w-xs"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="draft">Draft (hidden)</SelectItem>
@@ -564,7 +585,7 @@ export default function ProductDialog({
 
           <DialogFooter>
             <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-            <Button onClick={onSave} disabled={saving || !!translatingName || (translating && !saving) || form.variants.some((v) => saleError(v) !== null)}>
+            <Button onClick={onSave} disabled={saving || !!recovery || !!translatingName || (translating && !saving) || form.variants.some((v) => saleError(v) !== null)}>
               {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Save product
             </Button>

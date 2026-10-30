@@ -31,7 +31,7 @@ import {
   applyTranslatedDescription, descriptionWrites, needsDescriptionTranslation,
 } from "@/components/website/description-ja";
 import {
-  FillClient, JaConflictError, applyRegeneratedName, explainJaConflict, fillMissingJapanese, fillSkipReason, jaGuards, bulkNameSummary, classifyNameRows, missingNameTargets, needsNameTranslation,
+  FillClient, GuardedUpdate, JaConflictError, applyJaGuards, applyRegeneratedName, explainJaConflict, fillMissingJapanese, fillSkipReason, jaGuards, bulkNameSummary, classifyNameRows, missingNameTargets, needsNameTranslation,
 } from "@/components/website/name-ja";
 import { uploadWebsiteImage } from "@/components/website/HeroImageField";
 import { CATEGORIES_QUERY_KEY, fetchCategories } from "@/components/website/CategoriesCard";
@@ -115,6 +115,14 @@ export default function ProductsCard() {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<ProductForm>(emptyProduct());
   const [uploadingKey, setUploadingKey] = useState<string | null>(null);
+  /** Identifies the newest upload: an older one finishing must not clear a newer one's busy state. */
+  const uploadToken = useRef(0);
+  /** Session whose Save is running: the form accepts no change from any control (even a portaled,
+   *  already-open picker) while it is the editor on screen. */
+  const saveLock = useRef<number | null>(null);
+  /** A NEW product that was inserted although the rest of its Save failed. */
+  const createdRef = useRef<{ session: number; productId: string } | null>(null);
+  const [partial, setPartial] = useState<{ session: number; productId: string } | null>(null);
   const [translating, setTranslating] = useState(false);
   const [translatingName, setTranslatingName] = useState(false);
   // Bumped on every open; a translation that comes back after the editor was
@@ -122,6 +130,11 @@ export default function ProductsCard() {
   const editSession = useRef(0);
   const formRef = useRef(form);
   formRef.current = form;
+  /** The setter the editor's controls get. While this editor's Save runs it accepts no change. */
+  const setFormLocked: typeof setForm = (u) => {
+    if (saveLock.current !== null && saveLock.current === editSession.current) return;
+    setForm(u);
+  };
   const [bulk, setBulk] = useState<{ done: number; total: number } | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [searchParams, setSearchParams] = useSearchParams();
@@ -337,6 +350,9 @@ export default function ProductsCard() {
    */
   function beginSession() {
     editSession.current += 1;
+    uploadToken.current += 1;
+    setUploadingKey(null);
+    setPartial(null);
     setTranslating(false);
     setTranslatingName(false);
   }
@@ -356,6 +372,7 @@ export default function ProductsCard() {
     const variants = (p.website_product_variants ?? [])
       .sort((a, b) => Number(a.sort) - Number(b.sort))
       .map((v) => ({
+        key: v.id,
         id: v.id,
         size: v.size ?? "",
         stone: v.stone ?? "",
@@ -511,6 +528,11 @@ export default function ProductsCard() {
       toast({ title: "Photo still uploading", description: "Wait for the upload to finish, then press Save." });
       return;
     }
+    if (partial && partial.session === editSession.current) {
+      toast({ title: "Do not save again", description: "This product was already created. Open the saved product instead.", variant: "destructive" });
+      return;
+    }
+    saveLock.current = editSession.current;
     save.mutate({ f: form, session: editSession.current });
   }
 
@@ -603,6 +625,7 @@ export default function ProductsCard() {
 
   const save = useMutation({
     mutationFn: async ({ f, session }: { f: ProductForm; session: number }) => {
+      createdRef.current = null;
       if (!f.name.trim() || !f.sku.trim()) throw new Error("Name and SKU are required.");
       // Jewelry only, and only to publish (owner decision 2026-09-26; DB CHECK
       // website_products_metals_jewelry applies to status active). A draft saves without one.
@@ -676,14 +699,13 @@ export default function ProductsCard() {
         // someone wrote a newer one: nothing is saved, the form stays as it is,
         // and there is no automatic retry.
         const guards = jaGuards(f, productPayload);
-        let q = supabase.from("website_products").update(productPayload).eq("id", productId);
-        for (const g of guards) q = g.stored === null ? q.is(g.column, null) : q.eq(g.column, g.stored);
+        const base = supabase.from("website_products").update(productPayload).eq("id", productId);
         if (guards.length) {
-          const { data, error } = await q.select("id");
+          const { data, error } = await applyJaGuards(base as unknown as GuardedUpdate, guards).select("id");
           if (error) throw error;
           if (!data?.length) throw await explainJaConflict(supabase as unknown as FillClient, productId, guards);
         } else {
-          const { error } = await q;
+          const { error } = await base;
           if (error) throw error;
         }
       } else {
@@ -692,6 +714,7 @@ export default function ProductsCard() {
           .insert(productPayload as TablesInsert<"website_products">).select("id").single();
         if (error) throw error;
         productId = data.id;
+        createdRef.current = { session, productId };
       }
 
       // Variants: upsert, then remove ones deleted in the form. An existing
@@ -746,11 +769,12 @@ export default function ProductsCard() {
           if (insMediaErr) throw insMediaErr;
         }
       }
-      const { data: existing } = await supabase.from("website_product_variants")
-        .select("id").eq("product_id", productId);
-      const stale = (existing ?? []).map((r) => r.id).filter((id) => !keptVariantIds.includes(id));
+      // Remove only variants this editor LOADED and the form removed. A variant added
+      // elsewhere after the editor opened is not in the snapshot, so it is never touched,
+      // and the delete is scoped to this product.
+      const stale = (f.loaded?.variants ?? []).map((v) => v.id).filter((id) => !keptVariantIds.includes(id));
       if (stale.length) {
-        const { error } = await supabase.from("website_product_variants").delete().in("id", stale);
+        const { error } = await supabase.from("website_product_variants").delete().eq("product_id", productId).in("id", stale);
         if (error) throw error;
       }
 
@@ -843,18 +867,37 @@ export default function ProductsCard() {
       }
       return productId!;
     },
+    onSettled: (_d, _e, { session }) => { if (saveLock.current === session) saveLock.current = null; },
     onSuccess: (productId, { session }) => {
+      createdRef.current = null;
       toast({ title: "Saved", description: "The website will refresh within a minute." });
       // Only the editor this Save came from is closed; a newer one is left alone.
       if (session === editSession.current) setOpen(false);
       void refreshProduct(productId);
     },
-    onError: (e: Error) => {
+    onError: (e: Error, { session }) => {
+      const created = createdRef.current;
+      if (created && created.session === session) {
+        // The product row was inserted but a later step failed. A retry would insert a
+        // second product (and repeat children that did land), so Save is switched off for
+        // this editor and the saved product can be opened to see what exists.
+        if (editSession.current === session) setPartial(created);
+        qc.invalidateQueries({ queryKey: ["website-products"] });
+        toast({
+          title: "Product created, but saving did not finish",
+          description: `${e.message} The product exists in the catalog and may be incomplete. Do not press Save again — it would create a second product. Use "Open the saved product" in the editor; your text stays there until you do.`,
+          variant: "destructive",
+        });
+        return;
+      }
       if (e instanceof JaConflictError) {
         // Nothing was written. The editor keeps the unsaved form; the list is
         // refreshed so reopening shows the newer text.
-        toast({ title: "Not saved — changed elsewhere", description: e.message, variant: "destructive" });
-        qc.invalidateQueries({ queryKey: ["website-products"] });
+        toast({
+          title: e.kind === "verify_failed" ? "Not saved — could not verify" : "Not saved — changed elsewhere",
+          description: e.message, variant: "destructive",
+        });
+        if (e.kind !== "verify_failed") qc.invalidateQueries({ queryKey: ["website-products"] });
         return;
       }
       toast({ title: "Could not save", description: e.message, variant: "destructive" });
@@ -872,36 +915,60 @@ export default function ProductsCard() {
     onError: (e: Error) => toast({ title: "Could not remove", description: e.message, variant: "destructive" }),
   });
 
-  async function uploadMedia(variantIndex: number, files: FileList | null) {
+  /**
+   * Photos for ONE variant, identified by its stable key. The result is attached only if
+   * the same editor session is still open on the same product and that variant still
+   * exists; otherwise it is discarded and said so (the file stays in storage unused).
+   * Only the newest upload may clear the busy state.
+   */
+  async function uploadMedia(variantKey: string, files: FileList | null) {
     if (!files?.length) return;
-    setUploadingKey(`v${variantIndex}`);
+    const session = editSession.current;
+    const productId = formRef.current.id;
+    const token = ++uploadToken.current;
+    setUploadingKey(`v:${variantKey}`);
     try {
-      const uploaded: MediaRow[] = [];
+      const urls: string[] = [];
       for (const file of Array.from(files)) {
-        const url = await uploadWebsiteImage("", file);
-        uploaded.push({ url, alt: form.name || null, sort: 0 });
+        urls.push(await uploadWebsiteImage("", file));
       }
+      const now = formRef.current;
+      if (editSession.current !== session || now.id !== productId) {
+        toast({ title: "Photos not attached", description: "The editor was closed or another product was opened while they uploaded." });
+        return;
+      }
+      if (!now.variants.some((v) => v.key === variantKey)) {
+        toast({ title: "Photos not attached", description: "That variant was removed while they uploaded." });
+        return;
+      }
+      const uploaded: MediaRow[] = urls.map((url) => ({ url, alt: now.name || null, sort: 0 }));
       setForm((f) => {
+        const i = f.variants.findIndex((v) => v.key === variantKey);
+        if (i < 0) return f;
         const variants = [...f.variants];
-        variants[variantIndex] = {
-          ...variants[variantIndex],
-          media: [...variants[variantIndex].media, ...uploaded],
-        };
+        variants[i] = { ...variants[i], media: [...variants[i].media, ...uploaded] };
         return { ...f, variants };
       });
     } catch (e) {
       toast({ title: "Upload failed", description: (e as Error).message, variant: "destructive" });
     } finally {
-      setUploadingKey(null);
+      if (uploadToken.current === token) setUploadingKey(null);
     }
   }
 
   async function uploadVideo(files: FileList | null) {
     const file = files?.[0];
     if (!file) return;
+    const session = editSession.current;
+    const productId = formRef.current.id;
+    const token = ++uploadToken.current;
     setUploadingKey("video");
     try {
       const { video_url, video_poster_url } = await uploadProductVideo(file);
+      if (editSession.current !== session || formRef.current.id !== productId) {
+        toast({ title: "Video not attached", description: "The editor was closed or another product was opened while it uploaded." });
+        return;
+      }
       setForm((f) => ({ ...f, videoUrl: video_url, videoPosterUrl: video_poster_url }));
       toast({
         title: "Video added",
@@ -910,12 +977,24 @@ export default function ProductsCard() {
     } catch (e) {
       toast({ title: "Video upload failed", description: (e as Error).message, variant: "destructive" });
     } finally {
-      setUploadingKey(null);
+      if (uploadToken.current === token) setUploadingKey(null);
     }
   }
 
+  /** Recovery after a partial create: show what actually reached the catalog (replaces the form). */
+  async function openSavedProduct() {
+    if (!partial) return;
+    if (!confirm("Open the saved product? The text in this form is replaced by what was saved.")) return;
+    const { data, error } = await supabase.from("website_products").select(PRODUCT_SELECT).eq("id", partial.productId).maybeSingle();
+    if (error || !data) {
+      toast({ title: "Could not open the saved product", description: error?.message ?? "It was not found.", variant: "destructive" });
+      return;
+    }
+    openEdit(data as unknown as CatalogProductRead);
+  }
+
   function patchVariant(i: number, patch: Partial<VariantRow>) {
-    setForm((f) => {
+    setFormLocked((f) => {
       const variants = [...f.variants];
       variants[i] = { ...variants[i], ...patch };
       return { ...f, variants };
@@ -1235,7 +1314,7 @@ export default function ProductsCard() {
         open={open}
         onOpenChange={onEditorOpenChange}
         form={form}
-        setForm={setForm}
+        setForm={setFormLocked}
         collections={collections.data ?? []}
         categories={categories.data ?? []}
         isAdmin={!!isAdmin}
@@ -1249,6 +1328,8 @@ export default function ProductsCard() {
         translatingName={translatingName}
         onRegenerateJapaneseName={regenerateJapaneseName}
         onUploadMedia={uploadMedia}
+        recovery={partial && partial.session === editSession.current ? partial : null}
+        onOpenSaved={openSavedProduct}
         onUploadVideo={uploadVideo}
         onPatchVariant={patchVariant}
       />
