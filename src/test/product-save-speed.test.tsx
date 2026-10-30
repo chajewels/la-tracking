@@ -35,13 +35,13 @@ describe("save: translation alongside the writes", () => {
     // The result is awaited only after the link tables.
     expect(saveFn.indexOf("await translation")).toBeGreaterThan(saveFn.lastIndexOf('from("website_category_products")'));
   });
-  it("decides from the English the Japanese was generated from", () => {
-    expect(saveFn).toContain("const needName = name !== f.jaSourceName.trim() || !f.name_ja.trim();");
-    expect(saveFn).toContain("const needDesc = !!en && (en !== f.jaSourceEn.trim() || !f.description_ja.trim());");
+  it("translates the name when the English name changed, the description only for a new product", () => {
+    expect(saveFn).toContain("const needName = name !== f.jaSourceName.trim() || (!f.id && !f.name_ja.trim());");
+    expect(saveFn).toContain("const needDesc = needsDescriptionTranslation(f);");
   });
   it("keeps the failure toast and the not-published message", () => {
     expect(saveFn).toContain('title: "Japanese not regenerated"');
-    expect(saveFn).toContain("use Regenerate to retry.");
+    expect(saveFn).toContain("the Japanese was left as it was.");
     expect(saveFn).toContain("`Saved as a draft, not published: ${error.message}`");
   });
   it("the final status update is still after website_category_products", () => {
@@ -55,11 +55,11 @@ describe("save: translation alongside the writes", () => {
   });
 });
 
-describe("Regenerate → Save does not translate twice", () => {
-  it("regenerateJapanese records the English it translated", () => {
-    const fn = between(card, "async function regenerateJapanese()", "async function regenerateAllJapanese()");
-    expect(fn).toContain("jaSourceName: name,");
-    expect(fn).toContain("jaSourceEn: en,");
+describe("Translate description → Save does not translate twice", () => {
+  it("translateDescription writes the Japanese description and nothing else", () => {
+    const fn = between(card, "async function translateDescription()", "async function regenerateAllJapanese()");
+    expect(fn).toContain("translateJa({ description: en })");
+    expect(fn).not.toMatch(/name_ja|jaSourceName/);
   });
   it("no savedName / savedEn remains anywhere in src/", () => {
     const self = resolve(__dirname, "product-save-speed.test.tsx");

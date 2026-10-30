@@ -1122,7 +1122,7 @@ function ProductDialogFixture() {
       peso={n => `₱ ${Math.round(n * 0.42).toLocaleString('en-US')}`}
       saving={false}
       onSave={() => {}}
-      onRegenerateJapanese={() => {}}
+      onTranslateDescription={() => {}}
       onUploadMedia={() => {}}
       onPatchVariant={(i, patch) =>
         setForm(f => ({ ...f, variants: f.variants.map((v, j) => (j === i ? { ...v, ...patch } : v)) }))

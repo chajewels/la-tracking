@@ -7,6 +7,11 @@ import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { translationNeedsConfirm } from "@/components/website/description-ja";
+import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -72,7 +77,7 @@ function WeightInput({ value, onChange }: { value: number | null; onChange: (v: 
 
 export default function ProductDialog({
   open, onOpenChange, form, setForm, collections, categories, isAdmin,
-  translating, uploadingKey, peso, saving, onSave, onRegenerateJapanese,
+  translating, uploadingKey, peso, saving, onSave, onTranslateDescription,
   onUploadMedia, onPatchVariant, onUploadVideo,
 }: {
   open: boolean;
@@ -87,13 +92,16 @@ export default function ProductDialog({
   peso: (n: number) => string;
   saving: boolean;
   onSave: () => void;
-  onRegenerateJapanese: () => void;
+  /** Translate the English description into the Japanese field. Never touches the name. */
+  onTranslateDescription: () => void;
   onUploadMedia: (variantIndex: number, files: FileList | null) => void;
   onPatchVariant: (i: number, patch: Partial<VariantRow>) => void;
   /** Upload the product's MP4 (one per product). Absent = no video section. */
   onUploadVideo?: (files: FileList | null) => void;
 }) {
   const formId = useId();
+  const [confirmTranslate, setConfirmTranslate] = useState(false);
+  const jaStale = !!form.id && !!form.description_ja.trim() && form.description_en.trim() !== form.jaSourceEn.trim();
   return (
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="max-h-[calc(100dvh-2rem)] max-w-3xl overflow-y-auto">
@@ -285,28 +293,51 @@ export default function ProductDialog({
                 />
               </div>
 
-              <div className="space-y-1.5 rounded-lg border border-border bg-muted/30 p-3">
+              <div className="space-y-1.5">
                 <div className="flex items-center justify-between gap-2">
-                  <Label className="text-xs text-muted-foreground">
-                    Japanese (name and description translated automatically — read-only)
-                  </Label>
+                  <Label htmlFor={`${formId}-desc-ja`}>Description (Japanese)</Label>
                   <Button
                     type="button" variant="outline" size="sm"
-                    onClick={onRegenerateJapanese}
-                    disabled={translating || (!form.description_en.trim() && !form.name.trim())}
+                    onClick={() => (translationNeedsConfirm(form) ? setConfirmTranslate(true) : onTranslateDescription())}
+                    disabled={translating || !form.description_en.trim()}
                   >
                     {translating
                       ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
                       : <RefreshCw className="mr-1 h-3.5 w-3.5" />}
-                    Regenerate
+                    Translate from English
                   </Button>
                 </div>
                 <Textarea
-                  rows={5} readOnly value={form.description_ja}
-                  className="cursor-default bg-transparent"
-                  placeholder="Generated on save when the English text changes."
+                  id={`${formId}-desc-ja`} lang="ja" rows={5}
+                  value={form.description_ja}
+                  onChange={(e) => setForm((f) => ({ ...f, description_ja: e.target.value }))}
+                  placeholder="Write the Japanese description, or translate it from the English."
                 />
+                <p className="text-xs text-muted-foreground">
+                  Saved exactly as written. It is never translated automatically for an existing product —
+                  only the button above does that. The Japanese name is generated on save and is not changed here.
+                </p>
+                {jaStale && (
+                  <p className="text-xs text-warning" role="status">
+                    The English description changed. The Japanese was kept as it is — update it or translate again if it should match.
+                  </p>
+                )}
               </div>
+              <AlertDialog open={confirmTranslate} onOpenChange={setConfirmTranslate}>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Replace the Japanese description?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This replaces the Japanese text in the box with a new translation of the English. Your
+                      current Japanese is lost unless you close this editor without saving.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Keep my Japanese</AlertDialogCancel>
+                    <AlertDialogAction onClick={onTranslateDescription}>Replace with translation</AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             </div>
 
             {onUploadVideo && (

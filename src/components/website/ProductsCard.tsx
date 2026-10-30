@@ -27,6 +27,9 @@ import { ChevronDown, ChevronLeft, ChevronRight, Download, Loader2, Plus, Refres
 import ProductImportDialog from "@/components/website/ProductImportDialog";
 import ProductDialog from "@/components/website/ProductDialog";
 import { translateJa } from "@/components/website/translate";
+import {
+  applyTranslatedDescription, descriptionWrites, needsDescriptionTranslation,
+} from "@/components/website/description-ja";
 import { uploadWebsiteImage } from "@/components/website/HeroImageField";
 import { CATEGORIES_QUERY_KEY, fetchCategories } from "@/components/website/CategoriesCard";
 import { deleteConfirmText, deleteSummary, deleteWebsiteProduct } from "@/lib/catalog-delete";
@@ -36,7 +39,7 @@ import {
 import {
   type MediaRow, type ProductForm, type ProductMetal, type VariantRow, PRODUCT_METAL_VALUES, TEMPLATE_PATH,
   ITEM_KIND_LABEL, emptyProduct, emptyVariant, itemKindFrom, metalRequired, metalsLabel, saleError, sameIds, sameMedia,
-  sameVariantRow, slugify, yen,
+  identityWrites, sameVariantRow, slugify, yen,
 } from "@/components/website/product-form";
 
 /** One product as the Catalog list reads it: the row plus its nested selects. */
@@ -110,6 +113,11 @@ export default function ProductsCard() {
   const [form, setForm] = useState<ProductForm>(emptyProduct());
   const [uploadingKey, setUploadingKey] = useState<string | null>(null);
   const [translating, setTranslating] = useState(false);
+  // Bumped on every open; a translation that comes back after the editor was
+  // reopened belongs to a form that no longer exists and is discarded.
+  const editSession = useRef(0);
+  const formRef = useRef(form);
+  formRef.current = form;
   const [bulk, setBulk] = useState<{ done: number; total: number } | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [searchParams, setSearchParams] = useSearchParams();
@@ -319,11 +327,13 @@ export default function ProductsCard() {
   }, [deepLinked, products.data]);
 
   function openNew() {
+    editSession.current += 1;
     setForm(emptyProduct());
     setOpen(true);
   }
 
   function openEdit(p: CatalogProductRead) {
+    editSession.current += 1;
     const variants = (p.website_product_variants ?? [])
       .sort((a, b) => Number(a.sort) - Number(b.sort))
       .map((v) => ({
@@ -368,6 +378,12 @@ export default function ProductsCard() {
       categoryIds: (p.website_category_products ?? []).map((c) => c.category_id),
       variants: variants.length ? variants : [emptyVariant(0)],
       loaded: {
+        description_en: (p.description_en ?? "").trim(),
+        description_ja: (p.description_ja ?? "").trim(),
+        sku: p.sku ?? "",
+        slug: p.slug ?? "",
+        name: p.name ?? "",
+        name_ja: p.name_ja ?? "",
         variants: variants.map((v) => ({
           id: v.id,
           size: v.size || null,
@@ -389,27 +405,34 @@ export default function ProductsCard() {
     setOpen(true);
   }
 
-  async function regenerateJapanese() {
-    const name = form.name.trim();
+  /**
+   * The explicit "Translate description" button (the dialog confirms first when
+   * Japanese already exists). Description only — the Japanese NAME is never
+   * touched here. A failure leaves the field as it was, and a response that
+   * arrives after the text was edited, or the editor reopened, is discarded.
+   */
+  async function translateDescription() {
     const en = form.description_en.trim();
-    if (!name && !en) {
-      toast({ title: "Nothing to translate", description: "Write the English name or description first." });
+    if (!en) {
+      toast({ title: "Nothing to translate", description: "Write the English description first." });
       return;
     }
+    const ask = { session: editSession.current, id: form.id, en, ja: form.description_ja };
     setTranslating(true);
     try {
-      const ja = await translateJa({ name, description: en });
-      setForm((f) => ({
-        ...f,
-        name_ja: name ? ja.name_ja : "",
-        description_ja: en ? ja.description_ja : "",
-        // The Japanese now matches this English: Save must not translate it again.
-        jaSourceName: name,
-        jaSourceEn: en,
-      }));
-      toast({ title: "Japanese updated" });
+      const out = await translateJa({ description: en });
+      const next = applyTranslatedDescription(formRef.current, ask, editSession.current, out.description_ja);
+      if (!next) {
+        toast({
+          title: "Translation not applied",
+          description: "The text was edited while it was translating, so your version was kept.",
+        });
+        return;
+      }
+      setForm((f) => applyTranslatedDescription(f, ask, editSession.current, out.description_ja) ?? f);
+      toast({ title: "Japanese description updated" });
     } catch (e) {
-      toast({ title: "Could not translate", description: (e as Error).message, variant: "destructive" });
+      toast({ title: "Could not translate", description: `${(e as Error).message} The Japanese description was not changed.`, variant: "destructive" });
     } finally {
       setTranslating(false);
     }
@@ -420,13 +443,14 @@ export default function ProductsCard() {
    * sequentially so the AI rate limit is never hit. Name and description go in
    * one call per product, so a design term ("Open Teardrop") comes back the
    * same in both. English is never touched; a product whose translation fails
-   * is skipped and named in the summary.
+   * is skipped and named in the summary. A Japanese description that already
+   * exists is NEVER replaced (it may be hand-approved): only an empty one is filled.
    */
   async function regenerateAllJapanese() {
     const rows = products.data ?? [];
     const targets = rows.filter((p) => String(p.name ?? "").trim());
     if (!targets.length) { toast({ title: "Nothing to translate" }); return; }
-    if (!confirm(`Regenerate the Japanese name and description for ${targets.length} product${targets.length === 1 ? "" : "s"}? English text is not changed.`)) return;
+    if (!confirm(`Regenerate the Japanese name for ${targets.length} product${targets.length === 1 ? "" : "s"}? Existing Japanese descriptions are kept; only empty ones are filled. English text is not changed.`)) return;
     setBulk({ done: 0, total: targets.length });
     const failed: string[] = [];
     for (const [i, p] of targets.entries()) {
@@ -434,7 +458,10 @@ export default function ProductsCard() {
         const en = String(p.description_en ?? "").trim();
         const out = await translateJa({ name: String(p.name).trim(), description: en || undefined });
         const { error } = await supabase.from("website_products")
-          .update({ name_ja: out.name_ja || null, description_ja: en ? out.description_ja || null : null })
+          .update({
+            name_ja: out.name_ja || null,
+            ...(en && !String(p.description_ja ?? "").trim() ? { description_ja: out.description_ja || null } : {}),
+          })
           .eq("id", p.id);
         if (error) throw error;
       } catch (e) {
@@ -494,16 +521,18 @@ export default function ProductsCard() {
       const wasActive = (products.data ?? []).some((p) => p.id === f.id && p.status === "active");
       const goingLive = f.status === "active" && !wasActive;
 
-      // Japanese is derived from the English text: refresh it when the English
-      // differs from what the current Japanese was generated from, or when it has
-      // never been generated. Never on an unchanged product, and never a second
-      // time after Regenerate (that moves jaSourceName / jaSourceEn).
+      // The Japanese NAME is derived from the English name, as before: refreshed
+      // when the English name changed (a new product also when it has none yet).
+      // An existing product's name_ja is never generated as a side effect of some
+      // other edit. The Japanese DESCRIPTION is staff-owned text (description-ja.ts):
+      // Save fills it only for a NEW product that has none, never replaces it, and
+      // an existing product is translated only by the explicit button.
       // The translation runs ALONGSIDE the writes below and lands in the final
       // update, so the AI round-trip no longer delays the first write.
       const name = f.name.trim();
       const en = f.description_en.trim();
-      const needName = name !== f.jaSourceName.trim() || !f.name_ja.trim();
-      const needDesc = !!en && (en !== f.jaSourceEn.trim() || !f.description_ja.trim());
+      const needName = name !== f.jaSourceName.trim() || (!f.id && !f.name_ja.trim());
+      const needDesc = needsDescriptionTranslation(f);
       let translation: Promise<{ name_ja: string; description_ja: string } | Error> | null = null;
       if (needName || needDesc) {
         setTranslating(true);
@@ -516,19 +545,16 @@ export default function ProductsCard() {
       }
 
       const productPayload = {
-        sku: f.sku.trim(),
-        slug,
-        name,
-        // The Japanese as it stands; a fresh translation follows in the final update.
-        name_ja: f.name_ja.trim() || null,
+        // SKU, slug, name and Japanese name: only the ones staff changed (new
+        // product: all). A fresh Japanese name follows in the final update.
+        ...identityWrites(f, slug),
         item_kind: f.itemKind,
         metals: f.metals,
         weight_g: f.weight_g,
         condition: f.condition,
         origin: f.origin,
         brand: f.brand.trim() || null,
-        description_en: en || null,
-        description_ja: en ? f.description_ja.trim() || null : null,
+        ...descriptionWrites(f),
         // Going live is written LAST, after categories: a Page365 draft is
         // refused publication without a category (trg_page365_draft_publish_guard).
         status: goingLive ? "draft" : f.status,
@@ -546,7 +572,8 @@ export default function ProductsCard() {
         if (error) throw error;
       } else {
         const { data, error } = await supabase.from("website_products")
-          .insert(productPayload).select("id").single();
+          // A new product always carries sku, slug and name (identityWrites sends all three).
+          .insert(productPayload as TablesInsert<"website_products">).select("id").single();
         if (error) throw error;
         productId = data.id;
       }
@@ -652,7 +679,7 @@ export default function ProductsCard() {
         if (out instanceof Error) {
           toast({
             title: "Japanese not regenerated",
-            description: `${out.message} The product still saved — use Regenerate to retry.`,
+            description: `${out.message} The product still saved; the Japanese was left as it was.`,
             variant: "destructive",
           });
         } else {
@@ -672,7 +699,7 @@ export default function ProductsCard() {
         if (error) {
           throw new Error(goingLive
             ? `Saved as a draft, not published: ${error.message}`
-            : `Saved, but the Japanese was not updated: ${error.message} Use Regenerate to retry.`);
+            : `Saved, but the Japanese was not updated: ${error.message}`);
         }
       }
       return productId!;
@@ -1068,7 +1095,7 @@ export default function ProductsCard() {
         peso={peso}
         saving={save.isPending}
         onSave={() => save.mutate(form)}
-        onRegenerateJapanese={regenerateJapanese}
+        onTranslateDescription={translateDescription}
         onUploadMedia={uploadMedia}
         onUploadVideo={uploadVideo}
         onPatchVariant={patchVariant}

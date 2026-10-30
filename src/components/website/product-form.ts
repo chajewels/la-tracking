@@ -99,8 +99,10 @@ export interface ProductForm {
   origin: OriginValue;
   brand: string;
   description_en: string;
+  /** Typed by staff, independent of description_en. Saved exactly as written. */
   description_ja: string;
-  /** The English description the current Japanese one was generated from. */
+  /** The English description the current Japanese one was written against.
+   *  Display only (the "English changed" hint) — Save never translates from it. */
   jaSourceEn: string;
   status: Status;
   /** "Don't sync with Page365" (website_products.page365_sync_disabled). On =
@@ -139,6 +141,15 @@ export interface LoadedVariant {
   media: Array<Pick<MediaRow, "url" | "alt" | "sort" | "page365_photo_id" | "page365_photo_version">>;
 }
 export interface LoadedSnapshot {
+  /** The descriptions as read, trimmed. Save writes a description column only
+   *  when the form differs from these (description-ja.ts). */
+  description_en: string;
+  description_ja: string;
+  /** Identity fields as stored. Save sends one only when staff changed it. */
+  sku: string;
+  slug: string;
+  name: string;
+  name_ja: string;
   variants: LoadedVariant[];
   collectionIds: string[];
   categoryIds: string[];
@@ -192,6 +203,26 @@ export const emptyProduct = (): ProductForm => ({
   status: "draft", page365SyncDisabled: false, videoUrl: null, videoPosterUrl: null, videoColumns: false, collectionIds: [], categoryIds: [], variants: [emptyVariant(0)],
   loaded: null,
 });
+
+/**
+ * The identity columns (SKU, web address, English and Japanese name) a Save
+ * sends. A new product sends all of them. An existing product sends only the
+ * ones staff changed, so an edit to anything else — a description, a price —
+ * cannot rewrite a protected name, SKU or slug, not even by trimming it.
+ */
+export function identityWrites(
+  f: Pick<ProductForm, "id" | "sku" | "name" | "name_ja" | "loaded">, slug: string,
+): { sku?: string; slug?: string; name?: string; name_ja?: string | null } {
+  const now = { sku: f.sku.trim(), slug, name: f.name.trim(), name_ja: f.name_ja.trim() || null };
+  const was = f.id ? f.loaded : null;
+  if (!was) return now;
+  const out: { sku?: string; slug?: string; name?: string; name_ja?: string | null } = {};
+  if (now.sku !== was.sku.trim()) out.sku = now.sku;
+  if (now.slug !== was.slug.trim()) out.slug = now.slug;
+  if (now.name !== was.name.trim()) out.name = now.name;
+  if (now.name_ja !== (was.name_ja.trim() || null)) out.name_ja = now.name_ja;
+  return out;
+}
 
 export const slugify = (s: string) =>
   s.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");

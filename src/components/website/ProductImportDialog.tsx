@@ -177,13 +177,13 @@ export default function ProductImportDialog({ collections, categories, isAdmin, 
     const existingProduct = found;
     const action: "create" | "update" = existingProduct ? "update" : "create";
 
-    // Japanese only when the English changed or none exists yet — same rule as
-    // the modal, so re-uploading an unchanged sheet costs no AI calls.
+    // Japanese DESCRIPTION only when none exists yet: an existing one (possibly
+    // hand-approved) is never replaced by an import, even if the sheet's English
+    // changed. The Japanese NAME rule is unchanged.
     let ja = String(existingProduct?.description_ja ?? "");
     let nameJa = String(existingProduct?.name_ja ?? "");
-    const prevEn = String(existingProduct?.description_en ?? "").trim();
     const prevName = String(existingProduct?.name ?? "").trim();
-    const needDesc = !!v.description_en && (v.description_en !== prevEn || !ja);
+    const needDesc = !!v.description_en && !ja;
     const needName = v.name !== prevName || !nameJa;
     if (translateJa && (needDesc || needName)) {
       try {
