@@ -196,4 +196,29 @@ describe("spreadsheet import → Japanese fields", () => {
     expect(rowOf("p3")).toMatchObject({ name: "Old name 3", name_ja: "" });
     expect(rowOf("p1").name).toBe("Other");
   });
+
+  it("a batch that ALSO has a failed row still reports the products saved with Japanese unfilled, as a separate item", async () => {
+    h.beforeFill = () => { if (!rowOf("p3").name_ja) rowOf("p3").name_ja = "別の人の入力"; };
+    translate.mockImplementation(async (a) => {
+      if (a.name === "Doomed") throw new Error("rate limit");
+      return { name_ja: a.name ? `JA(${a.name})` : "", description_ja: a.description ? `JA(${a.description})` : "" };
+    });
+    await runImport([sheetRow("SKU2", "Doomed", "Doomed description"), sheetRow("SKU3", "Name 3", "Description 3")]);
+    const t = lastToast();
+    expect(t.title).toBe("1 row failed to save");
+    const [rowFailures, jaLine] = (t.description ?? "").split("\n");
+    expect(rowFailures).toContain("Japanese translation failed: rate limit");
+    expect(rowFailures).not.toContain("name_ja");                      // a failed row is not a Japanese skip
+    expect(jaLine).toContain("Japanese not filled (kept as it was): SKU3 name_ja (has_value)");
+    expect(jaLine).not.toContain("SKU2");                              // …and a Japanese skip is not a failed row
+  });
+
+  it("the dialog keeps the list of products saved with Japanese unfilled after the toast is gone", async () => {
+    h.failFill = "permission denied";
+    await runImport([sheetRow("SKU3", "Name 3", "Description 3")]);
+    const box = await screen.findByTestId("import-ja-notes");
+    expect(box).toHaveTextContent("Saved, but Japanese not filled (2)");
+    expect(box).toHaveTextContent("SKU3 name_ja (database_error)");
+    expect(box).toHaveTextContent("SKU3 description_ja (database_error)");
+  });
 });

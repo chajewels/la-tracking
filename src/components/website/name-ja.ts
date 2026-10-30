@@ -197,3 +197,50 @@ export function fillSkipReason(o: Exclude<FillOutcome, "filled">, what: string):
     default: return `The ${what.toLowerCase()} could not be written because the product changed.`;
   }
 }
+
+/**
+ * A Japanese column a Save is about to change, with the value the editor read
+ * from the database when it opened. The update is made conditional on that
+ * stored value, so a newer value written elsewhere (another tab, an import, a
+ * colleague) is never silently overwritten.
+ */
+export interface JaGuard { column: JaColumn; stored: string | null }
+
+export function jaGuards(
+  f: Pick<ProductForm, "id" | "loaded">, payload: { name_ja?: unknown; description_ja?: unknown },
+): JaGuard[] {
+  if (!f.id || !f.loaded) return [];
+  const out: JaGuard[] = [];
+  if ("name_ja" in payload) out.push({ column: "name_ja", stored: f.loaded.storedJa.name_ja });
+  if ("description_ja" in payload) out.push({ column: "description_ja", stored: f.loaded.storedJa.description_ja });
+  return out;
+}
+
+/** Thrown when a conditional Japanese update matched no row. The editor keeps the unsaved form. */
+export class JaConflictError extends Error {
+  constructor(message: string, readonly columns: JaColumn[]) {
+    super(message);
+    this.name = "JaConflictError";
+  }
+}
+
+const COLUMN_WORDS: Record<JaColumn, string> = { name_ja: "Japanese name", description_ja: "Japanese description" };
+
+/** Re-read the product after a zero-row conditional update and say plainly what happened. */
+export async function explainJaConflict(
+  client: FillClient, id: string, guards: JaGuard[],
+): Promise<JaConflictError> {
+  const { data: row } = await client.from("website_products")
+    .select(guards.map((g) => g.column).join(", ")).eq("id", id).maybeSingle();
+  if (!row) return new JaConflictError("Not saved: this product no longer exists. Your edits are still in the editor.", []);
+  const changed = guards.filter((g) => (row[g.column] ?? null) !== g.stored).map((g) => g.column);
+  if (!changed.length) {
+    return new JaConflictError("Not saved: the product changed while you were editing. Your edits are still in the editor; reopen the product and try again.", []);
+  }
+  const words = changed.map((c) => COLUMN_WORDS[c]).join(" and ");
+  return new JaConflictError(
+    `Not saved: the ${words} was changed by someone else after you opened this product, so yours was not written over it. `
+    + "Your edits are still in the editor — copy them if you need them, then reopen the product to see the current text.",
+    changed,
+  );
+}

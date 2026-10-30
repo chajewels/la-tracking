@@ -97,7 +97,7 @@ export interface ProductForm {
   origin: OriginValue;
   brand: string;
   description_en: string;
-  /** Typed by staff, independent of description_en. Saved exactly as written. */
+  /** Typed by staff, independent of description_en. Saved as written, except that spaces at the start and end are trimmed. */
   description_ja: string;
   /** The English description the current Japanese one was written against.
    *  Display only (the "English changed" hint) — Save never translates from it. */
@@ -148,6 +148,9 @@ export interface LoadedSnapshot {
   slug: string;
   name: string;
   name_ja: string;
+  /** The Japanese columns exactly as stored when the editor opened (null stays null).
+   *  A Save that changes one updates it only while the database still holds this value. */
+  storedJa: { name_ja: string | null; description_ja: string | null };
   variants: LoadedVariant[];
   collectionIds: string[];
   categoryIds: string[];

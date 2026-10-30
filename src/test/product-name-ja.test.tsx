@@ -43,6 +43,7 @@ function opened(over: Partial<ProductForm> = {}): ProductForm {
     loaded: {
       description_en: EN, description_ja: JA,
       sku: "AL112", slug: "al112-rope-chain", name: "Rope Chain 45cm", name_ja: NAME_JA,
+      storedJa: { name_ja: NAME_JA, description_ja: JA },
       variants: [], collectionIds: [], categoryIds: [],
     },
     ...over,
@@ -259,14 +260,13 @@ describe("wiring (source-anchored)", () => {
     expect(saveFn).not.toContain("jaSourceName");
   });
   it("Save writes the generated name in its own guarded update, never in the payload or description patch", () => {
-    expect(saveFn).toContain("const jaPatch: { description_ja?: string | null } = {};");
     expect(saveFn).toContain("fillMissingJapanese(supabase as unknown as FillClient");
     expect(saveFn).toContain('column: "name_ja", source: storedName, observed: f.name_ja, text: nameJa');
     expect(between(saveFn, "const productPayload = {", "let productId = f.id;")).not.toMatch(/name_ja:/);
   });
   it("a failed translation writes nothing and says how to retry", () => {
     expect(saveFn).toContain("if (out instanceof Error) {");
-    expect(saveFn).toContain("Use Regenerate Japanese name to retry.");
+    expect(saveFn).toContain("Use Regenerate Japanese name or Translate from English to retry.");
     expect(saveFn).toContain("if (nameJa) {");
   });
   it("Regenerate Japanese name needs permission, translates the name only and never saves", () => {

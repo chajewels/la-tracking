@@ -31,7 +31,7 @@ import {
   applyTranslatedDescription, descriptionWrites, needsDescriptionTranslation,
 } from "@/components/website/description-ja";
 import {
-  FillClient, applyRegeneratedName, fillMissingJapanese, fillSkipReason, bulkNameSummary, classifyNameRows, missingNameTargets, needsNameTranslation,
+  FillClient, JaConflictError, applyRegeneratedName, explainJaConflict, fillMissingJapanese, fillSkipReason, jaGuards, bulkNameSummary, classifyNameRows, missingNameTargets, needsNameTranslation,
 } from "@/components/website/name-ja";
 import { uploadWebsiteImage } from "@/components/website/HeroImageField";
 import { CATEGORIES_QUERY_KEY, fetchCategories } from "@/components/website/CategoriesCard";
@@ -330,14 +330,29 @@ export default function ProductsCard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deepLinked, products.data]);
 
-  function openNew() {
+  /**
+   * Every open and every close is a new editor session. Anything still in
+   * flight from an earlier session (a Save, a translation) can no longer close
+   * or change the editor that is on screen now, and the spinners start clean.
+   */
+  function beginSession() {
     editSession.current += 1;
+    setTranslating(false);
+    setTranslatingName(false);
+  }
+  function onEditorOpenChange(o: boolean) {
+    if (!o) beginSession();
+    setOpen(o);
+  }
+
+  function openNew() {
+    beginSession();
     setForm(emptyProduct());
     setOpen(true);
   }
 
   function openEdit(p: CatalogProductRead) {
-    editSession.current += 1;
+    beginSession();
     const variants = (p.website_product_variants ?? [])
       .sort((a, b) => Number(a.sort) - Number(b.sort))
       .map((v) => ({
@@ -387,6 +402,7 @@ export default function ProductsCard() {
         slug: p.slug ?? "",
         name: p.name ?? "",
         name_ja: p.name_ja ?? "",
+        storedJa: { name_ja: p.name_ja ?? null, description_ja: p.description_ja ?? null },
         variants: variants.map((v) => ({
           id: v.id,
           size: v.size || null,
@@ -438,7 +454,7 @@ export default function ProductsCard() {
     } catch (e) {
       toast({ title: "Could not translate", description: `${(e as Error).message} The Japanese description was not changed.`, variant: "destructive" });
     } finally {
-      setTranslating(false);
+      if (editSession.current === ask.session) setTranslating(false);
     }
   }
 
@@ -475,7 +491,7 @@ export default function ProductsCard() {
     } catch (e) {
       toast({ title: "Could not translate", description: `${(e as Error).message} The Japanese name was not changed.`, variant: "destructive" });
     } finally {
-      setTranslatingName(false);
+      if (editSession.current === ask.session) setTranslatingName(false);
     }
   }
 
@@ -491,7 +507,11 @@ export default function ProductsCard() {
       toast({ title: "Translation in progress", description: "Wait for the translation to finish, then press Save." });
       return;
     }
-    save.mutate(form);
+    if (uploadingKey) {
+      toast({ title: "Photo still uploading", description: "Wait for the upload to finish, then press Save." });
+      return;
+    }
+    save.mutate({ f: form, session: editSession.current });
   }
 
   /** Products the bulk pass would fill right now: an English name and no Japanese name. */
@@ -582,7 +602,7 @@ export default function ProductsCard() {
   }
 
   const save = useMutation({
-    mutationFn: async (f: ProductForm) => {
+    mutationFn: async ({ f, session }: { f: ProductForm; session: number }) => {
       if (!f.name.trim() || !f.sku.trim()) throw new Error("Name and SKU are required.");
       // Jewelry only, and only to publish (owner decision 2026-09-26; DB CHECK
       // website_products_metals_jewelry applies to status active). A draft saves without one.
@@ -615,13 +635,13 @@ export default function ProductsCard() {
       const needDesc = needsDescriptionTranslation(f);
       let translation: Promise<{ name_ja: string; description_ja: string } | Error> | null = null;
       if (needName || needDesc) {
-        setTranslating(true);
+        if (editSession.current === session) setTranslating(true);
         translation = translateJa({
           name: needName ? name : undefined,
           description: needDesc ? en : undefined,
         })
           .catch((e: unknown) => (e instanceof Error ? e : new Error(String(e))))
-          .finally(() => setTranslating(false));
+          .finally(() => { if (editSession.current === session) setTranslating(false); });
       }
 
       const identity = identityWrites(f, slug);
@@ -651,9 +671,21 @@ export default function ProductsCard() {
 
       let productId = f.id;
       if (productId) {
-        const { error } = await supabase.from("website_products")
-          .update(productPayload).eq("id", productId);
-        if (error) throw error;
+        // A Japanese name or description this Save changes is written only while
+        // the database still holds the value the editor opened with. Zero rows =
+        // someone wrote a newer one: nothing is saved, the form stays as it is,
+        // and there is no automatic retry.
+        const guards = jaGuards(f, productPayload);
+        let q = supabase.from("website_products").update(productPayload).eq("id", productId);
+        for (const g of guards) q = g.stored === null ? q.is(g.column, null) : q.eq(g.column, g.stored);
+        if (guards.length) {
+          const { data, error } = await q.select("id");
+          if (error) throw error;
+          if (!data?.length) throw await explainJaConflict(supabase as unknown as FillClient, productId, guards);
+        } else {
+          const { error } = await q;
+          if (error) throw error;
+        }
       } else {
         const { data, error } = await supabase.from("website_products")
           // A new product always carries sku, slug and name (identityWrites sends all three).
@@ -756,43 +788,42 @@ export default function ProductsCard() {
       };
       await Promise.all([writeCollections(), writeCategories()]);
 
-      // The Japanese, now that every other write is done.
-      const jaPatch: { description_ja?: string | null } = {};
+      // The generated Japanese, now that every other write is done. Each value
+      // lands only while the English it was translated from is still stored AND
+      // the Japanese column is still missing, so a value written meanwhile
+      // (another tab, the importer) is never replaced. Publishing stays the
+      // LAST write, after the category writes above (the publish guard needs one).
+      let descJa: string | null = null;
       let nameJa: string | null = null;
       if (translation) {
         const out = await translation;
         if (out instanceof Error) {
           toast({
             title: "Japanese not generated",
-            description: `${out.message} The product still saved; the Japanese was left as it was. Use Regenerate Japanese name to retry.`,
+            description: `${out.message} The product still saved; the Japanese was left as it was. Use Regenerate Japanese name or Translate from English to retry.`,
             variant: "destructive",
           });
         } else {
           if (needName) nameJa = out.name_ja || null;
-          if (needDesc) jaPatch.description_ja = out.description_ja || null;
+          if (needDesc) descJa = out.description_ja || null;
         }
       }
-      // ONE final write: a new product's Japanese description and, when going
-      // live, the status. It stays after the category writes (the publish guard
-      // needs a category).
-      const hasJa = Object.keys(jaPatch).length > 0;
-      if (goingLive || hasJa) {
-        const row = supabase.from("website_products" as never);
-        const { error } = await (hasJa
-          ? row.update({ ...jaPatch, ...(goingLive ? { status: "active" } : {}) } as never)
-          : row.update({ status: "active" } as never)
-        ).eq("id", productId!);
-        if (error) {
-          throw new Error(goingLive
-            ? `Saved as a draft, not published: ${error.message}`
-            : `Saved, but the Japanese was not updated: ${error.message}`);
+      const notSaved = (what: string, msg: string) =>
+        new Error(`Saved${goingLive ? " as a draft, not published" : ""}, but the Japanese ${what} was not updated: ${msg}`);
+      if (descJa) {
+        let o;
+        try {
+          // A new product's English is stored trimmed and its Japanese starts null.
+          o = await fillMissingJapanese(supabase as unknown as FillClient, {
+            id: productId!, column: "description_ja", source: en, observed: null, text: descJa,
+          });
+        } catch (e) {
+          throw notSaved("description", (e as Error).message);
+        }
+        if (o !== "filled") {
+          toast({ title: "Japanese description not generated", description: `The product saved. ${fillSkipReason(o, "A Japanese description")}` });
         }
       }
-      // The generated Japanese NAME goes in its own guarded write: it lands only
-      // while the name is still missing AND the English name is still the one it
-      // was translated from, so a Japanese name filled in meanwhile (another tab,
-      // the importer) or an English rename is never overwritten. Zero rows is
-      // reported, never shown as success.
       if (nameJa) {
         let o;
         try {
@@ -800,20 +831,34 @@ export default function ProductsCard() {
             id: productId!, column: "name_ja", source: storedName, observed: f.name_ja, text: nameJa,
           });
         } catch (e) {
-          throw new Error(`Saved, but the Japanese name was not updated: ${(e as Error).message}`);
+          throw notSaved("name", (e as Error).message);
         }
         if (o !== "filled") {
           toast({ title: "Japanese name not generated", description: `The product saved. ${fillSkipReason(o, "A Japanese name")}` });
         }
       }
+      if (goingLive) {
+        const { error } = await supabase.from("website_products").update({ status: "active" }).eq("id", productId!);
+        if (error) throw new Error(`Saved as a draft, not published: ${error.message}`);
+      }
       return productId!;
     },
-    onSuccess: (productId) => {
+    onSuccess: (productId, { session }) => {
       toast({ title: "Saved", description: "The website will refresh within a minute." });
-      setOpen(false);
+      // Only the editor this Save came from is closed; a newer one is left alone.
+      if (session === editSession.current) setOpen(false);
       void refreshProduct(productId);
     },
-    onError: (e: Error) => toast({ title: "Could not save", description: e.message, variant: "destructive" }),
+    onError: (e: Error) => {
+      if (e instanceof JaConflictError) {
+        // Nothing was written. The editor keeps the unsaved form; the list is
+        // refreshed so reopening shows the newer text.
+        toast({ title: "Not saved — changed elsewhere", description: e.message, variant: "destructive" });
+        qc.invalidateQueries({ queryKey: ["website-products"] });
+        return;
+      }
+      toast({ title: "Could not save", description: e.message, variant: "destructive" });
+    },
   });
 
   const remove = useMutation({
@@ -1188,7 +1233,7 @@ export default function ProductsCard() {
 
       <ProductDialog
         open={open}
-        onOpenChange={setOpen}
+        onOpenChange={onEditorOpenChange}
         form={form}
         setForm={setForm}
         collections={collections.data ?? []}

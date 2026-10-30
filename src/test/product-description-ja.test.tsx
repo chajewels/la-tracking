@@ -40,6 +40,7 @@ function opened(over: Partial<ProductForm> = {}): ProductForm {
     loaded: {
       description_en: EN, description_ja: JA,
       sku: "AL112", slug: "al112-rope-chain", name: "Rope Chain 45cm", name_ja: "ロープチェーン 45cm",
+      storedJa: { name_ja: "ロープチェーン 45cm", description_ja: JA },
       variants: [], collectionIds: [], categoryIds: [],
     },
     ...over,
@@ -196,7 +197,7 @@ describe("wiring (source-anchored)", () => {
   });
   it("Save only ever patches description_ja for a new product", () => {
     expect(saveFn).toContain("const needDesc = needsDescriptionTranslation(f);");
-    expect(saveFn).toContain("if (needDesc) jaPatch.description_ja");
+    expect(saveFn).toContain("if (needDesc) descJa = out.description_ja || null;");
   });
   it("a failed or late translation touches nothing", () => {
     const fn = between(card, "async function translateDescription()", "async function regenerateJapaneseName()");
@@ -205,8 +206,9 @@ describe("wiring (source-anchored)", () => {
     expect(fn).not.toMatch(/setForm\(\{/);
   });
   it("the editor is re-keyed on every open", () => {
-    expect(between(card, "function openNew()", "function openEdit(")).toContain("editSession.current += 1;");
-    expect(between(card, "function openEdit(", "async function translateDescription()")).toContain("editSession.current += 1;");
+    expect(between(card, "function beginSession()", "function openNew()")).toContain("editSession.current += 1;");
+    expect(between(card, "function openNew()", "function openEdit(")).toContain("beginSession();");
+    expect(between(card, "function openEdit(", "async function translateDescription()")).toContain("beginSession();");
   });
   it("the bulk name pass never reads or writes a description", () => {
     const fn = between(card, "async function fillMissingJapaneseNames()", "async function refreshProduct(");

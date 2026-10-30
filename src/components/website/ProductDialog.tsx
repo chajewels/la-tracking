@@ -117,6 +117,9 @@ export default function ProductDialog({
             <DialogTitle>{form.id ? "Edit product" : "New product"}</DialogTitle>
           </DialogHeader>
 
+          {/* While a Save runs every field is locked: a keystroke typed after the
+              Save started would be silently dropped when the editor closes. */}
+          <fieldset disabled={saving} className="m-0 min-w-0 border-0 p-0" data-testid="product-form-fields">
           <div className="space-y-5">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
@@ -352,8 +355,10 @@ export default function ProductDialog({
                   placeholder="Write the Japanese description, or translate it from the English."
                 />
                 <p className="text-xs text-muted-foreground">
-                  Saved exactly as written. It is never translated automatically for an existing product —
-                  only the button above does that. The Japanese name is not changed here.
+                  Saved as you write it (spaces at the start and end are trimmed). It is never translated
+                  automatically for an existing product — only the button above does that. If someone else
+                  changed it since you opened this product, your Save is refused and your text stays here.
+                  The Japanese name is not changed here.
                 </p>
                 {jaStale && (
                   <p className="text-xs text-warning" role="status">
@@ -554,6 +559,7 @@ export default function ProductDialog({
               />
             </div>
           </div>
+          </fieldset>
 
 
           <DialogFooter>

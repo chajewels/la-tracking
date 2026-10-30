@@ -40,7 +40,7 @@ interface Props {
   translate: TranslateFn;
 }
 
-interface Summary { created: number; updated: number; skipped: number }
+interface Summary { created: number; updated: number; skipped: number; jaNotes: string[] }
 
 /**
  * How a row's jewelry types and categories land on an existing product.
@@ -371,20 +371,25 @@ export default function ProductImportDialog({ collections, categories, isAdmin, 
     }
 
     setProgress(null);
-    setSummary({ created, updated, skipped });
+    setSummary({ created, updated, skipped, jaNotes });
     qc.invalidateQueries({ queryKey: ["website-products"] });
 
+    // Two different things are reported, always, and never merged: ROWS THAT
+    // FAILED to save, and products that SAVED but whose Japanese was left as it
+    // was (an existing value, a change made meanwhile, or a database error).
+    const jaLine = jaNotes.length
+      ? `Japanese not filled (kept as it was): ${jaNotes.slice(0, 5).join(", ")}${jaNotes.length > 5 ? `, +${jaNotes.length - 5} more` : ""}.`
+      : "";
     if (failures.length) {
       toast({
         title: `${failures.length} row${failures.length === 1 ? "" : "s"} failed to save`,
-        description: failures.slice(0, 3).map((f) => `Row ${f.row}: ${f.error}`).join(" · "),
+        description: [failures.slice(0, 3).map((f) => `Row ${f.row}: ${f.error}`).join(" · "), jaLine].filter(Boolean).join("\n"),
         variant: "destructive",
       });
     } else {
       toast({
         title: "Import complete",
-        description: `${created} created, ${updated} updated${skipped ? `, ${skipped} skipped` : ""}.`
-          + (jaNotes.length ? ` Japanese not filled (kept as it was): ${jaNotes.slice(0, 5).join(", ")}${jaNotes.length > 5 ? "…" : ""}.` : ""),
+        description: [`${created} created, ${updated} updated${skipped ? `, ${skipped} skipped` : ""}.`, jaLine].filter(Boolean).join(" "),
       });
     }
   }
@@ -498,8 +503,9 @@ export default function ProductImportDialog({ collections, categories, isAdmin, 
                 <label className="flex items-center gap-2 text-sm">
                   <Checkbox checked={translateJa} onCheckedChange={(c) => setTranslateJa(c === true)} />
                   <span className="text-muted-foreground">
-                    Generate Japanese descriptions (one AI call per changed row — turn off for a
-                    large first import and use Regenerate later)
+                    Fill missing Japanese names and descriptions (one AI call per product that is missing one;
+                    existing Japanese is never replaced — turn off for a large first import and use
+                    "Generate missing Japanese names" or "Translate from English" later)
                   </span>
                 </label>
               </>
@@ -520,6 +526,14 @@ export default function ProductImportDialog({ collections, categories, isAdmin, 
                 <p className="text-muted-foreground">
                   {summary.created} created · {summary.updated} updated · {summary.skipped} skipped
                 </p>
+                {summary.jaNotes.length > 0 && (
+                  <div className="mt-2" data-testid="import-ja-notes">
+                    <p className="font-medium text-foreground">Saved, but Japanese not filled ({summary.jaNotes.length})</p>
+                    <ul className="list-disc pl-5 text-xs text-muted-foreground">
+                      {summary.jaNotes.map((n) => <li key={n}>{n}</li>)}
+                    </ul>
+                  </div>
+                )}
               </div>
             )}
           </div>

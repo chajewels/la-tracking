@@ -117,7 +117,7 @@ describe("changed-only writes", () => {
 
 describe("refresh only the saved product", () => {
   it("onSuccess re-reads one product into the cache and falls back to a full reload", () => {
-    const onSuccess = between(saveFn, "onSuccess: (productId) => {", "onError:");
+    const onSuccess = between(saveFn, "onSuccess: (productId, { session }) => {", "onError:");
     expect(onSuccess).toContain("void refreshProduct(productId);");
     expect(onSuccess).not.toContain("invalidateQueries");
     const fn = between(card, "async function refreshProduct(productId: string) {", "const save = useMutation({");
