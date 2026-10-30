@@ -1,5 +1,11 @@
 ## Known Fixed Bugs (do not reintroduce)
 
+  - Page365 name follow: Japanese names were never re-translated (2026-10-31). translate-product-description refused the
+    scheduled service-role caller (401), so page365_listing_names.ja_pending never cleared (26 rows; N5140 live with no
+    Japanese name). Also page365_pending_ja_names re-listed products that already had a Japanese name and
+    page365_set_name_ja would have replaced it. Fixed: allowServiceRole in translate-product-description; migration
+    20270226100000 lists and fills only MISSING Japanese names (an existing one is never replaced) and clears stale
+    ja_pending. Local proof docs/sql/20270226_page365_ja_names_local_test.sql; pins src/test/page365-ja-names.test.ts.
   - DP must never be counted twice in totalPaid
   - Waived penalties must be excluded from totalLAAmount
   - Partial months must be included in totalPaid
