@@ -27,6 +27,14 @@ import { ChevronDown, ChevronLeft, ChevronRight, Download, Loader2, Plus, Refres
 import ProductImportDialog from "@/components/website/ProductImportDialog";
 import ProductDialog from "@/components/website/ProductDialog";
 import { translateJa } from "@/components/website/translate";
+import { placeAboveExisting, checkStylingSuggestion, stylingProduct, stylingStillApplies, type StylingAsk } from "@/components/website/ai-styling";
+import { requestStyling } from "@/components/website/ai-styling-client";
+import {
+  applyTranslatedDescription, descriptionWrites, needsDescriptionTranslation,
+} from "@/components/website/description-ja";
+import {
+  FillClient, GuardedUpdate, JaConflictError, applyJaGuards, applyRegeneratedName, explainJaConflict, fillMissingJapanese, fillSkipReason, jaGuards, bulkNameSummary, classifyNameRows, missingNameTargets, needsNameTranslation,
+} from "@/components/website/name-ja";
 import { uploadWebsiteImage } from "@/components/website/HeroImageField";
 import { CATEGORIES_QUERY_KEY, fetchCategories } from "@/components/website/CategoriesCard";
 import { deleteConfirmText, deleteSummary, deleteWebsiteProduct } from "@/lib/catalog-delete";
@@ -36,7 +44,7 @@ import {
 import {
   type MediaRow, type ProductForm, type ProductMetal, type VariantRow, PRODUCT_METAL_VALUES, TEMPLATE_PATH,
   ITEM_KIND_LABEL, emptyProduct, emptyVariant, itemKindFrom, metalRequired, metalsLabel, saleError, sameIds, sameMedia,
-  sameVariantRow, slugify, yen,
+  identityWrites, sameVariantRow, slugify, yen,
 } from "@/components/website/product-form";
 
 /** One product as the Catalog list reads it: the row plus its nested selects. */
@@ -108,8 +116,55 @@ export default function ProductsCard() {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<ProductForm>(emptyProduct());
-  const [uploadingKey, setUploadingKey] = useState<string | null>(null);
+  /**
+   * EVERY upload still running, each with its own id. An upload clears only its own entry, so a
+   * newer one finishing never frees Save while an older one is pending. Entries from an older
+   * editor session stay until they settle but never count for the editor on screen.
+   */
+  type UploadOp = { id: number; key: string; session: number };
+  const [uploadOps, setUploadOps] = useState<UploadOp[]>([]);
+  const uploadOpsRef = useRef<UploadOp[]>([]);
+  const uploadSeq = useRef(0);
+  /** Bumped when the video is removed: a video upload started before that is discarded when it lands. */
+  const videoEpoch = useRef(0);
+  /** The one "open the saved product" read that may still apply (partial-create recovery). */
+  const recoverySeq = useRef(0);
+  const [recoveringId, setRecoveringId] = useState<number | null>(null);
+  /** Session whose Save is running: the form accepts no change from any control (even a portaled,
+   *  already-open picker) while it is the editor on screen. */
+  const saveLock = useRef<number | null>(null);
+  /** A NEW product that was inserted although the rest of its Save failed. */
+  const createdRef = useRef<{ session: number; productId: string } | null>(null);
+  const [partial, setPartial] = useState<{ session: number; productId: string } | null>(null);
   const [translating, setTranslating] = useState(false);
+  const [translatingName, setTranslatingName] = useState(false);
+  /** "Write description (AI)": the request in flight, and a checked suggestion waiting for Add / Discard. */
+  const [suggestingStyling, setSuggestingStyling] = useState(false);
+  const [styling, setStyling] = useState<{ ask: StylingAsk; text: string; usedPhoto: boolean } | null>(null);
+  // Bumped on every open; a translation that comes back after the editor was
+  // reopened belongs to a form that no longer exists and is discarded.
+  const editSession = useRef(0);
+  const formRef = useRef(form);
+  formRef.current = form;
+  /** The setter the editor's controls get. While this editor's Save runs it accepts no change. */
+  const setFormLocked: typeof setForm = (u) => {
+    if (saveLock.current !== null && saveLock.current === editSession.current) return;
+    if (recoveringId !== null) return;
+    setForm(u);
+  };
+  const uploadingKeys = uploadOps.filter((o) => o.session === editSession.current).map((o) => o.key);
+  const uploadsPending = () => uploadOpsRef.current.some((o) => o.session === editSession.current);
+  function beginUpload(key: string): UploadOp {
+    const op = { id: ++uploadSeq.current, key, session: editSession.current };
+    uploadOpsRef.current = [...uploadOpsRef.current, op];
+    setUploadOps(uploadOpsRef.current);
+    return op;
+  }
+  function endUpload(op: UploadOp) {
+    uploadOpsRef.current = uploadOpsRef.current.filter((o) => o.id !== op.id);
+    setUploadOps(uploadOpsRef.current);
+  }
+
   const [bulk, setBulk] = useState<{ done: number; total: number } | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [searchParams, setSearchParams] = useSearchParams();
@@ -318,15 +373,36 @@ export default function ProductsCard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deepLinked, products.data]);
 
+  /**
+   * Every open and every close is a new editor session. Anything still in
+   * flight from an earlier session (a Save, a translation) can no longer close
+   * or change the editor that is on screen now, and the spinners start clean.
+   */
+  function beginSession() {
+    editSession.current += 1;
+    recoverySeq.current += 1;
+    setRecoveringId(null);
+    setPartial(null);
+    setTranslating(false);
+    setTranslatingName(false);
+  }
+  function onEditorOpenChange(o: boolean) {
+    if (!o) beginSession();
+    setOpen(o);
+  }
+
   function openNew() {
+    beginSession();
     setForm(emptyProduct());
     setOpen(true);
   }
 
   function openEdit(p: CatalogProductRead) {
+    beginSession();
     const variants = (p.website_product_variants ?? [])
       .sort((a, b) => Number(a.sort) - Number(b.sort))
       .map((v) => ({
+        key: v.id,
         id: v.id,
         size: v.size ?? "",
         stone: v.stone ?? "",
@@ -348,7 +424,6 @@ export default function ProductsCard() {
       slug: p.slug ?? "",
       name: p.name ?? "",
       name_ja: p.name_ja ?? "",
-      jaSourceName: p.name ?? "",
       itemKind: itemKindFrom(p.item_kind),
       metals: (Array.isArray(p.metals) && p.metals.length ? p.metals : p.karat ? [p.karat] : [])
         .filter((m: string): m is ProductMetal => (PRODUCT_METAL_VALUES as readonly string[]).includes(m)),
@@ -368,6 +443,13 @@ export default function ProductsCard() {
       categoryIds: (p.website_category_products ?? []).map((c) => c.category_id),
       variants: variants.length ? variants : [emptyVariant(0)],
       loaded: {
+        description_en: (p.description_en ?? "").trim(),
+        description_ja: (p.description_ja ?? "").trim(),
+        sku: p.sku ?? "",
+        slug: p.slug ?? "",
+        name: p.name ?? "",
+        name_ja: p.name_ja ?? "",
+        storedJa: { name_ja: p.name_ja ?? null, description_ja: p.description_ja ?? null },
         variants: variants.map((v) => ({
           id: v.id,
           size: v.size || null,
@@ -389,67 +471,213 @@ export default function ProductsCard() {
     setOpen(true);
   }
 
-  async function regenerateJapanese() {
-    const name = form.name.trim();
+  /**
+   * The explicit "Translate description" button (the dialog confirms first when
+   * Japanese already exists). Description only — the Japanese NAME is never
+   * touched here. A failure leaves the field as it was, and a response that
+   * arrives after the text was edited, or the editor reopened, is discarded.
+   */
+  async function translateDescription() {
+    if (save.isPending) return;
     const en = form.description_en.trim();
-    if (!name && !en) {
-      toast({ title: "Nothing to translate", description: "Write the English name or description first." });
+    if (!en) {
+      toast({ title: "Nothing to translate", description: "Write the English description first." });
       return;
     }
+    const ask = { session: editSession.current, id: form.id, en, ja: form.description_ja };
     setTranslating(true);
     try {
-      const ja = await translateJa({ name, description: en });
-      setForm((f) => ({
-        ...f,
-        name_ja: name ? ja.name_ja : "",
-        description_ja: en ? ja.description_ja : "",
-        // The Japanese now matches this English: Save must not translate it again.
-        jaSourceName: name,
-        jaSourceEn: en,
-      }));
-      toast({ title: "Japanese updated" });
+      const out = await translateJa({ description: en });
+      const next = applyTranslatedDescription(formRef.current, ask, editSession.current, out.description_ja);
+      if (!next) {
+        toast({
+          title: "Translation not applied",
+          description: "The text was edited while it was translating, so your version was kept.",
+        });
+        return;
+      }
+      setForm((f) => applyTranslatedDescription(f, ask, editSession.current, out.description_ja) ?? f);
+      toast({ title: "Japanese description updated" });
     } catch (e) {
-      toast({ title: "Could not translate", description: (e as Error).message, variant: "destructive" });
+      toast({ title: "Could not translate", description: `${(e as Error).message} The Japanese description was not changed.`, variant: "destructive" });
     } finally {
-      setTranslating(false);
+      if (editSession.current === ask.session) setTranslating(false);
     }
   }
 
   /**
-   * Re-translate EVERY product's Japanese name and description in one pass,
-   * sequentially so the AI rate limit is never hit. Name and description go in
-   * one call per product, so a design term ("Open Teardrop") comes back the
-   * same in both. English is never touched; a product whose translation fails
-   * is skipped and named in the summary.
+   * "Write description (AI)" (owner 2026-10-30/31): catalog staff only. Sends the
+   * product facts (ai-styling.ts) and the first photo to the read-only
+   * gemini-product-enhance function, checks the reply against the business
+   * rules, and shows it for "Add to description" / "Discard". Add puts it ABOVE
+   * the existing English description, which is never changed. Nothing is saved
+   * until Save, and the Japanese description is never touched. A reply for
+   * another product or a reopened editor is discarded.
    */
-  async function regenerateAllJapanese() {
+  async function suggestStyling() {
+    if (!canManage || save.isPending || suggestingStyling) return;
+    const product = stylingProduct(form);
+    if (!product.name) {
+      toast({ title: "Nothing to describe", description: "Write the English name first." });
+      return;
+    }
+    const ask: StylingAsk = { session: editSession.current, id: form.id };
+    // The first photo the customer sees: first variant with photos, lowest sort.
+    const photo = form.variants
+      .map((v) => [...v.media].filter((m) => !!m.url).sort((x, y) => x.sort - y.sort)[0])
+      .find(Boolean)?.url ?? null;
+    setStyling(null);
+    setSuggestingStyling(true);
+    try {
+      const reply = await requestStyling(product, photo);
+      if (!stylingStillApplies(ask, editSession.current, formRef.current.id)) return;
+      const check = checkStylingSuggestion(reply.text, stylingProduct(formRef.current));
+      if (!check.ok) {
+        toast({ title: "Description not shown", description: `The AI text was held back because ${check.reason}. Nothing was changed. You can try again.`, variant: "destructive" });
+        return;
+      }
+      setStyling({ ask, text: check.text, usedPhoto: reply.usedPhoto });
+    } catch (e) {
+      if (stylingStillApplies(ask, editSession.current, formRef.current.id)) {
+        toast({ title: "Could not write a description", description: `${(e as Error).message} Nothing was changed.`, variant: "destructive" });
+      }
+    } finally {
+      // Always clear: the button guard above means only one request runs at a time.
+      setSuggestingStyling(false);
+    }
+  }
+
+  function acceptStyling() {
+    const s = styling;
+    if (!s || !stylingStillApplies(s.ask, editSession.current, formRef.current.id)) { setStyling(null); return; }
+    setForm((f) => ({ ...f, description_en: placeAboveExisting(f.description_en, s.text) }));
+    setStyling(null);
+    toast({ title: "Added above the English description", description: "The existing text is unchanged underneath. Press Save to keep it. The Japanese description was not changed — use Translate from English if you want it updated." });
+  }
+
+  /**
+   * The "Regenerate Japanese name" button: ONE product, the one on screen.
+   * The English name goes to the translator and only `name_ja` comes back into
+   * the form — nothing is saved until staff press Save, no description and no
+   * English field is touched, and unrelated unsaved edits stay as they are.
+   * The dialog confirms first when a Japanese name already exists. A failure
+   * leaves the field as it was, and a response that arrives after the name was
+   * edited, another product opened or the editor reopened is discarded.
+   */
+  async function regenerateJapaneseName() {
+    if (!canManage || save.isPending) return;
+    const name = form.name.trim();
+    if (!name) {
+      toast({ title: "Nothing to translate", description: "Write the English name first." });
+      return;
+    }
+    const ask = { session: editSession.current, id: form.id, name, nameJa: form.name_ja };
+    setTranslatingName(true);
+    try {
+      const out = await translateJa({ name });
+      const next = applyRegeneratedName(formRef.current, ask, editSession.current, out.name_ja);
+      if (!next) {
+        toast({
+          title: "Japanese name not applied",
+          description: "The name was edited while it was translating, so your version was kept.",
+        });
+        return;
+      }
+      setForm((f) => applyRegeneratedName(f, ask, editSession.current, out.name_ja) ?? f);
+      toast({ title: "Japanese name updated", description: "Press Save to keep it." });
+    } catch (e) {
+      toast({ title: "Could not translate", description: `${(e as Error).message} The Japanese name was not changed.`, variant: "destructive" });
+    } finally {
+      if (editSession.current === ask.session) setTranslatingName(false);
+    }
+  }
+
+  /**
+   * Save is refused while an explicit translation is pending (and the
+   * translation buttons are disabled while a Save runs), so a half-finished
+   * translation can never be saved or land on a form that is already being
+   * written. Nothing is discarded: the button simply waits, edits stay put.
+   */
+  function submitForm() {
+    if (save.isPending) return;
+    if (translating || translatingName) {
+      toast({ title: "Translation in progress", description: "Wait for the translation to finish, then press Save." });
+      return;
+    }
+    if (uploadsPending()) {
+      toast({ title: "Photo still uploading", description: "Wait for every upload to finish, then press Save." });
+      return;
+    }
+    if (recoveringId !== null) return;
+    if (partial && partial.session === editSession.current) {
+      toast({ title: "Do not save again", description: "This product was already created. Open the saved product instead.", variant: "destructive" });
+      return;
+    }
+    saveLock.current = editSession.current;
+    save.mutate({ f: form, session: editSession.current });
+  }
+
+  /** Products the bulk pass would fill right now: an English name and no Japanese name. */
+  const missingNames = missingNameTargets(products.data ?? []);
+
+  /**
+   * Fill the MISSING Japanese names, one product at a time so the AI rate limit
+   * is never hit. Only products with no Japanese name are targets; every write
+   * is guarded so a name filled in meanwhile (another tab, the importer) is
+   * never replaced, and only `name_ja` is written — English names, SKUs, slugs
+   * and every description stay as they are. A product whose translation fails
+   * is named in the summary. Replacing EXISTING Japanese names in bulk is not
+   * offered here (owner decision pending, see the PR).
+   */
+  async function fillMissingJapaneseNames() {
+    if (!canManage) return;
     const rows = products.data ?? [];
-    const targets = rows.filter((p) => String(p.name ?? "").trim());
-    if (!targets.length) { toast({ title: "Nothing to translate" }); return; }
-    if (!confirm(`Regenerate the Japanese name and description for ${targets.length} product${targets.length === 1 ? "" : "s"}? English text is not changed.`)) return;
+    const targets = missingNames;
+    if (!targets.length) { toast({ title: "Nothing to fill", description: "Every product already has a Japanese name." }); return; }
+    const start = classifyNameRows(rows);
+    if (!confirm(`Generate the Japanese name for ${targets.length} product${targets.length === 1 ? "" : "s"} that have none? ${start.hadJapanese} with a Japanese name and ${start.noEnglish} without an English name are left as they are. Descriptions and English text are not changed.`)) return;
     setBulk({ done: 0, total: targets.length });
-    const failed: string[] = [];
+    const translationFailed: string[] = [];
+    const databaseFailed: string[] = [];
+    let filled = 0;
+    let hadJapanese = start.hadJapanese;
+    let englishChanged = 0;
+    let gone = 0;
+    let notEligible = 0;
     for (const [i, p] of targets.entries()) {
+      const label = String(p.sku ?? p.name);
       try {
-        const en = String(p.description_en ?? "").trim();
-        const out = await translateJa({ name: String(p.name).trim(), description: en || undefined });
-        const { error } = await supabase.from("website_products")
-          .update({ name_ja: out.name_ja || null, description_ja: en ? out.description_ja || null : null })
-          .eq("id", p.id);
-        if (error) throw error;
-      } catch (e) {
-        failed.push(`${p.sku ?? p.name}: ${(e as Error).message}`);
+        let ja: string;
+        try {
+          ja = (await translateJa({ name: String(p.name).trim() })).name_ja;
+        } catch (e) {
+          translationFailed.push(`${label}: ${(e as Error).message}`);
+          continue;
+        }
+        try {
+          // Guarded on the English name it was translated from AND on the
+          // Japanese name still being missing; a zero-row result is classified.
+          const o = await fillMissingJapanese(supabase as unknown as FillClient, {
+            id: p.id, column: "name_ja", source: String(p.name), observed: p.name_ja, text: ja,
+          });
+          if (o === "filled") filled += 1;
+          else if (o === "source_changed") englishChanged += 1;
+          else if (o === "has_value") hadJapanese += 1;
+          else if (o === "gone") gone += 1;
+          else notEligible += 1;
+        } catch (e) {
+          databaseFailed.push(`${label}: ${(e as Error).message}`);
+        }
       } finally {
         setBulk({ done: i + 1, total: targets.length });
       }
     }
     setBulk(null);
     qc.invalidateQueries({ queryKey: ["website-products"] });
-    if (failed.length) {
-      toast({ title: `Japanese regenerated for ${targets.length - failed.length} of ${targets.length}`, description: failed.join(" · "), variant: "destructive" });
-    } else {
-      toast({ title: `Japanese regenerated for ${targets.length} product${targets.length === 1 ? "" : "s"}` });
-    }
+    const s = bulkNameSummary(rows.length, {
+      filled, hadJapanese, noEnglish: start.noEnglish, englishChanged, gone, notEligible, translationFailed, databaseFailed,
+    });
+    toast({ title: s.title, description: s.description, variant: s.failed ? "destructive" : undefined });
   }
 
   /**
@@ -477,7 +705,8 @@ export default function ProductsCard() {
   }
 
   const save = useMutation({
-    mutationFn: async (f: ProductForm) => {
+    mutationFn: async ({ f, session }: { f: ProductForm; session: number }) => {
+      createdRef.current = null;
       if (!f.name.trim() || !f.sku.trim()) throw new Error("Name and SKU are required.");
       // Jewelry only, and only to publish (owner decision 2026-09-26; DB CHECK
       // website_products_metals_jewelry applies to status active). A draft saves without one.
@@ -494,41 +723,46 @@ export default function ProductsCard() {
       const wasActive = (products.data ?? []).some((p) => p.id === f.id && p.status === "active");
       const goingLive = f.status === "active" && !wasActive;
 
-      // Japanese is derived from the English text: refresh it when the English
-      // differs from what the current Japanese was generated from, or when it has
-      // never been generated. Never on an unchanged product, and never a second
-      // time after Regenerate (that moves jaSourceName / jaSourceEn).
-      // The translation runs ALONGSIDE the writes below and lands in the final
-      // update, so the AI round-trip no longer delays the first write.
+      // The Japanese NAME: Save generates it only when it is MISSING — a new
+      // product or an existing one with an English name and no Japanese name
+      // (name-ja.ts). A Japanese name that exists is never replaced here, not
+      // even when the English name or description changed; only the explicit
+      // "Regenerate Japanese name" button replaces one. The Japanese DESCRIPTION
+      // is staff-owned text (description-ja.ts): Save fills it only for a NEW
+      // product that has none, and an existing product is translated only by the
+      // explicit button.
+      // The translation runs ALONGSIDE the writes below and lands after them,
+      // so the AI round-trip no longer delays the first write.
       const name = f.name.trim();
       const en = f.description_en.trim();
-      const needName = name !== f.jaSourceName.trim() || !f.name_ja.trim();
-      const needDesc = !!en && (en !== f.jaSourceEn.trim() || !f.description_ja.trim());
+      const needName = needsNameTranslation(f);
+      const needDesc = needsDescriptionTranslation(f);
       let translation: Promise<{ name_ja: string; description_ja: string } | Error> | null = null;
       if (needName || needDesc) {
-        setTranslating(true);
+        if (editSession.current === session) setTranslating(true);
         translation = translateJa({
           name: needName ? name : undefined,
           description: needDesc ? en : undefined,
         })
           .catch((e: unknown) => (e instanceof Error ? e : new Error(String(e))))
-          .finally(() => setTranslating(false));
+          .finally(() => { if (editSession.current === session) setTranslating(false); });
       }
 
+      const identity = identityWrites(f, slug);
+      // The English name as STORED once this Save has run: what the generated
+      // Japanese name is guarded against.
+      const storedName = identity.name ?? f.loaded?.name ?? name;
       const productPayload = {
-        sku: f.sku.trim(),
-        slug,
-        name,
-        // The Japanese as it stands; a fresh translation follows in the final update.
-        name_ja: f.name_ja.trim() || null,
+        // SKU, slug, name and Japanese name: only the ones staff changed (new
+        // product: all). A fresh Japanese name follows in the final update.
+        ...identity,
         item_kind: f.itemKind,
         metals: f.metals,
         weight_g: f.weight_g,
         condition: f.condition,
         origin: f.origin,
         brand: f.brand.trim() || null,
-        description_en: en || null,
-        description_ja: en ? f.description_ja.trim() || null : null,
+        ...descriptionWrites(f),
         // Going live is written LAST, after categories: a Page365 draft is
         // refused publication without a category (trg_page365_draft_publish_guard).
         status: goingLive ? "draft" : f.status,
@@ -541,14 +775,27 @@ export default function ProductsCard() {
 
       let productId = f.id;
       if (productId) {
-        const { error } = await supabase.from("website_products")
-          .update(productPayload).eq("id", productId);
-        if (error) throw error;
+        // A Japanese name or description this Save changes is written only while
+        // the database still holds the value the editor opened with. Zero rows =
+        // someone wrote a newer one: nothing is saved, the form stays as it is,
+        // and there is no automatic retry.
+        const guards = jaGuards(f, productPayload);
+        const base = supabase.from("website_products").update(productPayload).eq("id", productId);
+        if (guards.length) {
+          const { data, error } = await applyJaGuards(base as unknown as GuardedUpdate, guards).select("id");
+          if (error) throw error;
+          if (!data?.length) throw await explainJaConflict(supabase as unknown as FillClient, productId, guards);
+        } else {
+          const { error } = await base;
+          if (error) throw error;
+        }
       } else {
         const { data, error } = await supabase.from("website_products")
-          .insert(productPayload).select("id").single();
+          // A new product always carries sku, slug and name (identityWrites sends all three).
+          .insert(productPayload as TablesInsert<"website_products">).select("id").single();
         if (error) throw error;
         productId = data.id;
+        createdRef.current = { session, productId };
       }
 
       // Variants: upsert, then remove ones deleted in the form. An existing
@@ -603,11 +850,12 @@ export default function ProductsCard() {
           if (insMediaErr) throw insMediaErr;
         }
       }
-      const { data: existing } = await supabase.from("website_product_variants")
-        .select("id").eq("product_id", productId);
-      const stale = (existing ?? []).map((r) => r.id).filter((id) => !keptVariantIds.includes(id));
+      // Remove only variants this editor LOADED and the form removed. A variant added
+      // elsewhere after the editor opened is not in the snapshot, so it is never touched,
+      // and the delete is scoped to this product.
+      const stale = (f.loaded?.variants ?? []).map((v) => v.id).filter((id) => !keptVariantIds.includes(id));
       if (stale.length) {
-        const { error } = await supabase.from("website_product_variants").delete().in("id", stale);
+        const { error } = await supabase.from("website_product_variants").delete().eq("product_id", productId).in("id", stale);
         if (error) throw error;
       }
 
@@ -645,44 +893,96 @@ export default function ProductsCard() {
       };
       await Promise.all([writeCollections(), writeCategories()]);
 
-      // The Japanese, now that every other write is done.
-      const jaPatch: { name_ja?: string | null; description_ja?: string | null } = {};
+      // The generated Japanese, now that every other write is done. Each value
+      // lands only while the English it was translated from is still stored AND
+      // the Japanese column is still missing, so a value written meanwhile
+      // (another tab, the importer) is never replaced. Publishing stays the
+      // LAST write, after the category writes above (the publish guard needs one).
+      let descJa: string | null = null;
+      let nameJa: string | null = null;
       if (translation) {
         const out = await translation;
         if (out instanceof Error) {
           toast({
-            title: "Japanese not regenerated",
-            description: `${out.message} The product still saved — use Regenerate to retry.`,
+            title: "Japanese not generated",
+            description: `${out.message} The product still saved; the Japanese was left as it was. Use Regenerate Japanese name or Translate from English to retry.`,
             variant: "destructive",
           });
         } else {
-          if (needName) jaPatch.name_ja = out.name_ja || null;
-          if (needDesc) jaPatch.description_ja = out.description_ja || null;
+          if (needName) nameJa = out.name_ja || null;
+          if (needDesc) descJa = out.description_ja || null;
         }
       }
-      // ONE final write: the fresh Japanese and, when going live, the status.
-      // It stays after the category writes (the publish guard needs a category).
-      const hasJa = Object.keys(jaPatch).length > 0;
-      if (goingLive || hasJa) {
-        const row = supabase.from("website_products" as never);
-        const { error } = await (hasJa
-          ? row.update({ ...jaPatch, ...(goingLive ? { status: "active" } : {}) } as never)
-          : row.update({ status: "active" } as never)
-        ).eq("id", productId!);
-        if (error) {
-          throw new Error(goingLive
-            ? `Saved as a draft, not published: ${error.message}`
-            : `Saved, but the Japanese was not updated: ${error.message} Use Regenerate to retry.`);
+      const notSaved = (what: string, msg: string) =>
+        new Error(`Saved${goingLive ? " as a draft, not published" : ""}, but the Japanese ${what} was not updated: ${msg}`);
+      if (descJa) {
+        let o;
+        try {
+          // A new product's English is stored trimmed and its Japanese starts null.
+          o = await fillMissingJapanese(supabase as unknown as FillClient, {
+            id: productId!, column: "description_ja", source: en, observed: null, text: descJa,
+          });
+        } catch (e) {
+          throw notSaved("description", (e as Error).message);
         }
+        if (o !== "filled") {
+          toast({ title: "Japanese description not generated", description: `The product saved. ${fillSkipReason(o, "A Japanese description")}` });
+        }
+      }
+      if (nameJa) {
+        let o;
+        try {
+          o = await fillMissingJapanese(supabase as unknown as FillClient, {
+            id: productId!, column: "name_ja", source: storedName, observed: f.name_ja, text: nameJa,
+          });
+        } catch (e) {
+          throw notSaved("name", (e as Error).message);
+        }
+        if (o !== "filled") {
+          toast({ title: "Japanese name not generated", description: `The product saved. ${fillSkipReason(o, "A Japanese name")}` });
+        }
+      }
+      if (goingLive) {
+        const { error } = await supabase.from("website_products").update({ status: "active" }).eq("id", productId!);
+        if (error) throw new Error(`Saved as a draft, not published: ${error.message}`);
       }
       return productId!;
     },
-    onSuccess: (productId) => {
+    onSettled: (_d, _e, { session }) => { if (saveLock.current === session) saveLock.current = null; },
+    onSuccess: (productId, { session }) => {
+      createdRef.current = null;
       toast({ title: "Saved", description: "The website will refresh within a minute." });
-      setOpen(false);
+      // Only the editor this Save came from is closed; a newer one is left alone.
+      if (session === editSession.current) setOpen(false);
       void refreshProduct(productId);
     },
-    onError: (e: Error) => toast({ title: "Could not save", description: e.message, variant: "destructive" }),
+    onError: (e: Error, { session }) => {
+      const created = createdRef.current;
+      if (created && created.session === session) {
+        // The product row was inserted but a later step failed. A retry would insert a
+        // second product (and repeat children that did land), so Save is switched off for
+        // this editor and the saved product can be opened to see what exists.
+        if (editSession.current === session) setPartial(created);
+        qc.invalidateQueries({ queryKey: ["website-products"] });
+        toast({
+          title: "Product created, but saving did not finish",
+          description: `${e.message} The product exists in the catalog and may be incomplete. Do not press Save again — it would create a second product. Use "Open the saved product" in the editor; your text stays there until you do.`,
+          variant: "destructive",
+        });
+        return;
+      }
+      if (e instanceof JaConflictError) {
+        // Nothing was written. The editor keeps the unsaved form; the list is
+        // refreshed so reopening shows the newer text.
+        toast({
+          title: e.kind === "verify_failed" ? "Not saved — could not verify" : "Not saved — changed elsewhere",
+          description: e.message, variant: "destructive",
+        });
+        if (e.kind !== "verify_failed") qc.invalidateQueries({ queryKey: ["website-products"] });
+        return;
+      }
+      toast({ title: "Could not save", description: e.message, variant: "destructive" });
+    },
   });
 
   const remove = useMutation({
@@ -696,36 +996,82 @@ export default function ProductsCard() {
     onError: (e: Error) => toast({ title: "Could not remove", description: e.message, variant: "destructive" }),
   });
 
-  async function uploadMedia(variantIndex: number, files: FileList | null) {
+  /**
+   * Photos for ONE variant, identified by its stable key. The result is attached only if
+   * the same editor session is still open on the same product, no Save is running, and that
+   * variant still exists; otherwise it is discarded and said so (the file stays in storage
+   * unused). Uploads overlap freely: each tracks and clears only itself, and Save waits for all.
+   */
+  async function uploadMedia(variantKey: string, files: FileList | null) {
     if (!files?.length) return;
-    setUploadingKey(`v${variantIndex}`);
+    if (saveLock.current === editSession.current) return;      // nothing starts while a Save runs
+    const session = editSession.current;
+    const productId = formRef.current.id;
+    const op = beginUpload(`v:${variantKey}`);
     try {
-      const uploaded: MediaRow[] = [];
+      const urls: string[] = [];
       for (const file of Array.from(files)) {
-        const url = await uploadWebsiteImage("", file);
-        uploaded.push({ url, alt: form.name || null, sort: 0 });
+        urls.push(await uploadWebsiteImage("", file));
       }
+      const now = formRef.current;
+      if (editSession.current !== session || now.id !== productId) {
+        toast({ title: "Photos not attached", description: "The editor was closed or another product was opened while they uploaded." });
+        return;
+      }
+      if (saveLock.current === session) {
+        toast({ title: "Photos not attached", description: "The product was being saved when they finished uploading." });
+        return;
+      }
+      if (!now.variants.some((v) => v.key === variantKey)) {
+        toast({ title: "Photos not attached", description: "That variant was removed while they uploaded." });
+        return;
+      }
+      const uploaded: MediaRow[] = urls.map((url) => ({ url, alt: now.name || null, sort: 0 }));
       setForm((f) => {
+        const i = f.variants.findIndex((v) => v.key === variantKey);
+        if (i < 0) return f;
         const variants = [...f.variants];
-        variants[variantIndex] = {
-          ...variants[variantIndex],
-          media: [...variants[variantIndex].media, ...uploaded],
-        };
+        variants[i] = { ...variants[i], media: [...variants[i].media, ...uploaded] };
         return { ...f, variants };
       });
     } catch (e) {
       toast({ title: "Upload failed", description: (e as Error).message, variant: "destructive" });
     } finally {
-      setUploadingKey(null);
+      endUpload(op);
     }
   }
 
+  /**
+   * The product's ONE video. Only one video upload may run at a time (a second choice is refused,
+   * not queued), and removing the video cancels an upload still running: its result is discarded,
+   * so a removal is never silently undone.
+   */
   async function uploadVideo(files: FileList | null) {
     const file = files?.[0];
     if (!file) return;
-    setUploadingKey("video");
+    if (saveLock.current === editSession.current) return;
+    if (uploadOpsRef.current.some((o) => o.session === editSession.current && o.key === "video")) {
+      toast({ title: "Video already uploading", description: "Wait for the current video to finish before choosing another." });
+      return;
+    }
+    const session = editSession.current;
+    const productId = formRef.current.id;
+    const epoch = videoEpoch.current;
+    const op = beginUpload("video");
     try {
       const { video_url, video_poster_url } = await uploadProductVideo(file);
+      if (editSession.current !== session || formRef.current.id !== productId) {
+        toast({ title: "Video not attached", description: "The editor was closed or another product was opened while it uploaded." });
+        return;
+      }
+      if (saveLock.current === session) {
+        toast({ title: "Video not attached", description: "The product was being saved when it finished uploading." });
+        return;
+      }
+      if (videoEpoch.current !== epoch) {
+        toast({ title: "Video not attached", description: "The video was removed while the new one uploaded." });
+        return;
+      }
       setForm((f) => ({ ...f, videoUrl: video_url, videoPosterUrl: video_poster_url }));
       toast({
         title: "Video added",
@@ -734,12 +1080,45 @@ export default function ProductsCard() {
     } catch (e) {
       toast({ title: "Video upload failed", description: (e as Error).message, variant: "destructive" });
     } finally {
-      setUploadingKey(null);
+      endUpload(op);
+    }
+  }
+
+  function removeVideo() {
+    videoEpoch.current += 1;
+    setFormLocked((f) => ({ ...f, videoUrl: null, videoPosterUrl: null }));
+  }
+
+  /**
+   * Recovery after a partial create: read back what actually reached the catalog and open it
+   * (replaces the form). It belongs to ONE request: the editor session, the created product's
+   * id and a request number. Fields are locked while it runs, a second click is ignored, and a
+   * result that arrives after the editor was closed, reopened or switched is discarded. A failed
+   * read leaves the form exactly as it was.
+   */
+  async function openSavedProduct() {
+    const p = partial;
+    if (!p || p.session !== editSession.current || recoveringId !== null) return;
+    if (!confirm("Open the saved product? The text in this form is replaced by what was saved.")) return;
+    const req = ++recoverySeq.current;
+    const session = editSession.current;
+    setRecoveringId(req);
+    const stillMine = () => recoverySeq.current === req && editSession.current === session;
+    try {
+      const { data, error } = await supabase.from("website_products").select(PRODUCT_SELECT).eq("id", p.productId).maybeSingle();
+      if (!stillMine()) return;                                  // another editor is on screen: touch nothing
+      if (error || !data) {
+        toast({ title: "Could not open the saved product", description: `${error?.message ?? "It was not found."} Your text is still in the editor.`, variant: "destructive" });
+        return;
+      }
+      openEdit(data as unknown as CatalogProductRead);
+    } finally {
+      if (recoverySeq.current === req) setRecoveringId(null);
     }
   }
 
   function patchVariant(i: number, patch: Partial<VariantRow>) {
-    setForm((f) => {
+    setFormLocked((f) => {
       const variants = [...f.variants];
       variants[i] = { ...variants[i], ...patch };
       return { ...f, variants };
@@ -777,10 +1156,10 @@ export default function ProductsCard() {
             isAdmin={!!isAdmin}
             translate={translateJa}
           />
-          <Button variant="outline" onClick={regenerateAllJapanese} disabled={!!bulk || !(products.data ?? []).length}>
+          <Button variant="outline" onClick={fillMissingJapaneseNames} disabled={!!bulk || !canManage || !missingNames.length}>
             {bulk
               ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Translating {bulk.done}/{bulk.total}</>
-              : <><RefreshCw className="mr-2 h-4 w-4" /> Regenerate all Japanese</>}
+              : <><RefreshCw className="mr-2 h-4 w-4" /> Generate missing Japanese names ({missingNames.length})</>}
           </Button>
           <Button onClick={openNew}>
             <Plus className="mr-2 h-4 w-4" /> Add product
@@ -1057,19 +1436,32 @@ export default function ProductsCard() {
 
       <ProductDialog
         open={open}
-        onOpenChange={setOpen}
+        onOpenChange={onEditorOpenChange}
         form={form}
-        setForm={setForm}
+        setForm={setFormLocked}
         collections={collections.data ?? []}
         categories={categories.data ?? []}
         isAdmin={!!isAdmin}
         translating={translating}
-        uploadingKey={uploadingKey}
+        uploadingKeys={uploadingKeys}
         peso={peso}
         saving={save.isPending}
-        onSave={() => save.mutate(form)}
-        onRegenerateJapanese={regenerateJapanese}
+        onSave={submitForm}
+        onTranslateDescription={translateDescription}
+        canRegenerateName={canManage}
+        translatingName={translatingName}
+        onRegenerateJapaneseName={regenerateJapaneseName}
+        canSuggestStyling={canManage}
+        suggestingStyling={suggestingStyling}
+        styling={styling && stylingStillApplies(styling.ask, editSession.current, form.id) ? { text: styling.text, usedPhoto: styling.usedPhoto } : null}
+        onSuggestStyling={suggestStyling}
+        onAcceptStyling={acceptStyling}
+        onDiscardStyling={() => setStyling(null)}
         onUploadMedia={uploadMedia}
+        recovery={partial && partial.session === editSession.current ? partial : null}
+        onOpenSaved={openSavedProduct}
+        recovering={recoveringId !== null}
+        onRemoveVideo={removeVideo}
         onUploadVideo={uploadVideo}
         onPatchVariant={patchVariant}
       />

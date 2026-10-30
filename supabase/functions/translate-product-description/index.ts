@@ -16,7 +16,8 @@ import { requireAuth, requirePermission } from "../_shared/handler.ts";
  *   - `text` is accepted as an alias of `description` for older callers.
  * Response: { name_ja: string | null, description_ja: string | null }
  *
- * Auth: staff JWT + manage_website_catalog (verify_jwt = true at the gateway).
+ * Auth: staff JWT + manage_website_catalog, or the service role (the scheduled
+ * page365-inventory-fetch); verify_jwt = true at the gateway.
  * Model: Lovable AI gateway, same pattern as ai-customer-insights.
  */
 
@@ -170,7 +171,10 @@ Deno.serve(async (req) => {
   const pre = corsPreflight(req);
   if (pre) return pre;
 
-  const ctx = await requireAuth(req);
+  // Service-role callers are accepted: page365-inventory-fetch translates the
+  // Japanese names a Page365 name follow cleared (2026-10-31). Without this the
+  // scheduled call got 401 and pending names were never translated.
+  const ctx = await requireAuth(req, { allowServiceRole: true });
   if (ctx instanceof Response) return ctx;
   const denied = await requirePermission(ctx, "manage_website_catalog");
   if (denied) return denied;

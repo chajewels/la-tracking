@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -7,11 +7,17 @@ import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { translationNeedsConfirm } from "@/components/website/description-ja";
+import { japaneseNameMayBeOutdated, nameRegenerationNeedsConfirm } from "@/components/website/name-ja";
+import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Switch } from "@/components/ui/switch";
-import { Film, Loader2, Plus, RefreshCw, Trash2, Upload } from "lucide-react";
+import { Film, Loader2, Plus, RefreshCw, Sparkles, Trash2, Upload } from "lucide-react";
 import { VIDEO_MAX_BYTES } from "@/lib/product-video";
 import { MultiPick } from "@/components/website/MultiPick";
 import {
@@ -72,8 +78,10 @@ function WeightInput({ value, onChange }: { value: number | null; onChange: (v: 
 
 export default function ProductDialog({
   open, onOpenChange, form, setForm, collections, categories, isAdmin,
-  translating, uploadingKey, peso, saving, onSave, onRegenerateJapanese,
-  onUploadMedia, onPatchVariant, onUploadVideo,
+  translating, uploadingKeys, peso, saving, onSave, onTranslateDescription,
+  canRegenerateName, translatingName, onRegenerateJapaneseName,
+  canSuggestStyling, suggestingStyling, styling, onSuggestStyling, onAcceptStyling, onDiscardStyling,
+  onUploadMedia, onPatchVariant, onUploadVideo, onRemoveVideo, recovery, recovering, onOpenSaved,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -83,17 +91,52 @@ export default function ProductDialog({
   categories: { id: string; name: string; name_ja?: string | null; published?: boolean }[];
   isAdmin: boolean;
   translating: boolean;
-  uploadingKey: string | null;
+  /** Keys of the uploads running in this editor: "video" and "v:<variant key>". */
+  uploadingKeys: readonly string[];
   peso: (n: number) => string;
   saving: boolean;
   onSave: () => void;
-  onRegenerateJapanese: () => void;
-  onUploadMedia: (variantIndex: number, files: FileList | null) => void;
+  /** Translate the English description into the Japanese field. Never touches the name. */
+  onTranslateDescription: () => void;
+  /** Staff with catalog permission only; absent or false hides the name button. */
+  canRegenerateName?: boolean;
+  translatingName?: boolean;
+  /** Translate the English NAME into the Japanese name field (form only, not saved). Never touches a description. */
+  onRegenerateJapaneseName?: () => void;
+  /** "Write description (AI)": catalog staff only; absent or false hides it. */
+  canSuggestStyling?: boolean;
+  suggestingStyling?: boolean;
+  /** A checked suggestion waiting for "Add to description" or "Discard". Nothing is in the form yet. */
+  styling?: { text: string; usedPhoto: boolean } | null;
+  onSuggestStyling?: () => void;
+  onAcceptStyling?: () => void;
+  onDiscardStyling?: () => void;
+  /** Attaches by the variant's stable key, not its array position. */
+  onUploadMedia: (variantKey: string, files: FileList | null) => void;
   onPatchVariant: (i: number, patch: Partial<VariantRow>) => void;
   /** Upload the product's MP4 (one per product). Absent = no video section. */
   onUploadVideo?: (files: FileList | null) => void;
+  /** Removing the video also cancels any video upload still running (its result is then discarded). */
+  onRemoveVideo?: () => void;
+  /** Set when a NEW product was created but the rest of its Save failed: Save is disabled
+   *  (pressing it again would create a second product) and the saved product can be opened. */
+  recovery?: { productId: string } | null;
+  /** The saved product is being read back: fields are locked so nothing typed meanwhile is replaced. */
+  recovering?: boolean;
+  onOpenSaved?: () => void;
 }) {
   const formId = useId();
+  const [confirmTranslate, setConfirmTranslate] = useState(false);
+  const [confirmName, setConfirmName] = useState(false);
+  const [statusOpen, setStatusOpen] = useState(false);
+  // The status list is portaled outside the fieldset: close it the moment a Save starts.
+  useEffect(() => { if (saving) setStatusOpen(false); }, [saving]);
+  const jaStale = !!form.id && !!form.description_ja.trim() && form.description_en.trim() !== form.jaSourceEn.trim();
+  // An existing product whose English name was edited here while its Japanese
+  // name stayed as it was: Save keeps that Japanese name (owner 2026-10-31), so say so.
+  const nameJaStale = !!form.id && !!form.loaded && japaneseNameMayBeOutdated({
+    name: form.name, nameJa: form.name_ja, wasName: form.loaded.name, wasJa: form.loaded.name_ja,
+  });
   return (
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="max-h-[calc(100dvh-2rem)] max-w-3xl overflow-y-auto">
@@ -101,6 +144,20 @@ export default function ProductDialog({
             <DialogTitle>{form.id ? "Edit product" : "New product"}</DialogTitle>
           </DialogHeader>
 
+          {recovery && (
+            <div role="alert" data-testid="product-recovery" className="space-y-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm">
+              <p className="font-medium text-foreground">This product was created, but saving did not finish.</p>
+              <p className="text-muted-foreground">
+                Pressing Save again would create a second product, so Save is off. Your text stays here until you
+                open the saved product, which shows what actually reached the catalog.
+              </p>
+              {onOpenSaved && <Button type="button" variant="outline" size="sm" onClick={onOpenSaved} disabled={!!recovering}>{recovering ? "Opening…" : "Open the saved product"}</Button>}
+            </div>
+          )}
+
+          {/* While a Save runs every field is locked: a keystroke typed after the
+              Save started would be silently dropped when the editor closes. */}
+          <fieldset disabled={saving || !!recovering} className="m-0 min-w-0 border-0 p-0" data-testid="product-form-fields">
           <div className="space-y-5">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
@@ -118,12 +175,48 @@ export default function ProductDialog({
                   }))}
                   placeholder="K18 Rope Chain 45cm"
                 />
-                <Input
-                  readOnly lang="ja" value={form.name_ja}
-                  className="cursor-default bg-muted/30 text-muted-foreground"
-                  placeholder="Japanese name — generated on save"
-                  aria-label="Name (Japanese, generated)"
-                />
+                <div className="space-y-1.5">
+                  <Input
+                    readOnly lang="ja" value={form.name_ja}
+                    className="cursor-default bg-muted/30 text-muted-foreground"
+                    placeholder="Japanese name — generated on save when missing"
+                    aria-label="Name (Japanese, generated)"
+                  />
+                  {nameJaStale && (
+                    <p role="status" data-testid="name-ja-stale" className="text-xs text-warning">
+                      The English name changed, so the Japanese name may be out of date. Save keeps it as it is —
+                      press Regenerate Japanese name, then Save, to update it.
+                    </p>
+                  )}
+                  {canRegenerateName && onRegenerateJapaneseName && (
+                    <Button
+                      type="button" variant="outline" size="sm"
+                      onClick={() => (nameRegenerationNeedsConfirm(form) ? setConfirmName(true) : onRegenerateJapaneseName())}
+                      disabled={!!translatingName || saving || !form.name.trim()}
+                    >
+                      {translatingName
+                        ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                        : <RefreshCw className="mr-1 h-3.5 w-3.5" />}
+                      Regenerate Japanese name
+                    </Button>
+                  )}
+                </div>
+                <AlertDialog open={confirmName} onOpenChange={setConfirmName}>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Replace the Japanese name?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This puts a new translation of the English name in the box. Nothing is saved until you
+                        press Save; close this editor without saving to keep the current Japanese name.
+                        The description is not changed.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Keep current name</AlertDialogCancel>
+                      <AlertDialogAction onClick={() => onRegenerateJapaneseName?.()}>Replace name</AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
               </div>
               <div className="space-y-1.5 sm:col-span-2">
                 <Label htmlFor={`${formId}-slug`}>Web address (slug)</Label>
@@ -143,6 +236,7 @@ export default function ProductDialog({
                   // English and left staff guessing which one was which.
                   options={collections.map((c) => ({ id: c.id, label: c.name }))}
                   value={form.collectionIds}
+                  disabled={saving}
                   onChange={(collectionIds) => setForm((f) => ({ ...f, collectionIds }))}
                 />
               </div>
@@ -155,6 +249,7 @@ export default function ProductDialog({
                   emptyText="No category matches."
                   options={categories.map((c) => ({ id: c.id, label: c.published ? c.name : `${c.name} (unpublished)` }))}
                   value={form.categoryIds}
+                  disabled={saving}
                   onChange={(categoryIds) => setForm((f) => ({ ...f, categoryIds }))}
                 />
               </div>
@@ -283,30 +378,83 @@ export default function ProductDialog({
                   onChange={(e) => setForm((f) => ({ ...f, description_en: e.target.value }))}
                   placeholder="K18 gold, 40cm, 2.0g."
                 />
+                {canSuggestStyling && onSuggestStyling && (
+                  <div className="space-y-2">
+                    <Button
+                      type="button" variant="outline" size="sm" data-testid="suggest-styling"
+                      onClick={onSuggestStyling}
+                      disabled={!!suggestingStyling || saving || !form.name.trim()}
+                    >
+                      {suggestingStyling
+                        ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                        : <Sparkles className="mr-1 h-3.5 w-3.5" />}
+                      Write description (AI)
+                    </Button>
+                    {styling && (
+                      <div data-testid="styling-suggestion" className="space-y-2 rounded-md border bg-muted/40 p-3">
+                        <p className="text-xs font-medium">AI description — check every detail against the piece before adding</p>
+                        <p className="whitespace-pre-wrap text-sm">{styling.text}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {styling.usedPhoto ? "Written from the details above and the first photo." : "Written from the details above only (no photo was sent)."}{" "}
+                          Add puts it above the existing English description, which stays as it is underneath. Nothing is saved until you press Save, and the Japanese description is not changed.
+                        </p>
+                        <div className="flex gap-2">
+                          <Button type="button" size="sm" onClick={onAcceptStyling} disabled={saving}>Add to description</Button>
+                          <Button type="button" size="sm" variant="ghost" onClick={onDiscardStyling}>Discard</Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
-              <div className="space-y-1.5 rounded-lg border border-border bg-muted/30 p-3">
+              <div className="space-y-1.5">
                 <div className="flex items-center justify-between gap-2">
-                  <Label className="text-xs text-muted-foreground">
-                    Japanese (name and description translated automatically — read-only)
-                  </Label>
+                  <Label htmlFor={`${formId}-desc-ja`}>Description (Japanese)</Label>
                   <Button
                     type="button" variant="outline" size="sm"
-                    onClick={onRegenerateJapanese}
-                    disabled={translating || (!form.description_en.trim() && !form.name.trim())}
+                    onClick={() => (translationNeedsConfirm(form) ? setConfirmTranslate(true) : onTranslateDescription())}
+                    disabled={translating || saving || !form.description_en.trim()}
                   >
                     {translating
                       ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
                       : <RefreshCw className="mr-1 h-3.5 w-3.5" />}
-                    Regenerate
+                    Translate from English
                   </Button>
                 </div>
                 <Textarea
-                  rows={5} readOnly value={form.description_ja}
-                  className="cursor-default bg-transparent"
-                  placeholder="Generated on save when the English text changes."
+                  id={`${formId}-desc-ja`} lang="ja" rows={5}
+                  value={form.description_ja}
+                  onChange={(e) => setForm((f) => ({ ...f, description_ja: e.target.value }))}
+                  placeholder="Write the Japanese description, or translate it from the English."
                 />
+                <p className="text-xs text-muted-foreground">
+                  Saved as you write it (spaces at the start and end are trimmed). It is never translated
+                  automatically for an existing product — only the button above does that. If someone else
+                  changed it since you opened this product, your Save is refused and your text stays here.
+                  The Japanese name is not changed here.
+                </p>
+                {jaStale && (
+                  <p className="text-xs text-warning" role="status">
+                    The English description changed. The Japanese was kept as it is — update it or translate again if it should match.
+                  </p>
+                )}
               </div>
+              <AlertDialog open={confirmTranslate} onOpenChange={setConfirmTranslate}>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Replace the Japanese description?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This replaces the Japanese text in the box with a new translation of the English. Your
+                      current Japanese is lost unless you close this editor without saving.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Keep my Japanese</AlertDialogCancel>
+                    <AlertDialogAction onClick={onTranslateDescription}>Replace with translation</AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             </div>
 
             {onUploadVideo && (
@@ -329,13 +477,13 @@ export default function ProductDialog({
                       <p>{form.videoPosterUrl ? "Still frame ready." : "No still frame — the website shows a play button instead."}</p>
                       <div className="flex gap-2">
                         <label className="flex cursor-pointer items-center gap-2 rounded-md border border-dashed border-border px-3 py-2 hover:text-foreground">
-                          {uploadingKey === "video" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+                          {uploadingKeys.includes("video") ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
                           Replace video
                           <input type="file" accept="video/mp4" className="hidden" onChange={(e) => { onUploadVideo(e.target.files); e.target.value = ""; }} />
                         </label>
                         <Button
                           type="button" variant="ghost" size="sm" className="text-destructive"
-                          onClick={() => setForm((f) => ({ ...f, videoUrl: null, videoPosterUrl: null }))}
+                          onClick={() => (onRemoveVideo ? onRemoveVideo() : setForm((f) => ({ ...f, videoUrl: null, videoPosterUrl: null })))}
                         >
                           <Trash2 className="mr-1 h-3.5 w-3.5" /> Remove video
                         </Button>
@@ -344,9 +492,9 @@ export default function ProductDialog({
                   </div>
                 ) : (
                   <label className="flex w-fit cursor-pointer items-center gap-2 rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground hover:text-foreground">
-                    {uploadingKey === "video" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Film className="h-3.5 w-3.5" />}
-                    {uploadingKey === "video" ? "Uploading video…" : "Add video (MP4)"}
-                    <input type="file" accept="video/mp4" className="hidden" disabled={uploadingKey === "video"} onChange={(e) => { onUploadVideo(e.target.files); e.target.value = ""; }} />
+                    {uploadingKeys.includes("video") ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Film className="h-3.5 w-3.5" />}
+                    {uploadingKeys.includes("video") ? "Uploading video…" : "Add video (MP4)"}
+                    <input type="file" accept="video/mp4" className="hidden" disabled={uploadingKeys.includes("video")} onChange={(e) => { onUploadVideo(e.target.files); e.target.value = ""; }} />
                   </label>
                 )}
               </div>
@@ -364,7 +512,7 @@ export default function ProductDialog({
               </div>
 
               {form.variants.map((v, i) => (
-                <div key={v.id ?? `new-${i}`} className="space-y-3 rounded-lg border border-border p-3">
+                <div key={v.key} className="space-y-3 rounded-lg border border-border p-3">
                   <div className="grid gap-3 sm:grid-cols-4">
                     <div className="space-y-1">
                       <Label className="text-xs">Size</Label>
@@ -436,14 +584,14 @@ export default function ProductDialog({
                       </div>
                     ))}
                     <label className="flex cursor-pointer items-center gap-2 rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground hover:text-foreground">
-                      {uploadingKey === `v${i}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+                      {uploadingKeys.includes(`v:${v.key}`) ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
                       Add photos
-                      <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => onUploadMedia(i, e.target.files)} />
+                      <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => onUploadMedia(v.key, e.target.files)} />
                     </label>
                     {form.variants.length > 1 && (
                       <Button
                         type="button" variant="ghost" size="sm" className="ml-auto text-destructive"
-                        onClick={() => setForm((f) => ({ ...f, variants: f.variants.filter((_, x) => x !== i) }))}
+                        onClick={() => setForm((f) => ({ ...f, variants: f.variants.filter((x) => x.key !== v.key) }))}
                       >
                         Remove variant
                       </Button>
@@ -455,7 +603,7 @@ export default function ProductDialog({
 
             <div className="space-y-1.5">
               <Label>Status</Label>
-              <Select value={form.status} onValueChange={(v) => setForm((f) => ({ ...f, status: v as Status }))}>
+              <Select open={statusOpen && !saving} onOpenChange={(o) => setStatusOpen(o && !saving)} disabled={saving} value={form.status} onValueChange={(v) => setForm((f) => ({ ...f, status: v as Status }))}>
                 <SelectTrigger className="sm:max-w-xs"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="draft">Draft (hidden)</SelectItem>
@@ -485,11 +633,12 @@ export default function ProductDialog({
               />
             </div>
           </div>
+          </fieldset>
 
 
           <DialogFooter>
             <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-            <Button onClick={onSave} disabled={saving || form.variants.some((v) => saleError(v) !== null)}>
+            <Button onClick={onSave} disabled={saving || !!recovery || !!translatingName || (translating && !saving) || form.variants.some((v) => saleError(v) !== null)}>
               {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Save product
             </Button>

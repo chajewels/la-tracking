@@ -39,7 +39,7 @@ import type { CommissionLine } from '@/components/finance/mark-paid';
 import {
   SaleRow, CommissionAgent, CommissionSplit, MonthlyComputation,
   CanonicalRole, CANONICAL_ROLES, ROLE_LABEL_FULL, ROLE_LABEL_ABBREV,
-  computeAllMonths, monthKeyFromDate, monthLabelFromKey,
+  computeAllMonths, fetchCommissionSplits, isPeriodClosed, periodKeyForDate, periodRange, monthLabelFromKey,
   defaultEligible, formatPHP, formatJPY, agentColor,
 } from '@/lib/commissionEngine';
 
@@ -991,10 +991,16 @@ function AgentsTab({
 
 // ── Tab: Monthly ────────────────────────────────────────────────────────────
 
+function periodRangeLabel(monthKey: string, splits: CommissionSplit[]): string {
+  const { start, end } = periodRange(monthKey, splits);
+  return `${monthLabelFromKey(monthKey)} · ${formatShortDate(start)} – ${formatShortDate(end)}`;
+}
+
 function MonthlyTab({
-  monthly, selectedMonthKey, onMonthChange, canMarkPaid,
+  monthly, splits, selectedMonthKey, onMonthChange, canMarkPaid,
 }: {
   monthly: MonthlyComputation[];
+  splits: CommissionSplit[];
   selectedMonthKey: string | null;
   onMonthChange: (k: string) => void;
   /** approve_expenses — shows the "Mark as paid" block under Payout Breakdown (Expenses Phase 2). */
@@ -1035,7 +1041,10 @@ function MonthlyTab({
                     onClick={() => onMonthChange(m.monthKey)}
                     className={cn('border-t border-border cursor-pointer transition-colors', isActive ? 'bg-primary/10' : 'hover:bg-muted/30')}
                   >
-                    <td className="px-3 py-2 font-medium">{m.monthLabel}</td>
+                    <td className="px-3 py-2 font-medium">
+                      {m.monthLabel}
+                      <div className="text-[11px] font-normal text-muted-foreground">{periodRangeLabel(m.monthKey, splits)}</div>
+                    </td>
                     <td className="px-3 py-2 text-right tabular-nums">{m.rows.length.toLocaleString()}</td>
                     <td className="px-3 py-2 text-right tabular-nums">{m.eligibleRows.length.toLocaleString()}</td>
                     <td className="px-3 py-2 text-right tabular-nums">{m.cancelledCount.toLocaleString()}</td>
@@ -1175,12 +1184,16 @@ function MonthlyTab({
 // ── Tab: Sales Log ──────────────────────────────────────────────────────────
 
 function SalesLogTab({
-  rows, agents, totalAvailable, onRefresh,
+  rows, agents, splits, totalAvailable, onRefresh, archived = false, canEdit = true,
 }: {
   rows: SaleRow[];
   agents: CommissionAgent[];
+  splits: CommissionSplit[];
   totalAvailable: number;
   onRefresh: () => void;
+  /** Archived tab: completed periods; editing only when canEdit (Admin / Brenda). */
+  archived?: boolean;
+  canEdit?: boolean;
 }) {
   const [search, setSearch] = useState('');
   const [filterMonth, setFilterMonth] = useState<string[]>([]);
@@ -1189,22 +1202,27 @@ function SalesLogTab({
   const [filterEligible, setFilterEligible] = useState<string[]>([]); // 'Eligible' / 'Not Eligible'
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<SaleRow | null>(null);
+  const [archivedMonth, setArchivedMonth] = useState('');
 
   const monthOptions = useMemo(() => {
     const set = new Set<string>();
     for (const r of rows) {
-      const k = monthKeyFromDate(r.sale_date);
+      const k = periodKeyForDate(r.sale_date, splits);
       if (k) set.add(k);
     }
     return Array.from(set).sort().reverse().map(k => ({ key: k, label: monthLabelFromKey(k) }));
-  }, [rows]);
+  }, [rows, splits]);
+
+  // Archived tab: ONE period at a time, newest first by default.
+  const pickedArchivedMonth = archived ? (archivedMonth || monthOptions[0]?.key || '') : '';
 
   const filteredRows = useMemo(() => {
     const term = search.trim().toLowerCase();
     return rows
       .filter(r => {
+        if (archived && pickedArchivedMonth && periodKeyForDate(r.sale_date, splits) !== pickedArchivedMonth) return false;
         if (filterMonth.length > 0) {
-          const k = monthKeyFromDate(r.sale_date);
+          const k = periodKeyForDate(r.sale_date, splits);
           if (!k || !filterMonth.includes(k)) return false;
         }
         if (filterStatus.length > 0 && !filterStatus.includes(r.status)) return false;
@@ -1220,7 +1238,7 @@ function SalesLogTab({
         return true;
       })
       .sort((a, b) => (b.sale_date ?? '').localeCompare(a.sale_date ?? ''));
-  }, [rows, search, filterMonth, filterStatus, filterChannel, filterEligible]);
+  }, [rows, splits, archived, pickedArchivedMonth, search, filterMonth, filterStatus, filterChannel, filterEligible]);
 
   function clearFilters() {
     setSearch('');
@@ -1240,7 +1258,20 @@ function SalesLogTab({
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search client or item code…" className="h-9 pl-8 text-xs" />
           </div>
-          <MultiSelectFilter label="Month" options={monthOptions.map(m => m.key)} selected={filterMonth} onChange={setFilterMonth} />
+          {archived ? (
+            <select
+              value={pickedArchivedMonth}
+              onChange={e => setArchivedMonth(e.target.value)}
+              aria-label="Archived month"
+              className="h-9 rounded-md border border-input bg-background px-2 text-xs"
+            >
+              {monthOptions.map(m => (
+                <option key={m.key} value={m.key}>{periodRangeLabel(m.key, splits)}</option>
+              ))}
+            </select>
+          ) : (
+            <MultiSelectFilter label="Month" options={monthOptions.map(m => m.key)} selected={filterMonth} onChange={setFilterMonth} />
+          )}
           <MultiSelectFilter label="Status" options={[...STATUS_OPTIONS]} selected={filterStatus} onChange={setFilterStatus} />
           <MultiSelectFilter label="Channel" options={[...CHANNEL_OPTIONS]} selected={filterChannel} onChange={setFilterChannel} />
           <MultiSelectFilter label="Eligible" options={['Eligible', 'Not Eligible']} selected={filterEligible} onChange={setFilterEligible} />
@@ -1252,9 +1283,11 @@ function SalesLogTab({
           <span className="ml-auto text-xs text-muted-foreground">
             {filteredRows.length.toLocaleString()} of {totalAvailable.toLocaleString()}
           </span>
-          <Button onClick={() => { setEditing(null); setDialogOpen(true); }} className="h-9 gold-gradient text-primary-foreground">
-            <Plus className="mr-1 h-4 w-4" /> New Sale
-          </Button>
+          {canEdit && (
+            <Button onClick={() => { setEditing(null); setDialogOpen(true); }} className="h-9 gold-gradient text-primary-foreground">
+              <Plus className="mr-1 h-4 w-4" /> New Sale
+            </Button>
+          )}
         </div>
       </div>
 
@@ -1282,7 +1315,7 @@ function SalesLogTab({
             <tbody>
               {filteredRows.length === 0 ? (
                 <tr><td colSpan={14} className="px-3 py-10 text-center text-sm text-muted-foreground">
-                  {hasFilters ? 'No sales match the current filter.' : 'No sales recorded yet.'}
+                  {hasFilters ? 'No sales match the current filter.' : archived ? 'No archived sales yet.' : 'No sales recorded yet.'}
                 </td></tr>
               ) : (
                 filteredRows.map(r => (
@@ -1303,9 +1336,11 @@ function SalesLogTab({
                     <td className="px-3 py-2 text-center">{r.eligible ? '✓' : <span className="text-muted-foreground">—</span>}</td>
                     <td className="px-3 py-2 text-center font-mono text-xs">{r.invoice_number || '—'}</td>
                     <td className="px-3 py-2 text-right">
-                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => { setEditing(r); setDialogOpen(true); }} aria-label="Edit">
-                        <Pencil className="h-3.5 w-3.5" />
-                      </Button>
+                      {canEdit && (
+                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => { setEditing(r); setDialogOpen(true); }} aria-label="Edit">
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
                     </td>
                   </tr>
                 ))
@@ -1329,10 +1364,12 @@ function SalesLogTab({
 // ── Tab: Config ─────────────────────────────────────────────────────────────
 
 function ConfigTab({
-  agents, splits, onRefresh,
+  agents, splits, hasCutoff, onRefresh,
 }: {
   agents: CommissionAgent[];
   splits: CommissionSplit[];
+  /** false until migration 20270225100000 is applied: the Cut-off column is hidden and never written. */
+  hasCutoff: boolean;
   onRefresh: () => void;
 }) {
   const [agentDialogOpen, setAgentDialogOpen] = useState(false);
@@ -1369,6 +1406,12 @@ function ConfigTab({
       + (Number(s.top_sales_2_pct) || 0);
   }
 
+  // cutoff_day is not in the generated types until Lovable regenerates them after the migration is applied
+  // (types.ts is never hand-edited): cast at the call site, and send it only when the column exists.
+  function withCutoff<T extends object>(base: T, cutoff: number | null | undefined): T {
+    return (hasCutoff ? { ...base, cutoff_day: cutoff ?? null } : base) as T;
+  }
+
   async function saveSplit(month: string) {
     const draft = splitDrafts[month];
     if (!draft) return;
@@ -1390,10 +1433,11 @@ function ConfigTab({
         merge_groups: draft.merge_groups ?? [],
         pool_per_item_php: draft.pool_per_item_php,
       };
+      const body = withCutoff(payload, draft.cutoff_day);
       const exists = splits.some(s => s.month === month);
       const { error } = exists
-        ? await client.from('commission_splits').update(payload).eq('month', month)
-        : await client.from('commission_splits').insert({ month, ...payload });
+        ? await client.from('commission_splits').update(body).eq('month', month)
+        : await client.from('commission_splits').insert({ month, ...body });
       if (error) throw error;
       toast.success('Split saved');
       onRefresh();
@@ -1440,7 +1484,7 @@ function ConfigTab({
         };
     setAddingMonth(true);
     try {
-      const { error } = await supabase.from('commission_splits').insert({
+      const { error } = await supabase.from('commission_splits').insert(withCutoff({
         month: fresh.month,
         closer_pct: fresh.closer_pct,
         processor_pct: fresh.processor_pct,
@@ -1451,7 +1495,7 @@ function ConfigTab({
         top_sales_2_pct: fresh.top_sales_2_pct,
         merge_groups: fresh.merge_groups ?? [],
         pool_per_item_php: fresh.pool_per_item_php,
-      });
+      }, fresh.cutoff_day));
       if (error) throw error;
       toast.success(
         seed
@@ -1566,13 +1610,14 @@ function ConfigTab({
                 <th className="px-2 py-2 text-right font-medium">Top 1 %</th>
                 <th className="px-2 py-2 text-right font-medium">Top 2 %</th>
                 <th className="px-3 py-2 text-right font-medium">Pool/Item ₱</th>
+                {hasCutoff && <th className="px-2 py-2 text-left font-medium" title="Last day of the period that ends in this month">Cut-off</th>}
                 <th className="px-2 py-2 text-right font-medium">Sum</th>
                 <th className="px-3 py-2 text-right font-medium">Actions</th>
               </tr>
             </thead>
             <tbody>
               {splitMonths.length === 0 ? (
-                <tr><td colSpan={11} className="px-3 py-6 text-center text-sm text-muted-foreground">No splits configured</td></tr>
+                <tr><td colSpan={12} className="px-3 py-6 text-center text-sm text-muted-foreground">No splits configured</td></tr>
               ) : (
                 splitMonths.map(month => {
                   const d = splitDrafts[month];
@@ -1603,6 +1648,21 @@ function ConfigTab({
                             min={0}
                           />
                         </td>
+                        {hasCutoff && (
+                          <td className="px-1 py-1">
+                            <select
+                              value={d.cutoff_day == null ? '' : String(d.cutoff_day)}
+                              onChange={e => updateDraft(month, 'cutoff_day', e.target.value === '' ? null : Number(e.target.value))}
+                              aria-label={`${monthLabelFromKey(month.slice(0, 7))} cut-off`}
+                              className="h-8 rounded-md border border-input bg-background px-1 text-xs"
+                            >
+                              <option value="">End of month</option>
+                              {Array.from({ length: 28 }, (_, i) => i + 1).map(n => (
+                                <option key={n} value={n}>{n}</option>
+                              ))}
+                            </select>
+                          </td>
+                        )}
                         <td className={cn('px-2 py-2 text-right text-xs font-semibold tabular-nums', sumOk ? 'text-green-400' : 'text-destructive')}>
                           {sum}
                         </td>
@@ -1625,7 +1685,7 @@ function ConfigTab({
                         </td>
                       </tr>
                       <tr className="border-t border-border/40 bg-muted/10">
-                        <td colSpan={11} className="px-3 py-2">
+                        <td colSpan={12} className="px-3 py-2">
                           <MergeChipsEditor
                             split={d}
                             onChange={(groups) => updateDraft(month, 'merge_groups', groups)}
@@ -1685,7 +1745,7 @@ function ChartCard({ title, children }: { title: string; children: React.ReactEl
 
 // ── Main page ───────────────────────────────────────────────────────────────
 
-const TAB_VALUES = ['overview', 'agents', 'monthly', 'sales-log', 'config'] as const;
+const TAB_VALUES = ['overview', 'agents', 'monthly', 'sales-log', 'archived', 'config'] as const;
 type TabValue = typeof TAB_VALUES[number];
 
 function tabFromParam(s: string | null): TabValue {
@@ -1699,12 +1759,28 @@ export default function Commissions() {
   // Admin gate — Config tab is admin-only. Uses the same role source
   // PermissionsContext reads from (useAuth().roles), so it matches the
   // admin short-circuit in usePermissions().can().
-  const { roles } = useAuth();
+  const { roles, user } = useAuth();
   // "Mark as paid" under Payout Breakdown books the month's commission as an expense —
   // approve_expenses (admin short-circuits inside can()).
   const { can } = usePermissions();
   const canMarkPaid = can('approve_expenses');
   const isAdmin = roles.includes('admin');
+  // Archived sales: only Admin and Brenda may change them. The database enforces it
+  // (sales_log_archive_guard); this only decides whether the buttons are shown.
+  const [canEditArchived, setCanEditArchived] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    if (!user?.id) { setCanEditArchived(false); return; }
+    (async () => {
+      try {
+        const { data, error } = await supabase.rpc('can_manage_payslips', { p_uid: user.id });
+        if (!cancelled) setCanEditArchived(!error && data === true);
+      } catch {
+        if (!cancelled) setCanEditArchived(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [user?.id]);
 
   // Normalize the URL-derived tab against the admin gate: a deep link like
   // ?tab=config silently falls back to Overview for non-admins.
@@ -1730,6 +1806,7 @@ export default function Commissions() {
   const [rows, setRows] = useState<SaleRow[]>([]);
   const [agents, setAgents] = useState<CommissionAgent[]>([]);
   const [splits, setSplits] = useState<CommissionSplit[]>([]);
+  const [hasCutoff, setHasCutoff] = useState(false);
   const [loading, setLoading] = useState(true);
   const [selectedMonthKey, setSelectedMonthKey] = useState<string | null>(null);
 
@@ -1759,16 +1836,16 @@ export default function Commissions() {
         }
         return all;
       }
-      const [salesData, agentsRes, splitsRes] = await Promise.all([
+      const [salesData, agentsRes, splitsRead] = await Promise.all([
         fetchAllSalesLog(),
         client.from('commission_agents').select('id, name, color, active, start_month, sort_order'),
-        client.from('commission_splits').select('month, closer_pct, processor_pct, coordinator_pct, support_pct, verifier_pct, top_sales_pct, top_sales_2_pct, merge_groups, pool_per_item_php').order('month', { ascending: true }),
+        fetchCommissionSplits(cols => client.from('commission_splits').select(cols).order('month', { ascending: true })),
       ]);
       if (agentsRes.error) throw agentsRes.error;
-      if (splitsRes.error) throw splitsRes.error;
       setRows((salesData as SaleRow[]) ?? []);
       setAgents((agentsRes.data as CommissionAgent[]) ?? []);
-      setSplits((splitsRes.data as CommissionSplit[]) ?? []);
+      setSplits(splitsRead.splits);
+      setHasCutoff(splitsRead.hasCutoff);
     } catch (err: unknown) {
       console.warn('Failed to load commissions data:', (err as Error)?.message);
       toast.error('Failed to load commissions data');
@@ -1780,6 +1857,17 @@ export default function Commissions() {
   useEffect(() => { load(); }, [load]);
 
   const monthly = useMemo(() => computeAllMonths(rows, splits), [rows, splits]);
+
+  // Current Sales Log = the period holding today (Philippine date) or later; Archived = completed periods.
+  const today = getPHTToday();
+  const { currentRows, archivedRows } = useMemo(() => {
+    const cur: SaleRow[] = [];
+    const arch: SaleRow[] = [];
+    // Before migration 20270225100000 is applied (no cutoff_day column) the database guard does not exist
+    // either, so nothing is archived: the Sales Log shows everything, exactly as before.
+    for (const r of rows) (hasCutoff && isPeriodClosed(r.sale_date, splits, today) ? arch : cur).push(r);
+    return { currentRows: cur, archivedRows: arch };
+  }, [rows, splits, today, hasCutoff]);
 
   // Default to latest month with data once loaded.
   useEffect(() => {
@@ -1815,6 +1903,7 @@ export default function Commissions() {
               <TabsTrigger value="agents">Agents</TabsTrigger>
               <TabsTrigger value="monthly">Monthly</TabsTrigger>
               <TabsTrigger value="sales-log">Sales Log</TabsTrigger>
+              <TabsTrigger value="archived">Archived</TabsTrigger>
               {isAdmin && <TabsTrigger value="config">Config</TabsTrigger>}
             </TabsList>
 
@@ -1825,14 +1914,17 @@ export default function Commissions() {
               <AgentsTab monthly={monthly} agents={agents} selectedMonthKey={selectedMonthKey} onMonthChange={setSelectedMonthKey} />
             </TabsContent>
             <TabsContent value="monthly" className="mt-4">
-              <MonthlyTab monthly={monthly} selectedMonthKey={selectedMonthKey} onMonthChange={setSelectedMonthKey} canMarkPaid={canMarkPaid} />
+              <MonthlyTab monthly={monthly} splits={splits} selectedMonthKey={selectedMonthKey} onMonthChange={setSelectedMonthKey} canMarkPaid={canMarkPaid} />
             </TabsContent>
             <TabsContent value="sales-log" className="mt-4">
-              <SalesLogTab rows={rows} agents={agents} totalAvailable={rows.length} onRefresh={load} />
+              <SalesLogTab rows={currentRows} agents={agents} splits={splits} totalAvailable={currentRows.length} onRefresh={load} />
+            </TabsContent>
+            <TabsContent value="archived" className="mt-4">
+              <SalesLogTab archived canEdit={canEditArchived} rows={archivedRows} agents={agents} splits={splits} totalAvailable={archivedRows.length} onRefresh={load} />
             </TabsContent>
             {isAdmin && (
               <TabsContent value="config" className="mt-4">
-                <ConfigTab agents={agents} splits={splits} onRefresh={load} />
+                <ConfigTab agents={agents} splits={splits} hasCutoff={hasCutoff} onRefresh={load} />
               </TabsContent>
             )}
           </Tabs>
