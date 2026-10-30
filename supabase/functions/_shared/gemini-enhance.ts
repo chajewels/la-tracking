@@ -74,31 +74,57 @@ export function base64Bytes(b64: string): number {
   return Math.floor((b64.length * 3) / 4) - pad;
 }
 
+const keysOf = (o: object) => Object.keys(o);
+const unknownKeys = (o: object, allowed: readonly string[]) => keysOf(o).filter((k) => !allowed.includes(k));
+
 /**
- * Validate the request body. `connectivity_test: true` ignores everything else
- * and uses the built-in fictional fixture, so a test can never carry real data.
+ * Validate the request body, STRICTLY: any field that is not explicitly
+ * allowed is rejected, never ignored or forwarded.
+ *
+ * Connectivity test (QA-681-01): the body must be exactly
+ * `{ "connectivity_test": true }` — no images, no product, no fixture text, no
+ * other field. The fictional FIXTURE is the only content ever sent, so a test
+ * cannot carry a real photo or real product data to Google.
+ *
+ * Enhancement request: `{ product, images? }` (connectivity_test absent or
+ * false), with every nested field bounded.
  */
 export function parseRequest(raw: unknown): { ok: true; req: EnhanceRequest } | { ok: false; message: string } {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { ok: false, message: "Body must be a JSON object." };
   const body = raw as Record<string, unknown>;
+
+  if (body.connectivity_test === true) {
+    if (unknownKeys(body, ["connectivity_test"]).length) {
+      return { ok: false, message: 'A connectivity test takes only { "connectivity_test": true } — no images, product or other fields.' };
+    }
+    return { ok: true, req: { product: FIXTURE, images: [], connectivity_test: true } };
+  }
+  if (body.connectivity_test !== undefined && body.connectivity_test !== false) {
+    return { ok: false, message: "connectivity_test must be true or omitted." };
+  }
+  const extra = unknownKeys(body, ["product", "images", "connectivity_test"]);
+  if (extra.length) return { ok: false, message: `Unexpected field: ${extra[0]}.` };
+
   const images: ImageInput[] = [];
   if (body.images !== undefined) {
     if (!Array.isArray(body.images)) return { ok: false, message: "images must be an array." };
     if (body.images.length > LIMITS.images) return { ok: false, message: `At most ${LIMITS.images} image per request.` };
     for (const i of body.images) {
-      const mime = str((i as ImageInput)?.mime_type);
-      const data = str((i as ImageInput)?.data_base64);
+      if (!i || typeof i !== "object" || Array.isArray(i) || unknownKeys(i, ["mime_type", "data_base64"]).length) {
+        return { ok: false, message: "Each image must be { mime_type, data_base64 } only." };
+      }
+      const mime = str((i as ImageInput).mime_type);
+      const data = str((i as ImageInput).data_base64);
       if (!(IMAGE_MIME as readonly string[]).includes(mime)) return { ok: false, message: "Image type must be JPEG, PNG or WebP." };
       if (!data || !/^[A-Za-z0-9+/]+={0,2}$/.test(data)) return { ok: false, message: "Image data must be base64." };
       if (base64Bytes(data) > LIMITS.image_bytes) return { ok: false, message: "Image is too large (max 1 MB)." };
       images.push({ mime_type: mime, data_base64: data });
     }
   }
-  if (body.connectivity_test === true) {
-    return { ok: true, req: { product: FIXTURE, images, connectivity_test: true } };
-  }
   const p = body.product as Record<string, unknown> | undefined;
-  if (!p || typeof p !== "object") return { ok: false, message: "product is required." };
+  if (!p || typeof p !== "object" || Array.isArray(p)) return { ok: false, message: "product is required." };
+  const badField = unknownKeys(p, ["name", "weight_g", "length_cm", "description_en"]);
+  if (badField.length) return { ok: false, message: `Unexpected product field: ${badField[0]}.` };
   const name = str(p.name);
   const description_en = str(p.description_en);
   if (!name) return { ok: false, message: "product.name is required." };
