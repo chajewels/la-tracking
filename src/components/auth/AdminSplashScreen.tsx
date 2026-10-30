@@ -1,3 +1,4 @@
+// Animation via framer-motion (motion-dom provides the MotionProps types).
 import { motion } from 'framer-motion';
 
 const BG = '#1A1410';
