@@ -1,4 +1,4 @@
-import { type FillClient, type FillOutcome, fillMissingJapanese, isMissingJa } from "@/components/website/name-ja";
+import { type FillClient, type FillOutcome, fillMissingJapanese, isMissingJa, japaneseNameMayBeOutdated } from "@/components/website/name-ja";
 
 /**
  * The spreadsheet importer's Japanese rules (owner 2026-10-30), kept apart from
@@ -12,7 +12,17 @@ import { type FillClient, type FillOutcome, fillMissingJapanese, isMissingJa } f
  * A NEW product simply receives what was generated.
  */
 
-export interface ExistingJa { name_ja?: string | null; description_ja?: string | null }
+export interface ExistingJa { name?: string | null; name_ja?: string | null; description_ja?: string | null }
+
+/**
+ * An import changed an existing product's English name but, by rule, kept its
+ * Japanese name (owner 2026-10-31). The import summary lists these so staff
+ * regenerate the Japanese name in the editor. A new product is never listed.
+ */
+export function importKeptOutdatedJapaneseName(existing: ExistingJa | null, v: ImportSource): boolean {
+  if (!existing) return false;
+  return japaneseNameMayBeOutdated({ name: v.name, nameJa: existing.name_ja, wasName: existing.name, wasJa: existing.name_ja });
+}
 export interface ImportSource { name: string; description_en: string }
 export interface ImportPlan { genName: string; genDesc: string }
 export type ImportTranslate = (a: { name?: string; description?: string }) => Promise<{ name_ja: string; description_ja: string }>;
