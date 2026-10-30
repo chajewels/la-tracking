@@ -379,7 +379,7 @@ export default function PayslipsTab({
                   <th className="px-3 py-2 text-left font-medium">Type</th>
                   <th className="px-3 py-2 text-right font-medium">Timesheet net</th>
                   <th className="px-3 py-2 text-right font-medium">Commission</th>
-                  <th className="px-3 py-2 text-right font-medium">Total</th>
+                  <th className="px-3 py-2 text-right font-medium">Amount due</th>
                   <th className="px-3 py-2 text-left font-medium">Status</th>
                   <th className="px-3 py-2 text-right font-medium">Actions</th>
                 </tr>
@@ -389,7 +389,9 @@ export default function PayslipsTab({
                   const shown = r.payslip && r.payslip.status !== 'void' ? r.payslip : null;
                   const ts = shown ? shown.timesheet_net_php : r.figures?.timesheet_net_php;
                   const cm = shown ? shown.commission_php : r.figures?.commission_php;
-                  const total = shown ? shown.total_php : (r.figures ? r.figures.total_php + bonusesTotal(r.bonuses) : undefined);
+                  // Same figure as the payslip's "Amount due": earnings + bonuses − cash advances − bond held + bond released.
+                  const total = shown ? amountDue(shown)
+                    : (r.figures ? draftBreakdown(r.figures.total_php, r.advances, draftBond(r, monthKey, features, false), r.bonuses).due : undefined);
                   const changed = shown && r.figures ? figuresChanged(storedFiguresTotal(shown), r.figures.total_php) : false;
                   return (
                     <tr key={r.profile.user_id} className="border-t border-border">

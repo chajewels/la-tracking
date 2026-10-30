@@ -109,6 +109,14 @@ describe("Payslips tab — cash advances, employee ID, cash bond", () => {
     expect(btn).toHaveTextContent("1"); // the void one is not counted
   });
 
+  it("the list's Amount due deducts cash advances (and the bond), same as the payslip", async () => {
+    mount();
+    const kaila = await rowOf("Kaila Cruz");
+    // ₱14,000 earnings − ₱1,000 advance = ₱13,000 net − ₱6,500 first-month bond = ₱6,500.
+    await waitFor(() => expect(within(kaila).getByText("₱6,500")).toBeInTheDocument());
+    expect(screen.getByRole("columnheader", { name: "Amount due" })).toBeInTheDocument();
+  });
+
   it("Edit details has Employee ID and Hire date and saves them with the 5-argument call", async () => {
     mount();
     fireEvent.click(within(await rowOf("Jose Reyes")).getByRole("button", { name: /Edit details/ }));
