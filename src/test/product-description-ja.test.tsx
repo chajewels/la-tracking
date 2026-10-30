@@ -136,7 +136,7 @@ describe("ProductDialog", () => {
     return (
       <ProductDialog
         open onOpenChange={() => {}} form={form} setForm={setForm}
-        collections={[]} categories={[]} isAdmin translating={false} uploadingKey={null}
+        collections={[]} categories={[]} isAdmin translating={false} uploadingKeys={[]}
         peso={String} saving={false} onSave={() => {}} onTranslateDescription={onTranslate}
         onUploadMedia={() => {}} onPatchVariant={() => {}}
       />

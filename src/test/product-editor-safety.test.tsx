@@ -20,6 +20,8 @@ const h = vi.hoisted(() => ({
   hold: null as null | Promise<void>,
   fail: null as null | ((table: string, op: string, values: Row) => string | null),
   failRead: null as null | string,
+  holdRead: null as null | Promise<void>,           // pauses a single-row product read (the recovery read)
+  reads: [] as string[],
   translate: vi.fn(),
   upload: vi.fn(),
   video: vi.fn(),
@@ -57,6 +59,10 @@ vi.mock("@/integrations/supabase/client", async () => {
     for (const m of ["order", "limit", "range", "neq"]) b[m] = () => b;
     const one = async () => {
       single = true;
+      if (table === "website_products" && op === "select") {
+        h.reads.push(filters.join("&"));
+        if (h.holdRead) await h.holdRead;
+      }
       try { return { data: exec()[0] ?? null, error: null }; } catch (e) { return { data: null, error: { message: (e as Error).message } }; }
     };
     b.maybeSingle = one;
@@ -102,7 +108,7 @@ const wr = (): W[] => h.writes;
 const productUpdates = () => wr().filter((w) => w.table === "website_products" && w.op === "update");
 const toastTitles = () => h.toast.mock.calls.map((c) => (c[0] as { title: string }).title);
 const lastToast = (title: string) => h.toast.mock.calls.map((c) => c[0] as { title: string; description?: string }).filter((t) => t.title === title).at(-1);
-const deferred = <T,>() => { let resolve!: (v: T) => void; const promise = new Promise<T>((r) => { resolve = r; }); return { promise, resolve }; };
+const deferred = <T,>() => { let resolve!: (v: T) => void; let reject!: (e: Error) => void; const promise = new Promise<T>((r, j) => { resolve = r; reject = j; }); return { promise, resolve, reject }; };
 
 function renderCard(extra = "") {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -137,7 +143,7 @@ async function pickCategoryGifts() {
 }
 
 beforeEach(() => {
-  h.writes.length = 0; h.hold = null; h.fail = null; h.failRead = null;
+  h.writes.length = 0; h.hold = null; h.fail = null; h.failRead = null; h.holdRead = null; h.reads.length = 0;
   h.translate.mockReset(); h.toast.mockReset(); h.upload.mockReset(); h.video.mockReset();
   h.translate.mockImplementation(async (a: { name?: string; description?: string }) => ({
     name_ja: a.name ? `JA(${a.name})` : "", description_ja: a.description ? `JA(${a.description})` : "",
@@ -407,5 +413,238 @@ describe("R6 publication order (real status control, real mutation)", () => {
     expect(lastToast("Could not save")!.description).toContain("Saved as a draft, not published");
     expect(wr().some((w) => w.table === "website_products" && w.values.status === "active")).toBe(false);
     expect(h.db.website_products.find((r) => r.id === "p")!.status).toBe("draft");
+  });
+});
+
+// ---------------------------------------------------------------- N1
+describe("N1 every pending upload blocks Save", () => {
+  const settleSave = async () => { clickSave(); await waitFor(() => expect(toastTitles()).toContain("Saved")); };
+  const start = async (u: ReturnType<typeof deferred<string>>) => {
+    h.upload.mockImplementationOnce(() => u.promise);
+    const before = h.upload.mock.calls.length;
+    fireEvent.change(photoInputs()[0], { target: { files: [jpg("x.jpg")] } });
+    await waitFor(() => expect(h.upload.mock.calls.length).toBe(before + 1));
+  };
+  const refused = () => toastTitles().filter((t) => t === "Photo still uploading").length;
+
+  it("the NEWER upload finishing first does not free Save while the older one is pending", async () => {
+    const old = deferred<string>(); const fresh = deferred<string>();
+    renderCard(); await openProduct("Ring P");
+    await start(old); await start(fresh);
+    await act(async () => { fresh.resolve("https://example.test/fresh.jpg"); });
+    await waitFor(() => expect(attached("https://example.test/fresh.jpg")).toBe(1));
+    clickSave();
+    expect(refused()).toBe(1);
+    expect(productUpdates()).toHaveLength(0);
+    await act(async () => { old.resolve("https://example.test/old.jpg"); });
+    await waitFor(() => expect(attached("https://example.test/old.jpg")).toBe(1));
+    await settleSave();
+    expect(wr().some((w) => w.table === "website_product_media" && w.op === "insert")).toBe(true);
+  });
+
+  it("the OLDER upload finishing first does not free Save while the newer one is pending", async () => {
+    const old = deferred<string>(); const fresh = deferred<string>();
+    renderCard(); await openProduct("Ring P");
+    await start(old); await start(fresh);
+    await act(async () => { old.resolve("https://example.test/old.jpg"); });
+    await waitFor(() => expect(attached("https://example.test/old.jpg")).toBe(1));
+    clickSave();
+    expect(refused()).toBe(1);
+    expect(productUpdates()).toHaveLength(0);
+    await act(async () => { fresh.resolve("https://example.test/fresh.jpg"); });
+    await waitFor(() => expect(attached("https://example.test/fresh.jpg")).toBe(1));
+    await settleSave();
+  });
+
+  it("one upload failing while another is pending keeps Save blocked until the other settles", async () => {
+    const bad = deferred<string>(); const good = deferred<string>();
+    renderCard(); await openProduct("Ring P");
+    await start(bad); await start(good);
+    await act(async () => { bad.reject(new Error("disk full")); });
+    await waitFor(() => expect(toastTitles()).toContain("Upload failed"));
+    clickSave();                                                  // the failure did not free Save
+    expect(refused()).toBe(1);
+    expect(productUpdates()).toHaveLength(0);
+    await act(async () => { good.resolve("https://example.test/good.jpg"); });
+    await waitFor(() => expect(attached("https://example.test/good.jpg")).toBe(1));
+    await settleSave();
+  });
+
+  it("a photo finishing while a video is still uploading does not free Save", async () => {
+    const v = deferred<{ video_url: string; video_poster_url: string | null }>(); h.video.mockImplementationOnce(() => v.promise);
+    const ph = deferred<string>();
+    renderCard(); await openProduct("Ring P");
+    const vin = document.querySelector('input[type="file"][accept="video/mp4"]') as HTMLInputElement;
+    fireEvent.change(vin, { target: { files: [new File(["x"], "c.mp4", { type: "video/mp4" })] } });
+    await waitFor(() => expect(h.video).toHaveBeenCalled());
+    await start(ph);
+    await act(async () => { ph.resolve("https://example.test/p.jpg"); });
+    await waitFor(() => expect(attached("https://example.test/p.jpg")).toBe(1));
+    clickSave();
+    expect(refused()).toBe(1);
+    expect(productUpdates()).toHaveLength(0);
+    await act(async () => { v.resolve({ video_url: "https://example.test/c.mp4", video_poster_url: null }); });
+    await waitFor(() => expect(toastTitles()).toContain("Video added"));
+    await settleSave();
+    expect(productUpdates()[0].values).toMatchObject({ video_url: "https://example.test/c.mp4" });
+  });
+
+  it("a video finishing while a photo is still uploading does not free Save", async () => {
+    const v = deferred<{ video_url: string; video_poster_url: string | null }>(); h.video.mockImplementationOnce(() => v.promise);
+    const ph = deferred<string>();
+    renderCard(); await openProduct("Ring P");
+    await start(ph);
+    const vin = document.querySelector('input[type="file"][accept="video/mp4"]') as HTMLInputElement;
+    fireEvent.change(vin, { target: { files: [new File(["x"], "c.mp4", { type: "video/mp4" })] } });
+    await waitFor(() => expect(h.video).toHaveBeenCalled());
+    await act(async () => { v.resolve({ video_url: "https://example.test/c.mp4", video_poster_url: null }); });
+    await waitFor(() => expect(toastTitles()).toContain("Video added"));
+    clickSave();
+    expect(refused()).toBe(1);
+    await act(async () => { ph.resolve("https://example.test/p.jpg"); });
+    await waitFor(() => expect(attached("https://example.test/p.jpg")).toBe(1));
+    await settleSave();
+  });
+
+  it("a second video chosen while one is uploading is refused (not queued, not raced)", async () => {
+    const v = deferred<{ video_url: string; video_poster_url: string | null }>(); h.video.mockImplementationOnce(() => v.promise);
+    renderCard(); await openProduct("Ring P");
+    const vin = document.querySelector('input[type="file"][accept="video/mp4"]') as HTMLInputElement;
+    fireEvent.change(vin, { target: { files: [new File(["x"], "a.mp4", { type: "video/mp4" })] } });
+    await waitFor(() => expect(h.video).toHaveBeenCalledTimes(1));
+    fireEvent.change(vin, { target: { files: [new File(["y"], "b.mp4", { type: "video/mp4" })] } });
+    expect(toastTitles()).toContain("Video already uploading");
+    expect(h.video).toHaveBeenCalledTimes(1);
+    await act(async () => { v.resolve({ video_url: "https://example.test/a.mp4", video_poster_url: null }); });
+    await waitFor(() => expect(toastTitles()).toContain("Video added"));
+  });
+
+  it("removing the video cancels a replacement still uploading: its result is discarded, the removal stands", async () => {
+    h.db.website_products = [product("p", "Ring P", { video_url: "https://example.test/old.mp4", video_poster_url: null }), product("q", "Ring Q")];
+    const v = deferred<{ video_url: string; video_poster_url: string | null }>(); h.video.mockImplementationOnce(() => v.promise);
+    renderCard(); await openProduct("Ring P");
+    const vin = document.querySelector('input[type="file"][accept="video/mp4"]') as HTMLInputElement;
+    fireEvent.change(vin, { target: { files: [new File(["x"], "new.mp4", { type: "video/mp4" })] } });
+    await waitFor(() => expect(h.video).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: /Remove video/ }));
+    await act(async () => { v.resolve({ video_url: "https://example.test/new.mp4", video_poster_url: null }); });
+    await waitFor(() => expect(toastTitles()).toContain("Video not attached"));
+    expect(lastToast("Video not attached")!.description).toContain("removed");
+    await settleSave();
+    expect(productUpdates()[0].values).toMatchObject({ video_url: null });
+  });
+
+  it("no upload can start while a Save is running", async () => {
+    const gate = deferred<void>(); h.hold = gate.promise;
+    renderCard(); await openProduct("Ring P");
+    clickSave();
+    await waitFor(() => expect(screen.getByTestId("product-form-fields")).toBeDisabled());
+    fireEvent.change(photoInputs()[0], { target: { files: [jpg("late.jpg")] } });
+    expect(h.upload).not.toHaveBeenCalled();
+    await act(async () => { gate.resolve(); });
+    await waitFor(() => expect(toastTitles()).toContain("Saved"));
+  });
+
+  it("an old editor's upload still pending does not block Save in the next editor", async () => {
+    const old = deferred<string>();
+    renderCard(); await openProduct("Ring P");
+    await start(old);
+    await cancel();
+    await openProduct("Ring Q");
+    await settleSave();                                          // not blocked by the other editor's upload
+    await act(async () => { old.resolve("https://example.test/old.jpg"); });
+  });
+});
+
+// ---------------------------------------------------------------- N2
+describe("N2 recovery belongs to one request", () => {
+  const holdRecovery = () => { const g = deferred<void>(); return g; };
+  async function partialCreate() {
+    h.fail = (t, op) => (t === "website_product_variants" && op === "insert" ? "variants exploded" : null);
+    renderCard();
+    fireEvent.click(await screen.findByRole("button", { name: /Add product/ }));
+    await screen.findByText("New product");
+    fireEvent.change(screen.getByLabelText("SKU"), { target: { value: "N1" } });
+    fireEvent.change(nameInput(), { target: { value: "Brand new ring" } });
+    fireEvent.change(document.querySelectorAll("textarea")[0], { target: { value: "My typed English" } });
+    clickSave();
+    await waitFor(() => expect(screen.getByTestId("product-recovery")).toBeInTheDocument());
+    h.fail = null;
+    h.reads.length = 0;
+  }
+  const openSaved = () => fireEvent.click(screen.getByRole("button", { name: "Open the saved product" }));
+
+  it("closing and opening another product while the read is pending: the late result changes nothing", async () => {
+    await partialCreate();
+    const g = holdRecovery(); h.holdRead = g.promise;
+    openSaved();
+    await waitFor(() => expect(h.reads).toHaveLength(1));
+    await cancel();
+    await openProduct("Ring Q");
+    fireEvent.change(descJa(), { target: { value: "Qの未保存の説明" } });
+    await act(async () => { g.resolve(); });
+    await new Promise((r) => setTimeout(r, 30));
+    expect(nameInput().value).toBe("Ring Q");
+    expect(descJa().value).toBe("Qの未保存の説明");
+    expect(screen.queryByTestId("product-recovery")).not.toBeInTheDocument();
+  });
+
+  it("switching straight to another product while the read is pending: the late result changes nothing", async () => {
+    await partialCreate();
+    const g = holdRecovery(); h.holdRead = g.promise;
+    openSaved();
+    await waitFor(() => expect(h.reads).toHaveLength(1));
+    // the pending recovery locks the form; switching editors is done through the list
+    fireEvent.click(screen.getAllByText("Ring Q")[0]);
+    await waitFor(() => expect(nameInput().value).toBe("Ring Q"));
+    await act(async () => { g.resolve(); });
+    await new Promise((r) => setTimeout(r, 30));
+    expect(nameInput().value).toBe("Ring Q");
+    expect(screen.getByText("Edit product")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Save product/ })).toBeEnabled();   // the new editor is not locked by the old request
+  });
+
+  it("a second click while the first read is pending is ignored: one read, one confirm, one result", async () => {
+    await partialCreate();
+    const g = holdRecovery(); h.holdRead = g.promise;
+    (globalThis.confirm as unknown as ReturnType<typeof vi.fn>).mockClear();
+    openSaved();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Opening…" })).toBeDisabled());
+    fireEvent.click(screen.getByRole("button", { name: "Opening…" }));
+    expect(h.reads).toHaveLength(1);
+    expect(globalThis.confirm).toHaveBeenCalledTimes(1);
+    await act(async () => { g.resolve(); });
+    await waitFor(() => expect(screen.queryByTestId("product-recovery")).not.toBeInTheDocument());
+    expect(nameInput().value).toBe("Brand new ring");
+    expect(h.reads).toHaveLength(1);
+  });
+
+  it("the form is locked while the read is pending, so nothing typed after the confirmation can be replaced", async () => {
+    await partialCreate();
+    const g = holdRecovery(); h.holdRead = g.promise;
+    openSaved();
+    await waitFor(() => expect(screen.getByTestId("product-form-fields")).toBeDisabled());
+    fireEvent.change(nameInput(), { target: { value: "typed after confirm" } });
+    expect(nameInput().value).toBe("Brand new ring");
+    await act(async () => { g.resolve(); });
+    await waitFor(() => expect(screen.queryByTestId("product-recovery")).not.toBeInTheDocument());
+    expect(nameInput().value).toBe("Brand new ring");
+  });
+
+  it("a failed read keeps the form and the recovery banner, and allows a new attempt", async () => {
+    await partialCreate();
+    h.failRead = "network down";
+    openSaved();
+    await waitFor(() => expect(toastTitles()).toContain("Could not open the saved product"));
+    expect(lastToast("Could not open the saved product")!.description).toContain("network down");
+    expect(lastToast("Could not open the saved product")!.description).toContain("Your text is still in the editor");
+    expect(document.querySelectorAll("textarea")[0].value).toBe("My typed English");
+    expect(screen.getByTestId("product-recovery")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open the saved product" })).toBeEnabled();
+    expect(screen.getByTestId("product-form-fields")).not.toBeDisabled();
+    h.failRead = null;
+    openSaved();
+    await waitFor(() => expect(screen.queryByTestId("product-recovery")).not.toBeInTheDocument());
+    expect(nameInput().value).toBe("Brand new ring");
   });
 });

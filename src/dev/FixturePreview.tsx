@@ -1118,7 +1118,7 @@ function ProductDialogFixture() {
       categories={[{ id: 'k1', name: 'Necklaces', published: true }, { id: 'k2', name: 'Pendants', published: true }]}
       isAdmin
       translating={false}
-      uploadingKey={null}
+      uploadingKeys={[]}
       peso={n => `₱ ${Math.round(n * 0.42).toLocaleString('en-US')}`}
       saving={false}
       onSave={() => {}}

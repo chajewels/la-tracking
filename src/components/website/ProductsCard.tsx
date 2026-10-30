@@ -114,9 +114,20 @@ export default function ProductsCard() {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<ProductForm>(emptyProduct());
-  const [uploadingKey, setUploadingKey] = useState<string | null>(null);
-  /** Identifies the newest upload: an older one finishing must not clear a newer one's busy state. */
-  const uploadToken = useRef(0);
+  /**
+   * EVERY upload still running, each with its own id. An upload clears only its own entry, so a
+   * newer one finishing never frees Save while an older one is pending. Entries from an older
+   * editor session stay until they settle but never count for the editor on screen.
+   */
+  type UploadOp = { id: number; key: string; session: number };
+  const [uploadOps, setUploadOps] = useState<UploadOp[]>([]);
+  const uploadOpsRef = useRef<UploadOp[]>([]);
+  const uploadSeq = useRef(0);
+  /** Bumped when the video is removed: a video upload started before that is discarded when it lands. */
+  const videoEpoch = useRef(0);
+  /** The one "open the saved product" read that may still apply (partial-create recovery). */
+  const recoverySeq = useRef(0);
+  const [recoveringId, setRecoveringId] = useState<number | null>(null);
   /** Session whose Save is running: the form accepts no change from any control (even a portaled,
    *  already-open picker) while it is the editor on screen. */
   const saveLock = useRef<number | null>(null);
@@ -133,8 +144,22 @@ export default function ProductsCard() {
   /** The setter the editor's controls get. While this editor's Save runs it accepts no change. */
   const setFormLocked: typeof setForm = (u) => {
     if (saveLock.current !== null && saveLock.current === editSession.current) return;
+    if (recoveringId !== null) return;
     setForm(u);
   };
+  const uploadingKeys = uploadOps.filter((o) => o.session === editSession.current).map((o) => o.key);
+  const uploadsPending = () => uploadOpsRef.current.some((o) => o.session === editSession.current);
+  function beginUpload(key: string): UploadOp {
+    const op = { id: ++uploadSeq.current, key, session: editSession.current };
+    uploadOpsRef.current = [...uploadOpsRef.current, op];
+    setUploadOps(uploadOpsRef.current);
+    return op;
+  }
+  function endUpload(op: UploadOp) {
+    uploadOpsRef.current = uploadOpsRef.current.filter((o) => o.id !== op.id);
+    setUploadOps(uploadOpsRef.current);
+  }
+
   const [bulk, setBulk] = useState<{ done: number; total: number } | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [searchParams, setSearchParams] = useSearchParams();
@@ -350,8 +375,8 @@ export default function ProductsCard() {
    */
   function beginSession() {
     editSession.current += 1;
-    uploadToken.current += 1;
-    setUploadingKey(null);
+    recoverySeq.current += 1;
+    setRecoveringId(null);
     setPartial(null);
     setTranslating(false);
     setTranslatingName(false);
@@ -524,10 +549,11 @@ export default function ProductsCard() {
       toast({ title: "Translation in progress", description: "Wait for the translation to finish, then press Save." });
       return;
     }
-    if (uploadingKey) {
-      toast({ title: "Photo still uploading", description: "Wait for the upload to finish, then press Save." });
+    if (uploadsPending()) {
+      toast({ title: "Photo still uploading", description: "Wait for every upload to finish, then press Save." });
       return;
     }
+    if (recoveringId !== null) return;
     if (partial && partial.session === editSession.current) {
       toast({ title: "Do not save again", description: "This product was already created. Open the saved product instead.", variant: "destructive" });
       return;
@@ -917,16 +943,16 @@ export default function ProductsCard() {
 
   /**
    * Photos for ONE variant, identified by its stable key. The result is attached only if
-   * the same editor session is still open on the same product and that variant still
-   * exists; otherwise it is discarded and said so (the file stays in storage unused).
-   * Only the newest upload may clear the busy state.
+   * the same editor session is still open on the same product, no Save is running, and that
+   * variant still exists; otherwise it is discarded and said so (the file stays in storage
+   * unused). Uploads overlap freely: each tracks and clears only itself, and Save waits for all.
    */
   async function uploadMedia(variantKey: string, files: FileList | null) {
     if (!files?.length) return;
+    if (saveLock.current === editSession.current) return;      // nothing starts while a Save runs
     const session = editSession.current;
     const productId = formRef.current.id;
-    const token = ++uploadToken.current;
-    setUploadingKey(`v:${variantKey}`);
+    const op = beginUpload(`v:${variantKey}`);
     try {
       const urls: string[] = [];
       for (const file of Array.from(files)) {
@@ -935,6 +961,10 @@ export default function ProductsCard() {
       const now = formRef.current;
       if (editSession.current !== session || now.id !== productId) {
         toast({ title: "Photos not attached", description: "The editor was closed or another product was opened while they uploaded." });
+        return;
+      }
+      if (saveLock.current === session) {
+        toast({ title: "Photos not attached", description: "The product was being saved when they finished uploading." });
         return;
       }
       if (!now.variants.some((v) => v.key === variantKey)) {
@@ -952,21 +982,39 @@ export default function ProductsCard() {
     } catch (e) {
       toast({ title: "Upload failed", description: (e as Error).message, variant: "destructive" });
     } finally {
-      if (uploadToken.current === token) setUploadingKey(null);
+      endUpload(op);
     }
   }
 
+  /**
+   * The product's ONE video. Only one video upload may run at a time (a second choice is refused,
+   * not queued), and removing the video cancels an upload still running: its result is discarded,
+   * so a removal is never silently undone.
+   */
   async function uploadVideo(files: FileList | null) {
     const file = files?.[0];
     if (!file) return;
+    if (saveLock.current === editSession.current) return;
+    if (uploadOpsRef.current.some((o) => o.session === editSession.current && o.key === "video")) {
+      toast({ title: "Video already uploading", description: "Wait for the current video to finish before choosing another." });
+      return;
+    }
     const session = editSession.current;
     const productId = formRef.current.id;
-    const token = ++uploadToken.current;
-    setUploadingKey("video");
+    const epoch = videoEpoch.current;
+    const op = beginUpload("video");
     try {
       const { video_url, video_poster_url } = await uploadProductVideo(file);
       if (editSession.current !== session || formRef.current.id !== productId) {
         toast({ title: "Video not attached", description: "The editor was closed or another product was opened while it uploaded." });
+        return;
+      }
+      if (saveLock.current === session) {
+        toast({ title: "Video not attached", description: "The product was being saved when it finished uploading." });
+        return;
+      }
+      if (videoEpoch.current !== epoch) {
+        toast({ title: "Video not attached", description: "The video was removed while the new one uploaded." });
         return;
       }
       setForm((f) => ({ ...f, videoUrl: video_url, videoPosterUrl: video_poster_url }));
@@ -977,20 +1025,41 @@ export default function ProductsCard() {
     } catch (e) {
       toast({ title: "Video upload failed", description: (e as Error).message, variant: "destructive" });
     } finally {
-      if (uploadToken.current === token) setUploadingKey(null);
+      endUpload(op);
     }
   }
 
-  /** Recovery after a partial create: show what actually reached the catalog (replaces the form). */
+  function removeVideo() {
+    videoEpoch.current += 1;
+    setFormLocked((f) => ({ ...f, videoUrl: null, videoPosterUrl: null }));
+  }
+
+  /**
+   * Recovery after a partial create: read back what actually reached the catalog and open it
+   * (replaces the form). It belongs to ONE request: the editor session, the created product's
+   * id and a request number. Fields are locked while it runs, a second click is ignored, and a
+   * result that arrives after the editor was closed, reopened or switched is discarded. A failed
+   * read leaves the form exactly as it was.
+   */
   async function openSavedProduct() {
-    if (!partial) return;
+    const p = partial;
+    if (!p || p.session !== editSession.current || recoveringId !== null) return;
     if (!confirm("Open the saved product? The text in this form is replaced by what was saved.")) return;
-    const { data, error } = await supabase.from("website_products").select(PRODUCT_SELECT).eq("id", partial.productId).maybeSingle();
-    if (error || !data) {
-      toast({ title: "Could not open the saved product", description: error?.message ?? "It was not found.", variant: "destructive" });
-      return;
+    const req = ++recoverySeq.current;
+    const session = editSession.current;
+    setRecoveringId(req);
+    const stillMine = () => recoverySeq.current === req && editSession.current === session;
+    try {
+      const { data, error } = await supabase.from("website_products").select(PRODUCT_SELECT).eq("id", p.productId).maybeSingle();
+      if (!stillMine()) return;                                  // another editor is on screen: touch nothing
+      if (error || !data) {
+        toast({ title: "Could not open the saved product", description: `${error?.message ?? "It was not found."} Your text is still in the editor.`, variant: "destructive" });
+        return;
+      }
+      openEdit(data as unknown as CatalogProductRead);
+    } finally {
+      if (recoverySeq.current === req) setRecoveringId(null);
     }
-    openEdit(data as unknown as CatalogProductRead);
   }
 
   function patchVariant(i: number, patch: Partial<VariantRow>) {
@@ -1319,7 +1388,7 @@ export default function ProductsCard() {
         categories={categories.data ?? []}
         isAdmin={!!isAdmin}
         translating={translating}
-        uploadingKey={uploadingKey}
+        uploadingKeys={uploadingKeys}
         peso={peso}
         saving={save.isPending}
         onSave={submitForm}
@@ -1330,6 +1399,8 @@ export default function ProductsCard() {
         onUploadMedia={uploadMedia}
         recovery={partial && partial.session === editSession.current ? partial : null}
         onOpenSaved={openSavedProduct}
+        recovering={recoveringId !== null}
+        onRemoveVideo={removeVideo}
         onUploadVideo={uploadVideo}
         onPatchVariant={patchVariant}
       />

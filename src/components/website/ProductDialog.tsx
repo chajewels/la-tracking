@@ -78,9 +78,9 @@ function WeightInput({ value, onChange }: { value: number | null; onChange: (v: 
 
 export default function ProductDialog({
   open, onOpenChange, form, setForm, collections, categories, isAdmin,
-  translating, uploadingKey, peso, saving, onSave, onTranslateDescription,
+  translating, uploadingKeys, peso, saving, onSave, onTranslateDescription,
   canRegenerateName, translatingName, onRegenerateJapaneseName,
-  onUploadMedia, onPatchVariant, onUploadVideo, recovery, onOpenSaved,
+  onUploadMedia, onPatchVariant, onUploadVideo, onRemoveVideo, recovery, recovering, onOpenSaved,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -90,7 +90,8 @@ export default function ProductDialog({
   categories: { id: string; name: string; name_ja?: string | null; published?: boolean }[];
   isAdmin: boolean;
   translating: boolean;
-  uploadingKey: string | null;
+  /** Keys of the uploads running in this editor: "video" and "v:<variant key>". */
+  uploadingKeys: readonly string[];
   peso: (n: number) => string;
   saving: boolean;
   onSave: () => void;
@@ -106,9 +107,13 @@ export default function ProductDialog({
   onPatchVariant: (i: number, patch: Partial<VariantRow>) => void;
   /** Upload the product's MP4 (one per product). Absent = no video section. */
   onUploadVideo?: (files: FileList | null) => void;
+  /** Removing the video also cancels any video upload still running (its result is then discarded). */
+  onRemoveVideo?: () => void;
   /** Set when a NEW product was created but the rest of its Save failed: Save is disabled
    *  (pressing it again would create a second product) and the saved product can be opened. */
   recovery?: { productId: string } | null;
+  /** The saved product is being read back: fields are locked so nothing typed meanwhile is replaced. */
+  recovering?: boolean;
   onOpenSaved?: () => void;
 }) {
   const formId = useId();
@@ -132,13 +137,13 @@ export default function ProductDialog({
                 Pressing Save again would create a second product, so Save is off. Your text stays here until you
                 open the saved product, which shows what actually reached the catalog.
               </p>
-              {onOpenSaved && <Button type="button" variant="outline" size="sm" onClick={onOpenSaved}>Open the saved product</Button>}
+              {onOpenSaved && <Button type="button" variant="outline" size="sm" onClick={onOpenSaved} disabled={!!recovering}>{recovering ? "Opening…" : "Open the saved product"}</Button>}
             </div>
           )}
 
           {/* While a Save runs every field is locked: a keystroke typed after the
               Save started would be silently dropped when the editor closes. */}
-          <fieldset disabled={saving} className="m-0 min-w-0 border-0 p-0" data-testid="product-form-fields">
+          <fieldset disabled={saving || !!recovering} className="m-0 min-w-0 border-0 p-0" data-testid="product-form-fields">
           <div className="space-y-5">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
@@ -424,13 +429,13 @@ export default function ProductDialog({
                       <p>{form.videoPosterUrl ? "Still frame ready." : "No still frame — the website shows a play button instead."}</p>
                       <div className="flex gap-2">
                         <label className="flex cursor-pointer items-center gap-2 rounded-md border border-dashed border-border px-3 py-2 hover:text-foreground">
-                          {uploadingKey === "video" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+                          {uploadingKeys.includes("video") ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
                           Replace video
                           <input type="file" accept="video/mp4" className="hidden" onChange={(e) => { onUploadVideo(e.target.files); e.target.value = ""; }} />
                         </label>
                         <Button
                           type="button" variant="ghost" size="sm" className="text-destructive"
-                          onClick={() => setForm((f) => ({ ...f, videoUrl: null, videoPosterUrl: null }))}
+                          onClick={() => (onRemoveVideo ? onRemoveVideo() : setForm((f) => ({ ...f, videoUrl: null, videoPosterUrl: null })))}
                         >
                           <Trash2 className="mr-1 h-3.5 w-3.5" /> Remove video
                         </Button>
@@ -439,9 +444,9 @@ export default function ProductDialog({
                   </div>
                 ) : (
                   <label className="flex w-fit cursor-pointer items-center gap-2 rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground hover:text-foreground">
-                    {uploadingKey === "video" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Film className="h-3.5 w-3.5" />}
-                    {uploadingKey === "video" ? "Uploading video…" : "Add video (MP4)"}
-                    <input type="file" accept="video/mp4" className="hidden" disabled={uploadingKey === "video"} onChange={(e) => { onUploadVideo(e.target.files); e.target.value = ""; }} />
+                    {uploadingKeys.includes("video") ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Film className="h-3.5 w-3.5" />}
+                    {uploadingKeys.includes("video") ? "Uploading video…" : "Add video (MP4)"}
+                    <input type="file" accept="video/mp4" className="hidden" disabled={uploadingKeys.includes("video")} onChange={(e) => { onUploadVideo(e.target.files); e.target.value = ""; }} />
                   </label>
                 )}
               </div>
@@ -531,7 +536,7 @@ export default function ProductDialog({
                       </div>
                     ))}
                     <label className="flex cursor-pointer items-center gap-2 rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground hover:text-foreground">
-                      {uploadingKey === `v:${v.key}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+                      {uploadingKeys.includes(`v:${v.key}`) ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
                       Add photos
                       <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => onUploadMedia(v.key, e.target.files)} />
                     </label>
