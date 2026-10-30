@@ -2,7 +2,8 @@
  * Sales Commission engine — pure computation, no I/O.
  *
  * Replicates the Google Apps Script algorithm that previously computed
- * commissions from the sales sheet. Grouped by YYYY-MM of sale_date.
+ * commissions from the sales sheet. Grouped by commission period (periodKeyForDate: the month the
+ * period ENDS in; a split's cutoff_day, null = end of month) of sale_date.
  *
  * Rules (per spec, locked):
  *   1. Resolve split: exact month match, else inherit latest split with
@@ -81,6 +82,8 @@ export interface CommissionSplit {
   top_sales_2_pct: number;
   merge_groups: string[][] | null; // [] or [["support","verifier"]] etc.
   pool_per_item_php: number;
+  /** Last day (1-28) of the commission period that ENDS in this month; null/undefined = end of month. */
+  cutoff_day?: number | null;
 }
 
 export interface RoleDefinition {
@@ -150,6 +153,94 @@ function isCanonicalRole(s: unknown): s is CanonicalRole {
 export function monthKeyFromDate(iso: string | null | undefined): string | null {
   if (!iso || iso.length < 7) return null;
   return iso.slice(0, 7);
+}
+
+function nextMonthKey(monthKey: string): string {
+  const [y, m] = monthKey.split('-').map(Number);
+  return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`;
+}
+
+function prevMonthKey(monthKey: string): string {
+  const [y, m] = monthKey.split('-').map(Number);
+  return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`;
+}
+
+function daysInMonth(monthKey: string): number {
+  const [y, m] = monthKey.split('-').map(Number);
+  return new Date(Date.UTC(y, m, 0)).getUTCDate();
+}
+
+/** Commission period a sale_date belongs to, as YYYY-MM. A period is named after the month it ENDS in.
+ *  Same rule as public.commission_period_month: resolve the split of the date's own month; a null /
+ *  undefined cutoff_day, or day <= cutoff_day, keeps the date's month; a later day rolls to the next. */
+export function periodKeyForDate(
+  iso: string | null | undefined,
+  splits: CommissionSplit[],
+): string | null {
+  const monthKey = monthKeyFromDate(iso);
+  if (!monthKey || !iso) return null;
+  const cutoff = resolveSplit(monthKey, splits)?.cutoff_day;
+  if (cutoff == null) return monthKey;
+  const day = Number(iso.slice(8, 10));
+  return day <= cutoff ? monthKey : nextMonthKey(monthKey);
+}
+
+/** Last day (YYYY-MM-DD) of the period named by monthKey. */
+function periodEnd(monthKey: string, splits: CommissionSplit[]): string {
+  const cutoff = resolveSplit(monthKey, splits)?.cutoff_day;
+  const day = cutoff == null ? daysInMonth(monthKey) : cutoff;
+  return `${monthKey}-${String(day).padStart(2, '0')}`;
+}
+
+/** First and last day (YYYY-MM-DD, inclusive) of the commission period named by monthKey. */
+export function periodRange(
+  monthKey: string,
+  splits: CommissionSplit[],
+): { start: string; end: string } {
+  const prevEnd = periodEnd(prevMonthKey(monthKey), splits);
+  const d = new Date(`${prevEnd}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return { start: d.toISOString().slice(0, 10), end: periodEnd(monthKey, splits) };
+}
+
+/** True when the period holding saleDate ended before `today` (YYYY-MM-DD, Philippine date). Mirrors
+ *  public.commission_period_is_closed: such a sale is "archived". */
+export function isPeriodClosed(
+  saleDate: string | null | undefined,
+  splits: CommissionSplit[],
+  today: string,
+): boolean {
+  const key = periodKeyForDate(saleDate, splits);
+  if (!key) return false;
+  return periodEnd(key, splits) < today;
+}
+
+/** commission_splits columns read by the screens. cutoff_day arrives with migration 20270225100000; the
+ *  frontend reaches production before that migration is applied, so a read must work without it. */
+export const SPLIT_COLUMNS_BASE =
+  'month, closer_pct, processor_pct, coordinator_pct, support_pct, verifier_pct, top_sales_pct, top_sales_2_pct, merge_groups, pool_per_item_php';
+export const SPLIT_COLUMNS = `${SPLIT_COLUMNS_BASE}, cutoff_day`;
+
+export function isMissingCutoffColumn(e: unknown): boolean {
+  const err = e as { code?: string; message?: string } | null;
+  if (!err) return false;
+  const msg = err.message ?? '';
+  return /cutoff_day/i.test(msg) && (err.code === '42703' || /does not exist|schema cache|could not find/i.test(msg));
+}
+
+/** Read commission_splits. `run` performs the select for the given column list. If the select that includes
+ *  cutoff_day fails because the column does not exist yet, retry once without it (cutoff_day then null on every
+ *  row, i.e. calendar months). `hasCutoff` tells the Config tab whether it may show the Cut-off column. */
+export async function fetchCommissionSplits(
+  run: (columns: string) => PromiseLike<{ data: unknown[] | null; error: { code?: string; message?: string } | null }>,
+): Promise<{ splits: CommissionSplit[]; hasCutoff: boolean }> {
+  const first = await run(SPLIT_COLUMNS);
+  if (!first.error) return { splits: (first.data as CommissionSplit[]) ?? [], hasCutoff: true };
+  if (!isMissingCutoffColumn(first.error)) throw first.error;
+  const retry = await run(SPLIT_COLUMNS_BASE);
+  if (retry.error) throw retry.error;
+  const splits = ((retry.data as CommissionSplit[]) ?? []).map(r => ({ ...r, cutoff_day: null }));
+  return { splits, hasCutoff: false };
 }
 
 export function monthKeyToFirstOfMonth(monthKey: string): string {
@@ -272,7 +363,7 @@ export function computeMonth(
   splits: CommissionSplit[],
 ): MonthlyComputation {
   const split = resolveSplit(monthKey, splits);
-  const monthRows = allRows.filter(r => monthKeyFromDate(r.sale_date) === monthKey);
+  const monthRows = allRows.filter(r => periodKeyForDate(r.sale_date, splits) === monthKey);
   const eligibleRows = monthRows.filter(r => r.eligible === true);
   const poolPer = split ? Number(split.pool_per_item_php) || 0 : 0;
   const pool = eligibleRows.length * poolPer;
@@ -464,10 +555,10 @@ export function computeMonth(
   };
 }
 
-export function listMonthKeys(rows: SaleRow[]): string[] {
+export function listMonthKeys(rows: SaleRow[], splits: CommissionSplit[] = []): string[] {
   const set = new Set<string>();
   for (const r of rows) {
-    const k = monthKeyFromDate(r.sale_date);
+    const k = periodKeyForDate(r.sale_date, splits);
     if (k) set.add(k);
   }
   return Array.from(set).sort();
@@ -477,7 +568,7 @@ export function computeAllMonths(
   rows: SaleRow[],
   splits: CommissionSplit[],
 ): MonthlyComputation[] {
-  const keys = listMonthKeys(rows);
+  const keys = listMonthKeys(rows, splits);
   return keys.map(k => computeMonth(k, rows, splits));
 }
 

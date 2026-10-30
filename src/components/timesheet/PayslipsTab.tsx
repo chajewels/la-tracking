@@ -23,7 +23,7 @@ import {
   type PaySetting, type TemplateType, type TimesheetEntry, type TimesheetProfile,
 } from '@/lib/timesheetEngine';
 import {
-  computeMonth as computeCommissionMonth, type CommissionSplit, type SaleRow,
+  computeMonth as computeCommissionMonth, fetchCommissionSplits, type SaleRow,
 } from '@/lib/commissionEngine';
 import {
   BONUS_CATEGORIES, BONUS_DATE_MIN, COMPANY_NAME, NO_FEATURES, PAYSLIP_BOOK_KEY, PAYSLIP_PROOF_BUCKET, STATUS_LABEL,
@@ -169,14 +169,13 @@ export default function PayslipsTab({
   const commission = useQuery({
     queryKey: ['payslip-commission', monthKey],
     queryFn: async () => {
-      const [rows, agentsRes, splitsRes] = await Promise.all([
+      const [rows, agentsRes, splitsRead] = await Promise.all([
         fetchMonthSales(monthKey),
         supabase.from('commission_agents').select('name, user_id'),
-        supabase.from('commission_splits').select('month, closer_pct, processor_pct, coordinator_pct, support_pct, verifier_pct, top_sales_pct, top_sales_2_pct, merge_groups, pool_per_item_php').order('month', { ascending: true }),
+        fetchCommissionSplits(cols => supabase.from('commission_splits').select(cols).order('month', { ascending: true })),
       ]);
       if (agentsRes.error) throw agentsRes.error;
-      if (splitsRes.error) throw splitsRes.error;
-      const comp = computeCommissionMonth(monthKey, rows, (splitsRes.data as CommissionSplit[]) ?? []);
+      const comp = computeCommissionMonth(monthKey, rows, splitsRead.splits);
       return { comp, agents: (agentsRes.data as AgentLink[]) ?? [] };
     },
     staleTime: 60_000,
