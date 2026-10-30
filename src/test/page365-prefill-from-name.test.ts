@@ -61,3 +61,28 @@ describe("migration 20270222100000_page365_prefill_from_name", () => {
     expect(M).toContain("EXECUTE format('REVOKE ALL ON FUNCTION public.%s FROM PUBLIC, anon, authenticated', f);");
   });
 });
+
+describe("migration 20270223100000_page365_prefill_from_name_fixes (independent review 2026-10-30)", () => {
+  const F = src("supabase/migrations/20270223100000_page365_prefill_from_name_fixes.sql");
+  it("is pure ASCII and touches no product", () => {
+    expect(/[^\x00-\x7F]/.test(F)).toBe(false);
+    expect(F).not.toMatch(/PERFORM public\.page365_prefill_from_name\(/);
+    expect(F).toContain("'page365_prefill_fixes self-check: a product or variant changed'");
+  });
+  it("guards every replaced function on its live (20270222100000) body", () => {
+    for (const [fn, live] of [
+      ["page365_prefill_brand(text)", "2df8d1b4aa89195fa76f90da2c51848f"],
+      ["page365_prefill_stones(text)", "c93d4fb79251787345188c8270bdef86"],
+      ["page365_prefill_from_name(uuid)", "39467889c73fcd0a6eb41dd37921d65e"],
+      ["page365_prefill_length(text)", "40d89d5443206feb78acf0d6434fbf47"],
+      ["page365_prefill_ring_size(text)", "08dbda7b55de024f16fb0afac374cf95"],
+      ["page365_prefill_secondhand(text)", "560fc3a0a14d6f5b5e4a1ec33e9255b7"],
+      ["page365_prefill_mm(text)", "165c674fd637fca0a5bd6cd0671b8541"],
+    ]) expect(F).toContain(`('${fn}', '${live}', '`);
+  });
+  it("a look-alike is never branded; brand list = Branded rows + fixed houses", () => {
+    expect(F).toContain("inspir\\w*|style|type|motif|design|like|replica|copy|homage");
+    expect(F).toContain("WHERE wp.origin = 'BRAND' AND length(btrim(coalesce(wp.brand, ''))) >= 3");
+    expect(F).toContain("('Mikimoto')");
+  });
+});

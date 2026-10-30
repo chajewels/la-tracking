@@ -1206,6 +1206,12 @@ Owner request 2026-10-30. Migration `20270222100000_page365_prefill_from_name.sq
   bracelets, anklets, watches = cm.
 - Stone (jewelry): every stone in name order with its descriptor (Akoya Pearl, Blue Topaz, Star
   Sapphire, White Coral); Dia/D..ct, R..ct, Sapp/S..ct, Eme/E..ct, SSP expanded; plain Quartz ignored.
+- Review fixes (`20270223100000_page365_prefill_from_name_fixes.sql`, independent review 2026-10-30): look-alike words
+  (inspired/inspiration/style/type/motif/design/like/-like/replica/copy/homage) → no brand; brand list = Branded rows
+  (≥3 chars) + fixed houses (Mikimoto, Tasaki, Piaget, Rolex, Chopard, Dior …); `2.5x1.5cm` read whole; ring range
+  never swallows the weight and only `Sz#` counts; `Diamond Cut`/`Emerald Cut`/colour words are not stones; `B.T` →
+  Blue Topaz; an unknown short form before a carat weight leaves Stone blank; Pearls type follows the stone reader;
+  "Never Used" stays New.
 - One-time: N2916 and R3694 (the two never-completed drafts) got the same pass.
 - Whole migration is ASCII (Hermès built with `chr(232)`) — the Lovable DB connection rewrites
   non-ASCII inside function bodies.

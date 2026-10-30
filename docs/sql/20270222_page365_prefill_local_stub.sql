@@ -12,6 +12,8 @@
 --   P docs/sql/20270222_page365_prefill_local_stub.sql
 --   P supabase/migrations/20270222100000_page365_prefill_from_name.sql
 --   P supabase/migrations/20270222100000_page365_prefill_from_name.sql   # re-run is safe
+--   P supabase/migrations/20270223100000_page365_prefill_from_name_fixes.sql
+--   P supabase/migrations/20270223100000_page365_prefill_from_name_fixes.sql   # re-run is safe
 --   P docs/sql/20270222_page365_prefill_local_tests.sql
 -- ============================================================================
 \set ON_ERROR_STOP 1
