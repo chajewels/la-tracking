@@ -11,7 +11,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { translationNeedsConfirm } from "@/components/website/description-ja";
-import { nameRegenerationNeedsConfirm } from "@/components/website/name-ja";
+import { japaneseNameMayBeOutdated, nameRegenerationNeedsConfirm } from "@/components/website/name-ja";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -123,6 +123,11 @@ export default function ProductDialog({
   // The status list is portaled outside the fieldset: close it the moment a Save starts.
   useEffect(() => { if (saving) setStatusOpen(false); }, [saving]);
   const jaStale = !!form.id && !!form.description_ja.trim() && form.description_en.trim() !== form.jaSourceEn.trim();
+  // An existing product whose English name was edited here while its Japanese
+  // name stayed as it was: Save keeps that Japanese name (owner 2026-10-31), so say so.
+  const nameJaStale = !!form.id && !!form.loaded && japaneseNameMayBeOutdated({
+    name: form.name, nameJa: form.name_ja, wasName: form.loaded.name, wasJa: form.loaded.name_ja,
+  });
   return (
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="max-h-[calc(100dvh-2rem)] max-w-3xl overflow-y-auto">
@@ -168,6 +173,12 @@ export default function ProductDialog({
                     placeholder="Japanese name — generated on save when missing"
                     aria-label="Name (Japanese, generated)"
                   />
+                  {nameJaStale && (
+                    <p role="status" data-testid="name-ja-stale" className="text-xs text-warning">
+                      The English name changed, so the Japanese name may be out of date. Save keeps it as it is —
+                      press Regenerate Japanese name, then Save, to update it.
+                    </p>
+                  )}
                   {canRegenerateName && onRegenerateJapaneseName && (
                     <Button
                       type="button" variant="outline" size="sm"
