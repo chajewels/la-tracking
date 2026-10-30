@@ -51,7 +51,7 @@ describe("migration 20270222100000_page365_prefill_from_name", () => {
     const o = body("page365_prefill_origin");
     expect(o).toContain("ARRAY['750', '18K']");
     expect(o).toContain("'\\mau\\s?750'");
-    expect(o).toContain("ARRAY['K24', 'K18', 'K14', 'K10', 'PT1000', 'PT950', 'PT900', 'PM', 'PM900']");
+    expect(o).toContain("ARRAY['K24', 'K18', 'K14', 'K10', 'PT1000', 'PT950', 'PT900', 'PT850', 'PM', 'PM900']");
   });
   it("the one-time pass is exactly the two never-completed drafts", () => {
     expect(M).toContain("WHERE wp.id IN ('f17e0f39-616f-4cf2-b77a-9ee06de5644b', 'cb07c59a-4849-49fa-828e-2f868bff853f')");

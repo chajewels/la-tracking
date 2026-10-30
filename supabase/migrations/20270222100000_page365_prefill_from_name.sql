@@ -33,8 +33,9 @@
 --                  Bulgari -> Bvlgari, Van Cleef -> Van Cleef & Arpels). A name
 --                  saying "inspired" or "style" never gets a brand. No brand:
 --                  750 / 18K / AU750 -> Other; K24 K18 K14 K10 PT1000 PT950
---                  PT900 PM PM900 -> Made in Japan; anything else stays
---                  Unknown.
+--                  PT900 PT850 PM PM900 -> Made in Japan; silver and anything
+--                  else stays Unknown (silver is set by hand, owner
+--                  2026-10-30).
 --   Size           ring: the number after "Sz#" ("13.5", "12-14"; a bare "#57"
 --                  is left blank); earrings / pendants: the length in cm, else
 --                  the size in mm ("10.0mm"); necklaces, bracelets, anklets,
@@ -278,7 +279,7 @@ LANGUAGE sql IMMUTABLE SET search_path TO 'public'
 AS $fn$
   SELECT CASE
     WHEN coalesce(p_metals, '{}') && ARRAY['750', '18K'] OR public.page365_prefill_rest(p_name) ~* '\mau\s?750' THEN 'OTHER'
-    WHEN coalesce(p_metals, '{}') && ARRAY['K24', 'K18', 'K14', 'K10', 'PT1000', 'PT950', 'PT900', 'PM', 'PM900'] THEN 'JAPAN'
+    WHEN coalesce(p_metals, '{}') && ARRAY['K24', 'K18', 'K14', 'K10', 'PT1000', 'PT950', 'PT900', 'PT850', 'PM', 'PM900'] THEN 'JAPAN'
   END
 $fn$;
 
@@ -529,6 +530,7 @@ BEGIN
      OR public.page365_prefill_origin('R6613 Ring 18K 6.60g', ARRAY['18K']) IS DISTINCT FROM 'OTHER'
      OR public.page365_prefill_origin('R1508 Ring PT900 11.50g', ARRAY['PT900']) IS DISTINCT FROM 'JAPAN'
      OR public.page365_prefill_origin('X1 Ring SV925', ARRAY['SILVER925']) IS NOT NULL
+     OR public.page365_prefill_origin('N9838 Necklace PT850 9.80g', ARRAY['PT850']) IS DISTINCT FROM 'JAPAN'
      OR public.page365_prefill_type_slug('P1421 Pendant K18 0.90g Ruby', 'jewelry') IS DISTINCT FROM 'pendants'
      OR public.page365_prefill_type_slug('W2410 Key Case Gucci 6 Key [Preloved]', 'accessory') IS DISTINCT FROM 'luxury-wallet'
      OR public.page365_prefill_type_slug('C1244 Hermes Arceau Quartz', 'watch') IS DISTINCT FROM 'luxury-watches' THEN

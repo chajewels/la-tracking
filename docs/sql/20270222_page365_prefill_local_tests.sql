@@ -122,6 +122,8 @@ BEGIN
   PERFORM pg_temp.eq('10p sango', public.page365_prefill_stones('R5180 Ring PT900 5.0g Sango Diamond 0.13ct Sz# 17'), 'Sango, Diamond');
   PERFORM pg_temp.eq('10q tahiti only before pearl', public.page365_prefill_stones('N2676 Necklace SV 46.80g SSP Tahiti Labradorite Mixed 46cm'), 'South Sea Pearl, Labradorite');
   PERFORM pg_temp.eq('10r rose only before quartz', public.page365_prefill_stones('N1131 Necklace Piaget 750 4.10g Rose Diamond 40cm'), 'Diamond');
+  PERFORM pg_temp.eq('20 PT850 Japan', public.page365_prefill_origin('N9838 Necklace PT850 9.80g Emerald', ARRAY['PT850']), 'JAPAN');
+  PERFORM pg_temp.eq('20 silver stays blank', public.page365_prefill_origin('N2157 Necklace SV925 Akoya Pearl', ARRAY['SILVER925']), NULL::text);
   PERFORM pg_temp.eq('10g code', public.page365_prefill_stones('D0123 Ring K18 2.0g'), NULL::text);
 
   -- 11. Sizes and weights.

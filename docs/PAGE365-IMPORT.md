@@ -1201,7 +1201,7 @@ Owner request 2026-10-30. Migration `20270222100000_page365_prefill_from_name.sq
 - Weight: first `<n>g` (not `K18g`, not a range `0.6-0.7g`).
 - Brand/Origin: brand = any brand already in the Catalog + Page365 spellings (Tiffany, Tiffany & Co,
   Hermes, YSL, Bulgari, Van Cleef); "inspired"/"style" → no brand. Brand → Branded. No brand:
-  750/18K/AU750 → Other; K24 K18 K14 K10 PT1000 PT950 PT900 PM PM900 → Made in Japan; else Unknown.
+  750/18K/AU750 → Other; K24 K18 K14 K10 PT1000 PT950 PT900 PT850 PM PM900 → Made in Japan; silver and else Unknown (silver is filled by hand).
 - Size: ring = number after `Sz#` (bare `#57` blank); earrings/pendants = cm else mm; necklaces,
   bracelets, anklets, watches = cm.
 - Stone (jewelry): every stone in name order with its descriptor (Akoya Pearl, Blue Topaz, Star
