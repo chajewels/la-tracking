@@ -62,6 +62,12 @@ BEGIN
   INSERT INTO public.audit_logs (entity_type, entity_id, action) VALUES ('website_product', p, 'page365_name_followed');
   PERFORM pg_temp.eq('sync off untouched', pg_temp.v('Y0004'), '-|-|-|New|JAPAN|-|2|100|active|0');
 
+  INSERT INTO public.website_products (sku, name, status, origin, condition, metals, page365_product_id, page365_sync_disabled)
+  VALUES ('Y0006', 'Y0006 Ring Cartier K18 2.0g Sz# 10 [Used]', 'draft', 'UNKNOWN', 'New', ARRAY['K18'], 13, true) RETURNING id INTO p;
+  INSERT INTO public.website_product_variants (product_id, price_jpy, stock_qty) VALUES (p, 100, 2);
+  INSERT INTO public.audit_logs (entity_type, entity_id, action) VALUES ('website_product', p, 'page365_name_followed');
+  PERFORM pg_temp.eq('sync off draft untouched', pg_temp.v('Y0006'), '-|-|-|New|UNKNOWN|-|2|100|draft|0');
+
   -- Other audit actions do nothing.
   INSERT INTO public.audit_logs (entity_type, entity_id, action) VALUES ('website_product', p, 'website_product_published');
 

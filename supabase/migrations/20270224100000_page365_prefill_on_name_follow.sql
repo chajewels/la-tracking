@@ -10,7 +10,8 @@
 --     only when the product has none. Condition, Origin, Brand are never
 --     touched on a published product (owner decides them before publish).
 -- Blank fields only; no stock, price, status or photo change; a prefill error
--- never undoes the name follow (savepoint in the trigger).
+-- never undoes the name follow (savepoint in the trigger). "Don't sync with
+-- Page365" products are never touched (draft or published).
 -- page365_follow_names and page365_prefill_from_name are NOT edited (md5s pinned).
 --
 -- One-time (owner 2026-10-30 "fill and apply", list of 25 approved in chat):
@@ -167,7 +168,7 @@ DECLARE
 BEGIN
   BEGIN
     SELECT wp.status::text = 'draft' AND wp.first_published_at IS NULL INTO v_draft
-      FROM public.website_products wp WHERE wp.id = NEW.entity_id;
+      FROM public.website_products wp WHERE wp.id = NEW.entity_id AND NOT coalesce(wp.page365_sync_disabled, false);
     IF v_draft THEN
       PERFORM public.page365_prefill_from_name(NEW.entity_id);
     ELSIF v_draft IS NOT NULL THEN
