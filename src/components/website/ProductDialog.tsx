@@ -11,6 +11,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { translationNeedsConfirm } from "@/components/website/description-ja";
+import { nameRegenerationNeedsConfirm } from "@/components/website/name-ja";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -78,6 +79,7 @@ function WeightInput({ value, onChange }: { value: number | null; onChange: (v: 
 export default function ProductDialog({
   open, onOpenChange, form, setForm, collections, categories, isAdmin,
   translating, uploadingKey, peso, saving, onSave, onTranslateDescription,
+  canRegenerateName, translatingName, onRegenerateJapaneseName,
   onUploadMedia, onPatchVariant, onUploadVideo,
 }: {
   open: boolean;
@@ -94,6 +96,11 @@ export default function ProductDialog({
   onSave: () => void;
   /** Translate the English description into the Japanese field. Never touches the name. */
   onTranslateDescription: () => void;
+  /** Staff with catalog permission only; absent or false hides the name button. */
+  canRegenerateName?: boolean;
+  translatingName?: boolean;
+  /** Translate the English NAME into the Japanese name field (form only, not saved). Never touches a description. */
+  onRegenerateJapaneseName?: () => void;
   onUploadMedia: (variantIndex: number, files: FileList | null) => void;
   onPatchVariant: (i: number, patch: Partial<VariantRow>) => void;
   /** Upload the product's MP4 (one per product). Absent = no video section. */
@@ -101,6 +108,7 @@ export default function ProductDialog({
 }) {
   const formId = useId();
   const [confirmTranslate, setConfirmTranslate] = useState(false);
+  const [confirmName, setConfirmName] = useState(false);
   const jaStale = !!form.id && !!form.description_ja.trim() && form.description_en.trim() !== form.jaSourceEn.trim();
   return (
       <Dialog open={open} onOpenChange={onOpenChange}>
@@ -126,12 +134,42 @@ export default function ProductDialog({
                   }))}
                   placeholder="K18 Rope Chain 45cm"
                 />
-                <Input
-                  readOnly lang="ja" value={form.name_ja}
-                  className="cursor-default bg-muted/30 text-muted-foreground"
-                  placeholder="Japanese name — generated on save"
-                  aria-label="Name (Japanese, generated)"
-                />
+                <div className="space-y-1.5">
+                  <Input
+                    readOnly lang="ja" value={form.name_ja}
+                    className="cursor-default bg-muted/30 text-muted-foreground"
+                    placeholder="Japanese name — generated on save when missing"
+                    aria-label="Name (Japanese, generated)"
+                  />
+                  {canRegenerateName && onRegenerateJapaneseName && (
+                    <Button
+                      type="button" variant="outline" size="sm"
+                      onClick={() => (nameRegenerationNeedsConfirm(form) ? setConfirmName(true) : onRegenerateJapaneseName())}
+                      disabled={!!translatingName || !form.name.trim()}
+                    >
+                      {translatingName
+                        ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                        : <RefreshCw className="mr-1 h-3.5 w-3.5" />}
+                      Regenerate Japanese name
+                    </Button>
+                  )}
+                </div>
+                <AlertDialog open={confirmName} onOpenChange={setConfirmName}>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Replace the Japanese name?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This puts a new translation of the English name in the box. Nothing is saved until you
+                        press Save; close this editor without saving to keep the current Japanese name.
+                        The description is not changed.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Keep current name</AlertDialogCancel>
+                      <AlertDialogAction onClick={() => onRegenerateJapaneseName?.()}>Replace name</AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
               </div>
               <div className="space-y-1.5 sm:col-span-2">
                 <Label htmlFor={`${formId}-slug`}>Web address (slug)</Label>
@@ -315,7 +353,7 @@ export default function ProductDialog({
                 />
                 <p className="text-xs text-muted-foreground">
                   Saved exactly as written. It is never translated automatically for an existing product —
-                  only the button above does that. The Japanese name is generated on save and is not changed here.
+                  only the button above does that. The Japanese name is not changed here.
                 </p>
                 {jaStale && (
                   <p className="text-xs text-warning" role="status">

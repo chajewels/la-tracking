@@ -35,12 +35,12 @@ describe("save: translation alongside the writes", () => {
     // The result is awaited only after the link tables.
     expect(saveFn.indexOf("await translation")).toBeGreaterThan(saveFn.lastIndexOf('from("website_category_products")'));
   });
-  it("translates the name when the English name changed, the description only for a new product", () => {
-    expect(saveFn).toContain("const needName = name !== f.jaSourceName.trim() || (!f.id && !f.name_ja.trim());");
+  it("translates the name only when it is missing, the description only for a new product", () => {
+    expect(saveFn).toContain("const needName = needsNameTranslation(f);");
     expect(saveFn).toContain("const needDesc = needsDescriptionTranslation(f);");
   });
   it("keeps the failure toast and the not-published message", () => {
-    expect(saveFn).toContain('title: "Japanese not regenerated"');
+    expect(saveFn).toContain('title: "Japanese not generated"');
     expect(saveFn).toContain("the Japanese was left as it was.");
     expect(saveFn).toContain("`Saved as a draft, not published: ${error.message}`");
   });
@@ -57,9 +57,9 @@ describe("save: translation alongside the writes", () => {
 
 describe("Translate description → Save does not translate twice", () => {
   it("translateDescription writes the Japanese description and nothing else", () => {
-    const fn = between(card, "async function translateDescription()", "async function regenerateAllJapanese()");
+    const fn = between(card, "async function translateDescription()", "async function regenerateJapaneseName()");
     expect(fn).toContain("translateJa({ description: en })");
-    expect(fn).not.toMatch(/name_ja|jaSourceName/);
+    expect(fn).not.toMatch(/name_ja/);
   });
   it("no savedName / savedEn remains anywhere in src/", () => {
     const self = resolve(__dirname, "product-save-speed.test.tsx");
@@ -74,7 +74,6 @@ describe("Translate description → Save does not translate twice", () => {
   it("a new product starts with no snapshot and empty sources", () => {
     const f = emptyProduct();
     expect(f.loaded).toBeNull();
-    expect(f.jaSourceName).toBe("");
     expect(f.jaSourceEn).toBe("");
   });
 });

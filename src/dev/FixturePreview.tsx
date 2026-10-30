@@ -1123,6 +1123,10 @@ function ProductDialogFixture() {
       saving={false}
       onSave={() => {}}
       onTranslateDescription={() => {}}
+      canRegenerateName
+      translatingName={false}
+      // Mock only: no translation call is made from this fixture.
+      onRegenerateJapaneseName={() => setForm(f => ({ ...f, name_ja: 'K18 ダイヤモンド ペンダントネックレス（再生成）' }))}
       onUploadMedia={() => {}}
       onPatchVariant={(i, patch) =>
         setForm(f => ({ ...f, variants: f.variants.map((v, j) => (j === i ? { ...v, ...patch } : v)) }))

@@ -36,7 +36,7 @@ function opened(over: Partial<ProductForm> = {}): ProductForm {
   return {
     ...emptyProduct(),
     id: "p1", sku: "AL112", slug: "al112-rope-chain", name: "Rope Chain 45cm", name_ja: "ロープチェーン 45cm",
-    jaSourceName: "Rope Chain 45cm", description_en: EN, description_ja: JA, jaSourceEn: EN,
+    description_en: EN, description_ja: JA, jaSourceEn: EN,
     loaded: {
       description_en: EN, description_ja: JA,
       sku: "AL112", slug: "al112-rope-chain", name: "Rope Chain 45cm", name_ja: "ロープチェーン 45cm",
@@ -198,7 +198,7 @@ describe("wiring (source-anchored)", () => {
     expect(saveFn).toContain("if (needDesc) jaPatch.description_ja");
   });
   it("a failed or late translation touches nothing", () => {
-    const fn = between(card, "async function translateDescription()", "async function regenerateAllJapanese()");
+    const fn = between(card, "async function translateDescription()", "async function regenerateJapaneseName()");
     expect(fn).toContain("applyTranslatedDescription(formRef.current");
     expect(fn).toContain("The Japanese description was not changed.");
     expect(fn).not.toMatch(/setForm\(\{/);
@@ -207,10 +207,9 @@ describe("wiring (source-anchored)", () => {
     expect(between(card, "function openNew()", "function openEdit(")).toContain("editSession.current += 1;");
     expect(between(card, "function openEdit(", "async function translateDescription()")).toContain("editSession.current += 1;");
   });
-  it("bulk regenerate never replaces an existing Japanese description", () => {
-    const fn = between(card, "async function regenerateAllJapanese()", "async function refreshProduct(");
-    expect(fn).toContain('!String(p.description_ja ?? "").trim()');
-    expect(fn).not.toContain("description_ja: en ? out.description_ja || null : null");
+  it("the bulk name pass never reads or writes a description", () => {
+    const fn = between(card, "async function fillMissingJapaneseNames()", "async function refreshProduct(");
+    expect(fn).not.toMatch(/description_(en|ja)|translateJa\(\{[^}]*description/);
   });
   it("the importer fills a Japanese description only when none exists", () => {
     const imp = code(src("src/components/website/ProductImportDialog.tsx"));

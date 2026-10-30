@@ -179,12 +179,12 @@ export default function ProductImportDialog({ collections, categories, isAdmin, 
 
     // Japanese DESCRIPTION only when none exists yet: an existing one (possibly
     // hand-approved) is never replaced by an import, even if the sheet's English
-    // changed. The Japanese NAME rule is unchanged.
+    // changed. The Japanese NAME is filled only when missing: an existing one is
+    // never replaced by an import, even if the sheet's English name changed.
     let ja = String(existingProduct?.description_ja ?? "");
     let nameJa = String(existingProduct?.name_ja ?? "");
-    const prevName = String(existingProduct?.name ?? "").trim();
     const needDesc = !!v.description_en && !ja;
-    const needName = v.name !== prevName || !nameJa;
+    const needName = !nameJa;
     if (translateJa && (needDesc || needName)) {
       try {
         const out = await translate({

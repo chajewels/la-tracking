@@ -84,11 +84,9 @@ export interface ProductForm {
   sku: string;
   slug: string;
   name: string;
-  /** Generated from `name` on save — never typed by staff. */
+  /** Generated when missing (Save) or by the explicit "Regenerate Japanese name"
+   *  button — never typed by staff, never replaced automatically (name-ja.ts). */
   name_ja: string;
-  /** The English name the current Japanese name was generated from. Save
-   *  re-translates only when `name` differs from it (or name_ja is empty). */
-  jaSourceName: string;
   /** jewelry | watch | other. Decides whether a metal stamp is required. */
   itemKind: ItemKind;
   /** Stamps in the order picked; at least one to save JEWELRY, optional otherwise. */
@@ -197,7 +195,7 @@ export function saleError(v: Pick<VariantRow, "price_jpy" | "sale_price_jpy">): 
 }
 
 export const emptyProduct = (): ProductForm => ({
-  sku: "", slug: "", name: "", name_ja: "", jaSourceName: "", itemKind: "jewelry", metals: ["K18"], weight_g: null, condition: "New",
+  sku: "", slug: "", name: "", name_ja: "", itemKind: "jewelry", metals: ["K18"], weight_g: null, condition: "New",
   origin: "UNKNOWN", brand: "",
   description_en: "", description_ja: "", jaSourceEn: "",
   status: "draft", page365SyncDisabled: false, videoUrl: null, videoPosterUrl: null, videoColumns: false, collectionIds: [], categoryIds: [], variants: [emptyVariant(0)],
@@ -211,14 +209,18 @@ export const emptyProduct = (): ProductForm => ({
  * cannot rewrite a protected name, SKU or slug, not even by trimming it.
  */
 export function identityWrites(
-  f: Pick<ProductForm, "id" | "sku" | "name" | "name_ja" | "loaded">, slug: string,
+  f: Pick<ProductForm, "id" | "sku" | "slug" | "name" | "name_ja" | "loaded">, slug: string,
 ): { sku?: string; slug?: string; name?: string; name_ja?: string | null } {
   const now = { sku: f.sku.trim(), slug, name: f.name.trim(), name_ja: f.name_ja.trim() || null };
   const was = f.id ? f.loaded : null;
   if (!was) return now;
   const out: { sku?: string; slug?: string; name?: string; name_ja?: string | null } = {};
   if (now.sku !== was.sku.trim()) out.sku = now.sku;
-  if (now.slug !== was.slug.trim()) out.slug = now.slug;
+  // Compared on what staff TYPED, not on the generated fallback: an existing
+  // product whose saved slug is empty and untouched must not get one invented
+  // from its name by an unrelated save. Clearing a saved slug still falls back
+  // to slugify(name) — that policy is unchanged.
+  if (f.slug.trim() !== was.slug.trim()) out.slug = now.slug;
   if (now.name !== was.name.trim()) out.name = now.name;
   if (now.name_ja !== (was.name_ja.trim() || null)) out.name_ja = now.name_ja;
   return out;
