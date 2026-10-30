@@ -166,14 +166,14 @@ describe("bulk: Generate missing Japanese names", () => {
     expect(missingNameTargets(rows).some((r) => r.id === "3")).toBe(false);
   });
   it("reports filled, skipped and failed", () => {
-    const s = bulkNameSummary(3, { filled: 2, skippedExisting: 1, sourceChanged: 0, translationFailed: ["B: rate limit"], databaseFailed: [] });
-    expect(s.title).toContain("Japanese names filled: 2. Skipped (already had one): 1.");
+    const s = bulkNameSummary(3, { filled: 1, hadJapanese: 1, noEnglish: 0, englishChanged: 0, gone: 0, notEligible: 0, translationFailed: ["B: rate limit"], databaseFailed: [] });
+    expect(s.title).toContain("Japanese names filled: 1 of 3 products. Already had one: 1.");
     expect(s.title).toContain("Translation failed: 1. Database failed: 0.");
     expect(s.description).toBe("B: rate limit");
     expect(s.failed).toBe(true);
   });
   it("a clean run is not an error", () => {
-    expect(bulkNameSummary(2, { filled: 2, skippedExisting: 0, sourceChanged: 0, translationFailed: [], databaseFailed: [] }).failed).toBe(false);
+    expect(bulkNameSummary(2, { filled: 2, hadJapanese: 0, noEnglish: 0, englishChanged: 0, gone: 0, notEligible: 0, translationFailed: [], databaseFailed: [] }).failed).toBe(false);
   });
   it("the write guard matches a null or empty Japanese name only", () => {
     expect(NAME_JA_EMPTY).toBe("name_ja.is.null,name_ja.eq.");

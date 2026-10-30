@@ -31,7 +31,7 @@ import {
   applyTranslatedDescription, descriptionWrites, needsDescriptionTranslation,
 } from "@/components/website/description-ja";
 import {
-  FillClient, applyRegeneratedName, fillMissingJapanese, fillSkipReason, bulkNameSummary, missingNameTargets, needsNameTranslation,
+  FillClient, applyRegeneratedName, fillMissingJapanese, fillSkipReason, bulkNameSummary, classifyNameRows, missingNameTargets, needsNameTranslation,
 } from "@/components/website/name-ja";
 import { uploadWebsiteImage } from "@/components/website/HeroImageField";
 import { CATEGORIES_QUERY_KEY, fetchCategories } from "@/components/website/CategoriesCard";
@@ -511,14 +511,16 @@ export default function ProductsCard() {
     const rows = products.data ?? [];
     const targets = missingNames;
     if (!targets.length) { toast({ title: "Nothing to fill", description: "Every product already has a Japanese name." }); return; }
-    const skippedAtStart = rows.length - targets.length;
-    if (!confirm(`Generate the Japanese name for ${targets.length} product${targets.length === 1 ? "" : "s"} that have none? ${skippedAtStart} with a Japanese name are left as they are. Descriptions and English text are not changed.`)) return;
+    const start = classifyNameRows(rows);
+    if (!confirm(`Generate the Japanese name for ${targets.length} product${targets.length === 1 ? "" : "s"} that have none? ${start.hadJapanese} with a Japanese name and ${start.noEnglish} without an English name are left as they are. Descriptions and English text are not changed.`)) return;
     setBulk({ done: 0, total: targets.length });
     const translationFailed: string[] = [];
     const databaseFailed: string[] = [];
     let filled = 0;
-    let skippedExisting = skippedAtStart;
-    let sourceChanged = 0;
+    let hadJapanese = start.hadJapanese;
+    let englishChanged = 0;
+    let gone = 0;
+    let notEligible = 0;
     for (const [i, p] of targets.entries()) {
       const label = String(p.sku ?? p.name);
       try {
@@ -536,8 +538,10 @@ export default function ProductsCard() {
             id: p.id, column: "name_ja", source: String(p.name), observed: p.name_ja, text: ja,
           });
           if (o === "filled") filled += 1;
-          else if (o === "source_changed") sourceChanged += 1;
-          else skippedExisting += 1;
+          else if (o === "source_changed") englishChanged += 1;
+          else if (o === "has_value") hadJapanese += 1;
+          else if (o === "gone") gone += 1;
+          else notEligible += 1;
         } catch (e) {
           databaseFailed.push(`${label}: ${(e as Error).message}`);
         }
@@ -547,7 +551,9 @@ export default function ProductsCard() {
     }
     setBulk(null);
     qc.invalidateQueries({ queryKey: ["website-products"] });
-    const s = bulkNameSummary(targets.length, { filled, skippedExisting, sourceChanged, translationFailed, databaseFailed });
+    const s = bulkNameSummary(rows.length, {
+      filled, hadJapanese, noEnglish: start.noEnglish, englishChanged, gone, notEligible, translationFailed, databaseFailed,
+    });
     toast({ title: s.title, description: s.description, variant: s.failed ? "destructive" : undefined });
   }
 

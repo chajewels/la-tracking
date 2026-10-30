@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { fillMissingJapanese, jaMissingFilter, bulkNameSummary, fillSkipReason } from "@/components/website/name-ja";
+import { fillMissingJapanese, jaMissingFilter, bulkNameSummary, bulkNameAccounted, classifyNameRows, fillSkipReason } from "@/components/website/name-ja";
 import {
   fillImportedJapanese, importJapanesePayload, planImportJapanese, type ImportTranslate,
 } from "@/components/website/import-ja";
@@ -91,12 +91,31 @@ describe("concurrent edits", () => {
 
 describe("bulk summary distinguishes every outcome", () => {
   it("counts filled, both skips and both failures", () => {
-    const s = bulkNameSummary(5, {
-      filled: 2, skippedExisting: 3, sourceChanged: 1, translationFailed: ["A: rate limit"], databaseFailed: ["B: denied"],
-    });
-    expect(s.title).toBe("Japanese names filled: 2. Skipped (already had one): 3. Skipped (English changed): 1. Translation failed: 1. Database failed: 1.");
+    const o = {
+      filled: 2, hadJapanese: 3, noEnglish: 1, englishChanged: 1, gone: 1, notEligible: 1,
+      translationFailed: ["A: rate limit"], databaseFailed: ["B: denied"],
+    };
+    const s = bulkNameSummary(11, o);
+    expect(bulkNameAccounted(o)).toBe(11);
+    expect(s.title).toBe(
+      "Japanese names filled: 2 of 11 products. Already had one: 3. No English name: 1. English changed meanwhile: 1. "
+      + "Product removed: 1. Not eligible: 1. Translation failed: 1. Database failed: 1.");
     expect(s.description).toBe("A: rate limit · B: denied");
     expect(s.failed).toBe(true);
+  });
+});
+
+describe("bulk classification", () => {
+  it("never calls a product with no English name, or a removed one, 'already had a Japanese name'", () => {
+    const c = classifyNameRows([
+      { id: "1", name: "A", name_ja: null }, { id: "2", name: "B", name_ja: "  " },
+      { id: "3", name: "C", name_ja: "既存" }, { id: "4", name: "", name_ja: null },
+      { id: "5", name: "  ", name_ja: "" }, { id: "6", name: "", name_ja: "既存" },
+    ]);
+    expect(c.targets.map((r) => r.id)).toEqual(["1", "2"]);
+    expect(c.hadJapanese).toBe(2);   // 3 and 6
+    expect(c.noEnglish).toBe(2);     // 4 and 5
+    expect(c.targets.length + c.hadJapanese + c.noEnglish).toBe(6);
   });
 });
 

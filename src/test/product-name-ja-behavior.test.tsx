@@ -16,6 +16,7 @@ const h = vi.hoisted(() => ({
   db: { website_products: [] as Row[] } as Record<string, Row[]>,
   writes: [] as Array<{ table: string; op: string; values: Row; matched: number }>,
   beforeWrite: null as null | ((table: string, op: string) => void),
+  failUpdate: null as null | ((values: Record<string, unknown>) => string | null),
   translate: vi.fn(),
   toast: vi.fn(),
 }));
@@ -31,7 +32,7 @@ vi.mock("@/integrations/supabase/client", async () => {
       h.beforeWrite?.(table, op);
       const all = h.db[table] ?? (h.db[table] = []);
       const hit = all.filter((r) => preds.every((p) => p(r)));
-      if (op === "update") { for (const r of hit) Object.assign(r, values); h.writes.push({ table, op, values, matched: hit.length }); }
+      if (op === "update") { const why = h.failUpdate?.(values); if (why) throw new Error(why); for (const r of hit) Object.assign(r, values); h.writes.push({ table, op, values, matched: hit.length }); }
       if (op === "insert") { const r = { id: `new-${all.length + 1}`, ...values }; all.push(r); h.writes.push({ table, op, values, matched: 1 }); return [r]; }
       if (op === "delete") { h.writes.push({ table, op, values: {}, matched: hit.length }); return []; }
       // Reads return copies: the app must not see later database changes through a shared reference.
@@ -47,7 +48,9 @@ vi.mock("@/integrations/supabase/client", async () => {
     b.maybeSingle = async () => ({ data: exec()[0] ?? null, error: null });
     b.single = async () => ({ data: exec()[0] ?? null, error: null });
     b.then = (res: (v: unknown) => unknown, rej: (e: unknown) => unknown) => {
-        return Promise.resolve({ data: exec(), error: null }).then(res, rej);
+        let out: { data: unknown; error: { message: string } | null };
+      try { out = { data: exec(), error: null }; } catch (e) { out = { data: null, error: { message: (e as Error).message } }; }
+      return Promise.resolve(out).then(res, rej);
     };
     return b;
   };
@@ -102,7 +105,7 @@ const toastTitles = () => h.toast.mock.calls.map((c) => (c[0] as { title: string
 const lastToast = () => h.toast.mock.calls.at(-1)![0] as { title: string; description?: string };
 
 beforeEach(() => {
-  h.writes.length = 0; h.beforeWrite = null;
+  h.writes.length = 0; h.beforeWrite = null; h.failUpdate = null;
   h.translate.mockReset(); h.toast.mockReset();
   h.translate.mockImplementation(async (a: { name?: string }) => ({ name_ja: a.name ? `JA(${a.name})` : "", description_ja: "" }));
   vi.stubGlobal("confirm", vi.fn(() => true));
@@ -186,30 +189,53 @@ describe("Bulk: Generate missing Japanese names", () => {
     expect(rowOf("d").name_ja).toBe("既存のD");
     expect(h.translate).toHaveBeenCalledTimes(3);
     for (const w of productWrites()) expect(Object.keys(w.values)).toEqual(["name_ja"]);
-    expect(lastToast().title).toContain("Skipped (already had one): 1");
+    expect(lastToast().title).toContain("Already had one: 1");
   });
 
-  it("reports every outcome separately: filled, existing-meanwhile, English-changed, translation failed, database failed", async () => {
-    h.db.website_products.push(product("e", "Ring E", null), product("f", "Ring F", null));
+  it("reports every outcome in its own bucket and the buckets add up to the products seen", async () => {
+    h.db.website_products.push(
+      product("e", "Ring E", null), product("f", "Ring F", null),
+      product("g", "", null),                 // no English name: nothing to translate
+      product("h", "Ring H", null),           // removed while translating
+      product("i", "Ring I", null),           // changed to a different whitespace value while translating
+    );
     h.translate.mockImplementation(async (a: { name: string }) => {
       if (a.name === "Ring B") throw new Error("rate limit");
-      // concurrent edits land while Ring A / Ring C are being translated
-      if (a.name === "Ring A") rowOf("a").name_ja = "同時入力";
-      if (a.name === "Ring C") rowOf("c").name = "Ring C renamed";
+      if (a.name === "Ring A") rowOf("a").name_ja = "同時入力";                       // filled meanwhile
+      if (a.name === "Ring C") rowOf("c").name = "Ring C renamed";                   // English changed
+      if (a.name === "Ring H") h.db.website_products = h.db.website_products.filter((r) => r.id !== "h");
+      if (a.name === "Ring I") rowOf("i").name_ja = "\t\t";                          // matches neither reason
       return { name_ja: `JA(${a.name})`, description_ja: "" };
     });
     renderCard();
-    fireEvent.click(await screen.findByRole("button", { name: /Generate missing Japanese names \(5\)/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /Generate missing Japanese names \(7\)/ }));
     await waitFor(() => expect(lastToast().title).toMatch(/^Japanese names filled/));
     expect(lastToast().title).toBe(
-      "Japanese names filled: 2. Skipped (already had one): 2. Skipped (English changed): 1. Translation failed: 1. Database failed: 0.",
+      "Japanese names filled: 2 of 9 products. Already had one: 2. No English name: 1. English changed meanwhile: 1. "
+      + "Product removed: 1. Not eligible: 1. Translation failed: 1. Database failed: 0.",
     );
+    // 2 + 2 + 1 + 1 + 1 + 1 + 1 + 0 = 9
     expect(rowOf("a").name_ja).toBe("同時入力");
     expect(rowOf("b").name_ja).toBe("");
     expect(rowOf("c").name_ja).toBe("   ");
+    expect(rowOf("i").name_ja).toBe("\t\t");
     expect(rowOf("e").name_ja).toBe("JA(Ring E)");
     expect(rowOf("f").name_ja).toBe("JA(Ring F)");
+    expect(rowOf("g").name_ja).toBeNull();
     expect(lastToast().description).toContain("B: rate limit");
+  });
+
+  it("a database failure is its own bucket and nothing is written for that product", async () => {
+    h.failUpdate = (v) => ("name_ja" in v && v.name_ja === "JA(Ring B)" ? "permission denied" : null);
+    renderCard();
+    fireEvent.click(await screen.findByRole("button", { name: /Generate missing Japanese names \(3\)/ }));
+    await waitFor(() => expect(lastToast().title).toMatch(/^Japanese names filled/));
+    expect(lastToast().title).toBe(
+      "Japanese names filled: 2 of 4 products. Already had one: 1. No English name: 0. English changed meanwhile: 0. "
+      + "Product removed: 0. Not eligible: 0. Translation failed: 0. Database failed: 1.",
+    );
+    expect(lastToast().description).toContain("permission denied");
+    expect(rowOf("b").name_ja).toBe("");
   });
 
   it("declining the confirmation changes nothing and calls no translation", async () => {

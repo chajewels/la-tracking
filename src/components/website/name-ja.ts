@@ -57,24 +57,51 @@ export function missingNameTargets<T extends NameRow>(rows: readonly T[]): T[] {
   return rows.filter((p) => !!norm(p.name) && !norm(p.name_ja));
 }
 
+/** Sorts every product the bulk pass sees: a target, or the reason it is not one. */
+export function classifyNameRows<T extends NameRow>(rows: readonly T[]) {
+  const targets: T[] = [];
+  let hadJapanese = 0;
+  let noEnglish = 0;
+  for (const p of rows) {
+    if (!isMissingJa(p.name_ja)) hadJapanese += 1;
+    else if (!norm(p.name)) noEnglish += 1;
+    else targets.push(p);
+  }
+  return { targets, hadJapanese, noEnglish };
+}
+
 /**
- * The outcome the bulk pass reports. `skippedExisting` = already had a Japanese
- * name (at the start or filled meanwhile); `sourceChanged` = the English name
- * changed while it was translating; the two failure kinds name the product.
+ * What the bulk pass reports. Every product it saw lands in exactly one bucket,
+ * so the buckets add up to `total`:
+ * - filled
+ * - hadJapanese: had a Japanese name when the pass started, or got one meanwhile
+ * - noEnglish: nothing to translate (no English name)
+ * - englishChanged: the English name changed while it was translating
+ * - gone: the product was removed meanwhile
+ * - notEligible: changed in a way that matched neither reason (nothing written)
+ * - translationFailed / databaseFailed: named per product
  */
 export interface BulkNameOutcome {
   filled: number;
-  skippedExisting: number;
-  sourceChanged: number;
+  hadJapanese: number;
+  noEnglish: number;
+  englishChanged: number;
+  gone: number;
+  notEligible: number;
   translationFailed: string[];
   databaseFailed: string[];
 }
 
+export const bulkNameAccounted = (o: BulkNameOutcome) =>
+  o.filled + o.hadJapanese + o.noEnglish + o.englishChanged + o.gone + o.notEligible
+  + o.translationFailed.length + o.databaseFailed.length;
+
 export function bulkNameSummary(total: number, o: BulkNameOutcome): { title: string; description?: string; failed: boolean } {
   const failedN = o.translationFailed.length + o.databaseFailed.length;
-  const base = `Japanese names filled: ${o.filled}. Skipped (already had one): ${o.skippedExisting}. `
-    + `Skipped (English changed): ${o.sourceChanged}. Translation failed: ${o.translationFailed.length}. `
-    + `Database failed: ${o.databaseFailed.length}.`;
+  const base = `Japanese names filled: ${o.filled} of ${total} products. Already had one: ${o.hadJapanese}. `
+    + `No English name: ${o.noEnglish}. English changed meanwhile: ${o.englishChanged}. `
+    + `Product removed: ${o.gone}. Not eligible: ${o.notEligible}. `
+    + `Translation failed: ${o.translationFailed.length}. Database failed: ${o.databaseFailed.length}.`;
   return failedN
     ? { title: base, description: [...o.translationFailed, ...o.databaseFailed].join(" · "), failed: true }
     : { title: base, description: total ? undefined : "Nothing to fill.", failed: false };
