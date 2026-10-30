@@ -1118,11 +1118,15 @@ function ProductDialogFixture() {
       categories={[{ id: 'k1', name: 'Necklaces', published: true }, { id: 'k2', name: 'Pendants', published: true }]}
       isAdmin
       translating={false}
-      uploadingKey={null}
+      uploadingKeys={[]}
       peso={n => `₱ ${Math.round(n * 0.42).toLocaleString('en-US')}`}
       saving={false}
       onSave={() => {}}
-      onRegenerateJapanese={() => {}}
+      onTranslateDescription={() => {}}
+      canRegenerateName
+      translatingName={false}
+      // Mock only: no translation call is made from this fixture.
+      onRegenerateJapaneseName={() => setForm(f => ({ ...f, name_ja: 'K18 ダイヤモンド ペンダントネックレス（再生成）' }))}
       onUploadMedia={() => {}}
       onPatchVariant={(i, patch) =>
         setForm(f => ({ ...f, variants: f.variants.map((v, j) => (j === i ? { ...v, ...patch } : v)) }))

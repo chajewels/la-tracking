@@ -66,6 +66,11 @@ export interface MediaRow {
   page365_photo_version?: string | null;
 }
 export interface VariantRow {
+  /** Client-side identity of this row, never written to the database: the variant's id
+   *  when it was loaded, a fresh "new-N" for one added in the editor. Index positions
+   *  shift when a row is removed, so anything asynchronous (a photo upload) attaches by
+   *  this key, never by array index. */
+  key: string;
   id?: string;
   size: string | null;
   stone: string | null;
@@ -84,11 +89,9 @@ export interface ProductForm {
   sku: string;
   slug: string;
   name: string;
-  /** Generated from `name` on save — never typed by staff. */
+  /** Generated when missing (Save) or by the explicit "Regenerate Japanese name"
+   *  button — never typed by staff, never replaced automatically (name-ja.ts). */
   name_ja: string;
-  /** The English name the current Japanese name was generated from. Save
-   *  re-translates only when `name` differs from it (or name_ja is empty). */
-  jaSourceName: string;
   /** jewelry | watch | other. Decides whether a metal stamp is required. */
   itemKind: ItemKind;
   /** Stamps in the order picked; at least one to save JEWELRY, optional otherwise. */
@@ -99,8 +102,10 @@ export interface ProductForm {
   origin: OriginValue;
   brand: string;
   description_en: string;
+  /** Typed by staff, independent of description_en. Saved as written, except that spaces at the start and end are trimmed. */
   description_ja: string;
-  /** The English description the current Japanese one was generated from. */
+  /** The English description the current Japanese one was written against.
+   *  Display only (the "English changed" hint) — Save never translates from it. */
   jaSourceEn: string;
   status: Status;
   /** "Don't sync with Page365" (website_products.page365_sync_disabled). On =
@@ -139,6 +144,18 @@ export interface LoadedVariant {
   media: Array<Pick<MediaRow, "url" | "alt" | "sort" | "page365_photo_id" | "page365_photo_version">>;
 }
 export interface LoadedSnapshot {
+  /** The descriptions as read, trimmed. Save writes a description column only
+   *  when the form differs from these (description-ja.ts). */
+  description_en: string;
+  description_ja: string;
+  /** Identity fields as stored. Save sends one only when staff changed it. */
+  sku: string;
+  slug: string;
+  name: string;
+  name_ja: string;
+  /** The Japanese columns exactly as stored when the editor opened (null stays null).
+   *  A Save that changes one updates it only while the database still holds this value. */
+  storedJa: { name_ja: string | null; description_ja: string | null };
   variants: LoadedVariant[];
   collectionIds: string[];
   categoryIds: string[];
@@ -167,7 +184,9 @@ export const sameMedia = (
     (m.page365_photo_id ?? null) === (was[i].page365_photo_id ?? null) &&
     (m.page365_photo_version ?? null) === (was[i].page365_photo_version ?? null));
 
+let variantSeq = 0;
 export const emptyVariant = (sort: number): VariantRow => ({
+  key: `new-${++variantSeq}`,
   size: "", stone: "", price_jpy: 0, sale_price_jpy: null, cost_basis: null, stock_qty: 0, sort, media: [],
 });
 
@@ -186,12 +205,36 @@ export function saleError(v: Pick<VariantRow, "price_jpy" | "sale_price_jpy">): 
 }
 
 export const emptyProduct = (): ProductForm => ({
-  sku: "", slug: "", name: "", name_ja: "", jaSourceName: "", itemKind: "jewelry", metals: ["K18"], weight_g: null, condition: "New",
+  sku: "", slug: "", name: "", name_ja: "", itemKind: "jewelry", metals: ["K18"], weight_g: null, condition: "New",
   origin: "UNKNOWN", brand: "",
   description_en: "", description_ja: "", jaSourceEn: "",
   status: "draft", page365SyncDisabled: false, videoUrl: null, videoPosterUrl: null, videoColumns: false, collectionIds: [], categoryIds: [], variants: [emptyVariant(0)],
   loaded: null,
 });
+
+/**
+ * The identity columns (SKU, web address, English and Japanese name) a Save
+ * sends. A new product sends all of them. An existing product sends only the
+ * ones staff changed, so an edit to anything else — a description, a price —
+ * cannot rewrite a protected name, SKU or slug, not even by trimming it.
+ */
+export function identityWrites(
+  f: Pick<ProductForm, "id" | "sku" | "slug" | "name" | "name_ja" | "loaded">, slug: string,
+): { sku?: string; slug?: string; name?: string; name_ja?: string | null } {
+  const now = { sku: f.sku.trim(), slug, name: f.name.trim(), name_ja: f.name_ja.trim() || null };
+  const was = f.id ? f.loaded : null;
+  if (!was) return now;
+  const out: { sku?: string; slug?: string; name?: string; name_ja?: string | null } = {};
+  if (now.sku !== was.sku.trim()) out.sku = now.sku;
+  // Compared on what staff TYPED, not on the generated fallback: an existing
+  // product whose saved slug is empty and untouched must not get one invented
+  // from its name by an unrelated save. Clearing a saved slug still falls back
+  // to slugify(name) — that policy is unchanged.
+  if (f.slug.trim() !== was.slug.trim()) out.slug = now.slug;
+  if (now.name !== was.name.trim()) out.name = now.name;
+  if (now.name_ja !== (was.name_ja.trim() || null)) out.name_ja = now.name_ja;
+  return out;
+}
 
 export const slugify = (s: string) =>
   s.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");

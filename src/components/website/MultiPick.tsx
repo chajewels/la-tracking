@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Check, ChevronsUpDown, X } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,7 @@ export interface PickOption { id: string; label: string; hint?: string | null }
  * which the product editor persists as sort / sort_order.
  */
 export function MultiPick({
-  options, value, onChange, placeholder = "Search…", emptyText = "No match.", ariaLabel, buttonLabel = "Add",
+  options, value, onChange, placeholder = "Search…", emptyText = "No match.", ariaLabel, buttonLabel = "Add", disabled = false,
 }: {
   options: PickOption[];
   value: string[];
@@ -23,10 +23,13 @@ export function MultiPick({
   emptyText?: string;
   ariaLabel: string;
   buttonLabel?: string;
+  /** Locks the control and closes an already-open popup (its content is portaled outside any fieldset). */
+  disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  useEffect(() => { if (disabled) setOpen(false); }, [disabled]);
   const byId = new Map(options.map((o) => [o.id, o]));
-  const toggle = (id: string) => onChange(value.includes(id) ? value.filter((v) => v !== id) : [...value, id]);
+  const toggle = (id: string) => !disabled && onChange(value.includes(id) ? value.filter((v) => v !== id) : [...value, id]);
 
   return (
     <div className="space-y-2">
@@ -46,9 +49,9 @@ export function MultiPick({
           ))}
         </ul>
       )}
-      <Popover open={open} onOpenChange={setOpen}>
+      <Popover open={open && !disabled} onOpenChange={(o) => setOpen(o && !disabled)}>
         <PopoverTrigger asChild>
-          <Button type="button" variant="outline" size="sm" role="combobox" aria-expanded={open} aria-label={ariaLabel} className="justify-between font-normal sm:min-w-[16rem]">
+          <Button type="button" variant="outline" size="sm" role="combobox" aria-expanded={open && !disabled} aria-label={ariaLabel} disabled={disabled} className="justify-between font-normal sm:min-w-[16rem]">
             {buttonLabel}
             <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
           </Button>
