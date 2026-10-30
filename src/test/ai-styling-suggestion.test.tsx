@@ -9,81 +9,112 @@ vi.mock("@/integrations/supabase/client", () => ({ supabase: { functions: { invo
 
 import ProductDialog from "@/components/website/ProductDialog";
 import {
-  appendStyling, checkStylingSuggestion, stylingProduct, stylingStillApplies,
+  checkStylingSuggestion, placeAboveExisting, stylingProduct, stylingStillApplies,
 } from "@/components/website/ai-styling";
 import { requestStyling } from "@/components/website/ai-styling-client";
 import { type ProductForm, emptyProduct } from "@/components/website/product-form";
 
 /**
- * "Suggest styling text (AI)" (owner 2026-10-31): catalog staff, first photo
- * included, suggestion checked against the business rules before staff see it,
- * added only to the English description and only on "Add to description",
- * saved only by Save. Fixtures and a mocked function call only.
+ * "Write description (AI)" (owner 2026-10-30/31): catalog staff, first photo
+ * included, the approved R8913 sample's shape (piece paragraphs, preloved line,
+ * "Lovely for:" line), checked against the business rules before staff see it,
+ * placed ABOVE the existing English description (never changed) only on "Add to
+ * description", saved only by Save. Fixtures and a mocked function call only.
  */
 
-const P = { name: "K18 Rope Chain 45cm", weight_g: 4.2, description_en: "K18 gold rope chain, 45cm, 4.2g." };
-const GOOD = "Wear it alone for a clean everyday look, or layer it with a shorter chain for evenings. A thoughtful gift for birthdays and anniversaries.";
+const P = { name: "K18 Rope Chain 45cm", weight_g: 4.2, description_en: "K18 gold rope chain, 45cm, 4.2g.", metal: "K18", condition: "Preloved" as const, size: "45cm" };
+const GOOD = [
+  "Fine K18 links twist together in a warm golden rope, catching soft light with every movement. At 45cm it rests just below the collarbone, easy to wear alone or with a pendant.",
+  "A preloved piece, carefully checked by our team before listing, ready to start its next chapter with you.",
+  "Lovely for: anniversaries · a birthday gift for her · a treat for yourself · everyday elegance",
+].join("\n\n");
 
 describe("what is sent", () => {
-  it("name, weight and English description only, trimmed", () => {
-    expect(stylingProduct({ name: " Ring ", weight_g: 2, description_en: " K18 gold. " })).toEqual({ name: "Ring", weight_g: 2, description_en: "K18 gold." });
+  const form = {
+    name: " Ring ", weight_g: 2, description_en: " K18 gold. ", metals: ["K18", "PT900"], brand: "Tiffany & Co.",
+    origin: "BRAND", condition: "Preloved",
+    variants: [{ size: "40cm", stone: "Diamond" }, { size: "45cm", stone: "Diamond" }, { size: " ", stone: null }],
+  } as unknown as Parameters<typeof stylingProduct>[0];
+  it("name, weight, description, metal, brand, condition, sizes and stones, trimmed and de-duplicated", () => {
+    expect(stylingProduct(form)).toEqual({
+      name: "Ring", weight_g: 2, description_en: "K18 gold.", metal: "K18, PT900", brand: "Tiffany & Co.",
+      condition: "Preloved", size: "40cm, 45cm", stone: "Diamond",
+    });
   });
-  it("no weight when it is empty or zero", () => {
+  it("never sends origin; the brand only for a Branded piece", () => {
+    const out = stylingProduct({ ...form, origin: "JAPAN" } as typeof form);
+    expect(out).not.toHaveProperty("origin");
+    expect(out.brand).toBeUndefined();
+  });
+  it("no weight, metal, size or stone when they are empty", () => {
     expect(stylingProduct({ name: "Ring", weight_g: 0, description_en: "" })).toEqual({ name: "Ring", description_en: "" });
-    expect(stylingProduct({ name: "Ring", weight_g: null as unknown as number, description_en: "" })).toEqual({ name: "Ring", description_en: "" });
+  });
+  it("silver shows as staff say it", () => {
+    expect(stylingProduct({ ...form, metals: ["SILVER925"] } as typeof form).metal).toBe("Silver 925");
   });
 });
 
-describe("business-rule check before staff see a suggestion", () => {
-  it("a plain styling paragraph passes", () => {
+describe("business-rule check before staff see a description", () => {
+  it("the approved shape passes, paragraph breaks kept", () => {
     expect(checkStylingSuggestion(GOOD, P)).toEqual({ ok: true, text: GOOD });
   });
-  it("numbers already in the product are allowed", () => {
-    expect(checkStylingSuggestion("The 45cm length sits just below the collarbone.", P).ok).toBe(true);
+  it("extra blank lines and spaces are tidied", () => {
+    const messy = GOOD.replace(/\n\n/g, "\n\n\n  ");
+    expect(checkStylingSuggestion(messy, P)).toEqual({ ok: true, text: GOOD });
   });
   it("ordinary words like 'focal point' are not blocked", () => {
-    expect(checkStylingSuggestion("A delicate focal point for an open neckline.", P).ok).toBe(true);
+    expect(checkStylingSuggestion("A delicate focal point for an open neckline.\n\nLovely for: evenings out · a gift for her", P).ok).toBe(true);
   });
+  const L = "\n\nLovely for: anniversaries · a gift for her";
   const blocked: [string, RegExp][] = [
-    ["Reserve it today with layaway.", /layaway/],
-    ["Pay in easy monthly payments.", /layaway/],
-    ["Beautifully Made in Japan.", /Made in Japan/],
-    ["日本製のチェーンです。", /Made in Japan/],
-    ["Classic Japanese gold for every day.", /country name/],
-    ["Saudi gold sparkle.", /country name/],
-    ["Crafted in 18 karat gold.", /purity/],
-    ["Made from 18k gold.", /purity/],
-    ["A genuine piece with a certificate.", /authenticity/],
-    ["Guaranteed to last.", /authenticity/],
-    ["Only ¥30,000 this week.", /price/],
-    ["Now on sale.", /price/],
-    ["Earn loyalty points with every purchase.", /price/],
-    ["Adds 2 more inches of drape.", /number/],
+    ["Reserve it today with layaway." + L, /layaway/],
+    ["Pay in easy monthly payments." + L, /layaway/],
+    ["Beautifully Made in Japan." + L, /Japan/],
+    ["日本製のチェーンです。" + L, /Japan/],
+    ["A chic Tokyo-inspired look." + L, /Japan or Tokyo/],
+    ["Classic Japanese gold for every day." + L, /Japan/],
+    ["Saudi gold sparkle." + L, /country name/],
+    ["Crafted in 18 karat gold." + L, /purity/],
+    ["Made from 18k gold." + L, /purity/],
+    ["A genuine piece with a certificate." + L, /authenticity/],
+    ["Authenticated before listing." + L, /authenticity/],
+    ["Guaranteed to last." + L, /authenticity/],
+    ["Only ¥30,000 this week." + L, /price/],
+    ["Now on sale." + L, /price/],
+    ["Earn loyalty points with every purchase." + L, /price/],
+    ["Adds 2 more inches of drape." + L, /number/],
   ];
   it.each(blocked)("blocks %s", (text, reason) => {
     const r = checkStylingSuggestion(text, P);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reason).toMatch(reason);
   });
-  it("blocks empty, over-long and list-formatted replies", () => {
-    expect(checkStylingSuggestion("  ", P).ok).toBe(false);
-    expect(checkStylingSuggestion("a ".repeat(500), P).ok).toBe(false);
-    expect(checkStylingSuggestion("- Wear it daily\n- Gift it", P).ok).toBe(false);
-    expect(checkStylingSuggestion("**Style tip** wear it", P).ok).toBe(false);
+  it("blocks a reply without the 'Lovely for:' line last", () => {
+    const r = checkStylingSuggestion("A lovely chain.", P);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/Lovely for:/);
+    expect(checkStylingSuggestion("Lovely for: gifts\n\nA lovely chain.", P).ok).toBe(false);
   });
-  it("line breaks inside a paragraph are joined", () => {
-    expect(checkStylingSuggestion("Wear it daily.\nGift it.", P)).toEqual({ ok: true, text: "Wear it daily. Gift it." });
+  it("blocks empty, over-long, too many parts and list-formatted replies", () => {
+    expect(checkStylingSuggestion("  ", P).ok).toBe(false);
+    expect(checkStylingSuggestion("a ".repeat(700) + L, P).ok).toBe(false);
+    expect(checkStylingSuggestion("a\n\nb\n\nc\n\nd" + L, P).ok).toBe(false);
+    expect(checkStylingSuggestion("- Wear it daily\n- Gift it" + L, P).ok).toBe(false);
+    expect(checkStylingSuggestion("1. Wear it daily" + L, P).ok).toBe(false);
+    expect(checkStylingSuggestion("**Style tip** wear it" + L, P).ok).toBe(false);
   });
 });
 
-describe("how an accepted suggestion lands", () => {
-  it("a new paragraph at the end of the English description", () => {
-    expect(appendStyling("K18 gold rope chain.  \n", GOOD)).toBe(`K18 gold rope chain.\n\n${GOOD}`);
+describe("how an accepted description lands", () => {
+  it("ABOVE the existing English description, which is kept exactly as it is", () => {
+    const existing = "PT900 8.90g / Sapphire 0.95ct / Diamond 0.71ct / Halo Cocktail / Sz# 13 [Preloved]  \n";
+    expect(placeAboveExisting(existing, GOOD)).toBe(`${GOOD}\n\n${existing}`);
+    expect(placeAboveExisting(existing, GOOD).endsWith(existing)).toBe(true);
   });
   it("the whole description when it was empty", () => {
-    expect(appendStyling("   ", GOOD)).toBe(GOOD);
+    expect(placeAboveExisting("   ", GOOD)).toBe(GOOD);
   });
-  it("a suggestion for another product or a reopened editor no longer applies", () => {
+  it("a description for another product or a reopened editor no longer applies", () => {
     expect(stylingStillApplies({ session: 3, id: "p1" }, 3, "p1")).toBe(true);
     expect(stylingStillApplies({ session: 3, id: "p1" }, 4, "p1")).toBe(false);
     expect(stylingStillApplies({ session: 3, id: "p1" }, 3, "p2")).toBe(false);
@@ -140,7 +171,7 @@ describe("editor", () => {
     render(<Harness can onSuggest={onSuggest} />);
     fireEvent.click(screen.getByTestId("suggest-styling"));
     expect(onSuggest).toHaveBeenCalledTimes(1);
-    expect(screen.getByTestId("suggest-styling").textContent).toMatch("Suggest styling text (AI)");
+    expect(screen.getByTestId("suggest-styling").textContent).toMatch("Write description (AI)");
   });
   it("disabled without an English name, and while a request runs", () => {
     const { unmount } = render(<Harness can start={{ ...emptyProduct(), name: " " }} />);
@@ -156,6 +187,7 @@ describe("editor", () => {
     expect(box.textContent).toContain(GOOD);
     expect(box.textContent).toMatch(/first photo/);
     expect(box.textContent).toMatch(/Japanese description is not changed/);
+    expect(box.textContent).toMatch(/above the existing English description/);
     fireEvent.click(screen.getByText("Add to description"));
     fireEvent.click(screen.getByText("Discard"));
     expect(onAccept).toHaveBeenCalledTimes(1);
@@ -178,7 +210,7 @@ describe("ProductsCard wiring (source pins)", () => {
   });
   it("Add changes only the English description in the form (no save, no Japanese)", () => {
     const accept = src.slice(src.indexOf("function acceptStyling()"), src.indexOf("function acceptStyling()") + 700);
-    expect(accept).toMatch(/description_en: appendStyling\(f\.description_en, s\.text\)/);
+    expect(accept).toMatch(/description_en: placeAboveExisting\(f\.description_en, s\.text\)/);
     expect(accept).not.toMatch(/description_ja|save\.mutate|\.update\(|\.upsert\(/);
   });
   it("the reply is checked before it is shown", () => {

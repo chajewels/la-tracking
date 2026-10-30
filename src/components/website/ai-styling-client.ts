@@ -2,7 +2,7 @@ import { supabase } from "@/integrations/supabase/client";
 import type { StylingProduct } from "@/components/website/ai-styling";
 
 /**
- * Browser side of "Suggest styling text (AI)": the first product photo is
+ * Browser side of "Write description (AI)": the first product photo is
  * shrunk to a JPEG of at most 1 MB (the function's limit) and the request goes
  * to the read-only gemini-product-enhance edge function with the staff session.
  * Owner 2026-10-31: the first photo is included.

@@ -103,7 +103,7 @@ export default function ProductDialog({
   translatingName?: boolean;
   /** Translate the English NAME into the Japanese name field (form only, not saved). Never touches a description. */
   onRegenerateJapaneseName?: () => void;
-  /** "Suggest styling text (AI)": catalog staff only; absent or false hides it. */
+  /** "Write description (AI)": catalog staff only; absent or false hides it. */
   canSuggestStyling?: boolean;
   suggestingStyling?: boolean;
   /** A checked suggestion waiting for "Add to description" or "Discard". Nothing is in the form yet. */
@@ -388,15 +388,15 @@ export default function ProductDialog({
                       {suggestingStyling
                         ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
                         : <Sparkles className="mr-1 h-3.5 w-3.5" />}
-                      Suggest styling text (AI)
+                      Write description (AI)
                     </Button>
                     {styling && (
                       <div data-testid="styling-suggestion" className="space-y-2 rounded-md border bg-muted/40 p-3">
-                        <p className="text-xs font-medium">AI suggestion — check it before adding</p>
+                        <p className="text-xs font-medium">AI description — check every detail against the piece before adding</p>
                         <p className="whitespace-pre-wrap text-sm">{styling.text}</p>
                         <p className="text-xs text-muted-foreground">
                           {styling.usedPhoto ? "Written from the details above and the first photo." : "Written from the details above only (no photo was sent)."}{" "}
-                          Add puts it at the end of the English description. Nothing is saved until you press Save, and the Japanese description is not changed.
+                          Add puts it above the existing English description, which stays as it is underneath. Nothing is saved until you press Save, and the Japanese description is not changed.
                         </p>
                         <div className="flex gap-2">
                           <Button type="button" size="sm" onClick={onAcceptStyling} disabled={saving}>Add to description</Button>

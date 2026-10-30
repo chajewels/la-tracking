@@ -27,7 +27,7 @@ import { ChevronDown, ChevronLeft, ChevronRight, Download, Loader2, Plus, Refres
 import ProductImportDialog from "@/components/website/ProductImportDialog";
 import ProductDialog from "@/components/website/ProductDialog";
 import { translateJa } from "@/components/website/translate";
-import { appendStyling, checkStylingSuggestion, stylingProduct, stylingStillApplies, type StylingAsk } from "@/components/website/ai-styling";
+import { placeAboveExisting, checkStylingSuggestion, stylingProduct, stylingStillApplies, type StylingAsk } from "@/components/website/ai-styling";
 import { requestStyling } from "@/components/website/ai-styling-client";
 import {
   applyTranslatedDescription, descriptionWrites, needsDescriptionTranslation,
@@ -138,7 +138,7 @@ export default function ProductsCard() {
   const [partial, setPartial] = useState<{ session: number; productId: string } | null>(null);
   const [translating, setTranslating] = useState(false);
   const [translatingName, setTranslatingName] = useState(false);
-  /** "Suggest styling text (AI)": the request in flight, and a checked suggestion waiting for Add / Discard. */
+  /** "Write description (AI)": the request in flight, and a checked suggestion waiting for Add / Discard. */
   const [suggestingStyling, setSuggestingStyling] = useState(false);
   const [styling, setStyling] = useState<{ ask: StylingAsk; text: string; usedPhoto: boolean } | null>(null);
   // Bumped on every open; a translation that comes back after the editor was
@@ -506,13 +506,13 @@ export default function ProductsCard() {
   }
 
   /**
-   * "Suggest styling text (AI)" (owner 2026-10-31): catalog staff only. Sends the
-   * English name, weight, English description and the first photo to the
-   * read-only gemini-product-enhance function, checks the reply against the
-   * business rules, and shows it for "Add to description" / "Discard". Nothing
-   * is written to the form until staff add it, nothing is saved until Save, and
-   * the Japanese description is never touched. A reply for another product or a
-   * reopened editor is discarded.
+   * "Write description (AI)" (owner 2026-10-30/31): catalog staff only. Sends the
+   * product facts (ai-styling.ts) and the first photo to the read-only
+   * gemini-product-enhance function, checks the reply against the business
+   * rules, and shows it for "Add to description" / "Discard". Add puts it ABOVE
+   * the existing English description, which is never changed. Nothing is saved
+   * until Save, and the Japanese description is never touched. A reply for
+   * another product or a reopened editor is discarded.
    */
   async function suggestStyling() {
     if (!canManage || save.isPending || suggestingStyling) return;
@@ -533,13 +533,13 @@ export default function ProductsCard() {
       if (!stylingStillApplies(ask, editSession.current, formRef.current.id)) return;
       const check = checkStylingSuggestion(reply.text, stylingProduct(formRef.current));
       if (!check.ok) {
-        toast({ title: "Suggestion not shown", description: `The AI text was held back because ${check.reason}. Nothing was changed. You can try again.`, variant: "destructive" });
+        toast({ title: "Description not shown", description: `The AI text was held back because ${check.reason}. Nothing was changed. You can try again.`, variant: "destructive" });
         return;
       }
       setStyling({ ask, text: check.text, usedPhoto: reply.usedPhoto });
     } catch (e) {
       if (stylingStillApplies(ask, editSession.current, formRef.current.id)) {
-        toast({ title: "Could not get a suggestion", description: `${(e as Error).message} Nothing was changed.`, variant: "destructive" });
+        toast({ title: "Could not write a description", description: `${(e as Error).message} Nothing was changed.`, variant: "destructive" });
       }
     } finally {
       // Always clear: the button guard above means only one request runs at a time.
@@ -550,9 +550,9 @@ export default function ProductsCard() {
   function acceptStyling() {
     const s = styling;
     if (!s || !stylingStillApplies(s.ask, editSession.current, formRef.current.id)) { setStyling(null); return; }
-    setForm((f) => ({ ...f, description_en: appendStyling(f.description_en, s.text) }));
+    setForm((f) => ({ ...f, description_en: placeAboveExisting(f.description_en, s.text) }));
     setStyling(null);
-    toast({ title: "Added to the English description", description: "Press Save to keep it. The Japanese description was not changed — use Translate from English if you want it updated." });
+    toast({ title: "Added above the English description", description: "The existing text is unchanged underneath. Press Save to keep it. The Japanese description was not changed — use Translate from English if you want it updated." });
   }
 
   /**

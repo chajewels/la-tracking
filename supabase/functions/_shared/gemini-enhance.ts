@@ -21,6 +21,8 @@ export const LIMITS = {
   name: 200,
   description: 4000,
   short: 60,
+  /** Combined variant sizes / stones ("40cm, 45cm"). */
+  details: 200,
   images: 1,
   image_bytes: 1_048_576,
   max_output_tokens: 1024,
@@ -42,6 +44,14 @@ export interface ProductInput {
   weight_g?: number;
   length_cm?: number;
   description_en: string;
+  /** Edit product fields (owner 2026-10-31): metal stamps as staff picked them, the
+   *  brand (only for Branded pieces), condition, variant sizes and stones. Origin is
+   *  never sent: the website's origin badge is the only place an origin is stated. */
+  metal?: string;
+  brand?: string;
+  condition?: "New" | "Preloved";
+  size?: string;
+  stone?: string;
 }
 export interface ImageInput { mime_type: string; data_base64: string }
 export interface EnhanceRequest { product: ProductInput; images: ImageInput[]; connectivity_test: boolean }
@@ -123,7 +133,7 @@ export function parseRequest(raw: unknown): { ok: true; req: EnhanceRequest } | 
   }
   const p = body.product as Record<string, unknown> | undefined;
   if (!p || typeof p !== "object" || Array.isArray(p)) return { ok: false, message: "product is required." };
-  const badField = unknownKeys(p, ["name", "weight_g", "length_cm", "description_en"]);
+  const badField = unknownKeys(p, ["name", "weight_g", "length_cm", "description_en", "metal", "brand", "condition", "size", "stone"]);
   if (badField.length) return { ok: false, message: `Unexpected product field: ${badField[0]}.` };
   const name = str(p.name);
   const description_en = str(p.description_en);
@@ -136,14 +146,38 @@ export function parseRequest(raw: unknown): { ok: true; req: EnhanceRequest } | 
   for (const [k, v] of [["weight_g", weight_g], ["length_cm", length_cm]] as const) {
     if (v !== undefined && (!Number.isFinite(v) || v < 0 || v > 100000)) return { ok: false, message: `product.${k} is not a valid number.` };
   }
-  return { ok: true, req: { product: { name, weight_g, length_cm, description_en }, images, connectivity_test: false } };
+  const extras: Pick<ProductInput, "metal" | "brand" | "size" | "stone"> = {};
+  for (const [k, max] of [["metal", LIMITS.short], ["brand", LIMITS.short], ["size", LIMITS.details], ["stone", LIMITS.details]] as const) {
+    if (p[k] === undefined || p[k] === null) continue;
+    if (typeof p[k] !== "string") return { ok: false, message: `product.${k} must be text.` };
+    const v = str(p[k]);
+    if (v.length > max) return { ok: false, message: `product.${k} is too long (max ${max}).` };
+    if (v) extras[k] = v;
+  }
+  let condition: ProductInput["condition"];
+  if (p.condition !== undefined && p.condition !== null) {
+    if (p.condition !== "New" && p.condition !== "Preloved") return { ok: false, message: "product.condition must be New or Preloved." };
+    condition = p.condition;
+  }
+  return {
+    ok: true,
+    req: { product: { name, weight_g, length_cm, description_en, ...extras, ...(condition ? { condition } : {}) }, images, connectivity_test: false },
+  };
 }
 
-const INSTRUCTION =
-  "You write copy for a Tokyo jewelry retailer. Write ONE short paragraph (2-3 sentences, English) of " +
-  "complementary styling or gifting suggestions for the piece below. Do not restate or change the product " +
-  "name. Do not invent materials, stones, brands, origins, certifications, prices or measurements beyond " +
-  "what is given. Output only the paragraph — no heading, list or markdown.";
+/**
+ * Owner 2026-10-30/31: a warm description written ABOVE the existing text (the
+ * caller places it; the existing description is never changed), in the shape of
+ * the approved R8913 sample: the piece itself (about 60-90 words), a preloved
+ * line for preloved pieces, and a "Lovely for:" line of occasions and gifts.
+ */
+const INSTRUCTION = [
+  "You write product descriptions for Cha Jewels, a jewelry shop. Using ONLY the facts and the photo below, write in warm, elegant English, in exactly this shape, with one blank line between the parts:",
+  "1. One or two short paragraphs (about 60-90 words in total) describing the piece itself: its colour, sparkle, shape and how it looks when worn.",
+  "2. ONLY if the facts say Condition: Preloved, one short sentence such as: \"A preloved piece, carefully checked by our team before listing, ready to start its next chapter with you.\"",
+  "3. A last line that starts with \"Lovely for: \" followed by 3 to 5 occasions or gift ideas separated by \" · \" (for example: anniversaries · a birthday gift for her · a treat for yourself · evenings out).",
+  "Rules: do not repeat the product name or the existing description. Do not invent materials, stones, brands, measurements or numbers beyond the facts. Write metals exactly as given (for example K18, PT900, SV925) and never put a country or nationality before \"gold\". Never say where the piece was made and never mention Japan or Tokyo. Never mention authenticity, certificates, guarantees, price, sale, discount, points, layaway, installments or payment. No headings, bullets or markdown.",
+].join("\n");
 
 export function buildBody(req: EnhanceRequest): Record<string, unknown> {
   const p = req.product;
@@ -151,7 +185,12 @@ export function buildBody(req: EnhanceRequest): Record<string, unknown> {
     `Product: ${p.name}`,
     p.weight_g !== undefined ? `Weight: ${p.weight_g}g` : "",
     p.length_cm !== undefined ? `Length: ${p.length_cm}cm` : "",
-    p.description_en ? `Description: ${p.description_en}` : "",
+    p.metal ? `Metal: ${p.metal}` : "",
+    p.brand ? `Brand: ${p.brand}` : "",
+    p.condition ? `Condition: ${p.condition}` : "",
+    p.size ? `Size: ${p.size}` : "",
+    p.stone ? `Stone: ${p.stone}` : "",
+    p.description_en ? `Existing description (keep as it is, do not repeat): ${p.description_en}` : "",
   ].filter(Boolean).join("\n");
   const parts: Record<string, unknown>[] = [
     ...req.images.map((i) => ({ inline_data: { mime_type: i.mime_type, data: i.data_base64 } })),
