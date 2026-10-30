@@ -1181,6 +1181,35 @@ links by listing id. A Hub-only product simply deletes.
 (separate deploy-only step): `page365-inventory-fetch` only (the shared helper
 `_shared/page365-inventory.ts` is bundled into it).
 
+## PREFILL FROM NAME — a landed product's Edit product fields are read from its name (added 2026-10-30)
+
+Owner request 2026-10-30. Migration `20270222100000_page365_prefill_from_name.sql`; local tests
+`docs/sql/20270222_page365_prefill_local_tests.sql`; pins `src/test/page365-prefill-from-name.test.ts`.
+
+- Runs from an AFTER INSERT trigger on `page365_landings` (`page365_prefill_from_name(product_id)`).
+  `page365_inventory_land_run` is not edited; a prefill error is swallowed and never undoes a landing.
+- Only drafts that were never public; **only blank fields** — nothing staff typed is overwritten.
+  No stock, price, photo, status or setting changes. No evidence in the name → the field stays blank.
+- Product types: the type word (Ring/Necklace/Pendant/Bracelet-Bangle/Earrings-Pierce/Anklet);
+  watch → Luxury Watches; Bag… → Luxury Bags; Wallet/Key/Coin/Card/Pass case → Luxury Wallet;
+  Belt → Other Accessories; Pearl / SSP / Akoya in jewelry also adds Pearls.
+- Condition: Preloved / Pre-owned / Used / Second-hand wording → Preloved; otherwise New
+  (a Preloved from the Page365 category is never turned back to New).
+- Categories: jewelry Preloved+brand → Preloved Branded Jewelry, Preloved no brand → Preloved
+  Jewelry, New no brand → Fine Jewelry (New+brand left blank); watch Preloved → Preloved Branded
+  Watches; accessory Preloved → Preloved Designer Accessories.
+- Weight: first `<n>g` (not `K18g`, not a range `0.6-0.7g`).
+- Brand/Origin: brand = any brand already in the Catalog + Page365 spellings (Tiffany, Tiffany & Co,
+  Hermes, YSL, Bulgari, Van Cleef); "inspired"/"style" → no brand. Brand → Branded. No brand:
+  750/18K/AU750 → Other; K24 K18 K14 K10 PT1000 PT950 PT900 PM PM900 → Made in Japan; else Unknown.
+- Size: ring = number after `Sz#` (bare `#57` blank); earrings/pendants = cm else mm; necklaces,
+  bracelets, anklets, watches = cm.
+- Stone (jewelry): every stone in name order with its descriptor (Akoya Pearl, Blue Topaz, Star
+  Sapphire, White Coral); Dia/D..ct, R..ct, Sapp/S..ct, Eme/E..ct, SSP expanded; plain Quartz ignored.
+- One-time: N2916 and R3694 (the two never-completed drafts) got the same pass.
+- Whole migration is ASCII (Hermès built with `chr(232)`) — the Lovable DB connection rewrites
+  non-ASCII inside function bodies.
+
 ## Void sync — Page365 voided → Hub cancel, renewed → Hub restore (added 2026-10-21)
 
 Owner decisions 2026-10-21; plan in the project doc
