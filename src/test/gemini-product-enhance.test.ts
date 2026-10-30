@@ -80,6 +80,38 @@ describe("request validation", () => {
   });
 });
 
+describe("description writer (owner 2026-10-30/31)", () => {
+  it("accepts the Edit product fields, trimmed, and passes them to the prompt", () => {
+    const p = parseRequest({ product: { ...PRODUCT, metal: " PT900 ", brand: "Tiffany & Co.", condition: "Preloved", size: "40cm, 45cm", stone: "Diamond" } });
+    if (!p.ok) throw new Error(p.message);
+    expect(p.req.product).toMatchObject({ metal: "PT900", brand: "Tiffany & Co.", condition: "Preloved", size: "40cm, 45cm", stone: "Diamond" });
+    const text = String((buildBody(p.req) as { contents: { parts: Record<string, unknown>[] }[] }).contents[0].parts[0].text);
+    for (const line of ["Metal: PT900", "Brand: Tiffany & Co.", "Condition: Preloved", "Size: 40cm, 45cm", "Stone: Diamond"]) expect(text).toContain(line);
+  });
+  it("empty optional fields are left out of the prompt", () => {
+    const p = parseRequest({ product: { ...PRODUCT, metal: " ", brand: "" } });
+    if (!p.ok) throw new Error(p.message);
+    expect(p.req.product.metal).toBeUndefined();
+    expect(String((buildBody(p.req) as { contents: { parts: Record<string, unknown>[] }[] }).contents[0].parts[0].text)).not.toContain("Metal:");
+  });
+  it("rejects origin (never sent), a bad condition, non-text and over-long fields", () => {
+    expect(parseRequest({ product: { ...PRODUCT, origin: "JAPAN" } }).ok).toBe(false);
+    expect(parseRequest({ product: { ...PRODUCT, condition: "Used" } }).ok).toBe(false);
+    expect(parseRequest({ product: { ...PRODUCT, metal: 18 } }).ok).toBe(false);
+    expect(parseRequest({ product: { ...PRODUCT, brand: "b".repeat(LIMITS.short + 1) } }).ok).toBe(false);
+    expect(parseRequest({ product: { ...PRODUCT, size: "s".repeat(LIMITS.details + 1) } }).ok).toBe(false);
+  });
+  it("the instruction asks for the approved shape and forbids the risky claims", () => {
+    const text = String((buildBody(test()) as { contents: { parts: Record<string, unknown>[] }[] }).contents[0].parts[0].text);
+    expect(text).toMatch(/60-90 words/);
+    expect(text).toMatch(/Lovely for: /);
+    expect(text).toMatch(/ONLY if the facts say Condition: Preloved/);
+    expect(text).toMatch(/never mention Japan or Tokyo/);
+    expect(text).toMatch(/never put a country or nationality before \\"gold\\"|never put a country or nationality before "gold"/);
+    expect(text).toMatch(/layaway/);
+  });
+});
+
 describe("request sent to Google", () => {
   it("is the verified endpoint and model, with the key in a header and never in the URL", async () => {
     expect(GEMINI_ENDPOINT).toBe("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent");
@@ -203,7 +235,7 @@ describe("entrypoint pipeline (mocked auth and fetch)", () => {
     expect(prompt).toContain("Product: K18 Yellow Gold Necklace");
     expect(prompt).toContain("Weight: 2g");
     expect(prompt).toContain("Length: 40cm");
-    expect(prompt).toContain("Description: K18 gold necklace, 40cm, 2.0g.");
+    expect(prompt).toContain("Existing description (keep as it is, do not repeat): K18 gold necklace, 40cm, 2.0g.");
   });
   it.each([
     ["an image", { connectivity_test: true, images: [IMG] }],
