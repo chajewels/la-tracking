@@ -23,7 +23,7 @@ import {
   type PaySetting, type TemplateType, type TimesheetEntry, type TimesheetProfile,
 } from '@/lib/timesheetEngine';
 import {
-  computeMonth as computeCommissionMonth, type CommissionSplit, type SaleRow,
+  computeMonth as computeCommissionMonth, fetchCommissionSplits, periodRange, type CommissionSplit, type SaleRow,
 } from '@/lib/commissionEngine';
 import {
   BONUS_CATEGORIES, BONUS_DATE_MIN, COMPANY_NAME, NO_FEATURES, PAYSLIP_BOOK_KEY, PAYSLIP_PROOF_BUCKET, STATUS_LABEL,
@@ -101,12 +101,11 @@ function statusVariant(s: RowStatus): 'default' | 'secondary' | 'outline' | 'des
   return 'outline';
 }
 
-async function fetchMonthSales(monthKey: string): Promise<SaleRow[]> {
+async function fetchMonthSales(monthKey: string, splits: CommissionSplit[]): Promise<SaleRow[]> {
   // sales_log can exceed PostgREST's 1,000-row server cap (.limit(10000) does not override it):
-  // page with .range() as Commissions.tsx does, here only for the pay month.
-  const [y, m] = monthKey.split('-').map(Number);
-  const start = `${monthKey}-01`;
-  const next = m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, '0')}-01`;
+  // page with .range() as Commissions.tsx does, here only for the pay month's commission PERIOD
+  // (a calendar month until a cut-off is configured).
+  const { start, end } = periodRange(monthKey, splits);
   const pageSize = 1000;
   let from = 0;
   let all: unknown[] = [];
@@ -114,7 +113,7 @@ async function fetchMonthSales(monthKey: string): Promise<SaleRow[]> {
     const { data, error } = await supabase
       .from('sales_log')
       .select('id, sale_date, item_code, invoice_number, item_amount, client_name, closer, processor, coordinator, support, verifier, status, channel, source, opened_in_chat, closed_in_chat, eligible, notes')
-      .gte('sale_date', start).lt('sale_date', next)
+      .gte('sale_date', start).lte('sale_date', end)
       .order('sale_date', { ascending: false })
       .range(from, from + pageSize - 1);
     if (error) throw error;
@@ -169,14 +168,13 @@ export default function PayslipsTab({
   const commission = useQuery({
     queryKey: ['payslip-commission', monthKey],
     queryFn: async () => {
-      const [rows, agentsRes, splitsRes] = await Promise.all([
-        fetchMonthSales(monthKey),
+      const splitsRead = await fetchCommissionSplits(cols => supabase.from('commission_splits').select(cols).order('month', { ascending: true }));
+      const [rows, agentsRes] = await Promise.all([
+        fetchMonthSales(monthKey, splitsRead.splits),
         supabase.from('commission_agents').select('name, user_id'),
-        supabase.from('commission_splits').select('month, closer_pct, processor_pct, coordinator_pct, support_pct, verifier_pct, top_sales_pct, top_sales_2_pct, merge_groups, pool_per_item_php').order('month', { ascending: true }),
       ]);
       if (agentsRes.error) throw agentsRes.error;
-      if (splitsRes.error) throw splitsRes.error;
-      const comp = computeCommissionMonth(monthKey, rows, (splitsRes.data as CommissionSplit[]) ?? []);
+      const comp = computeCommissionMonth(monthKey, rows, splitsRead.splits);
       return { comp, agents: (agentsRes.data as AgentLink[]) ?? [] };
     },
     staleTime: 60_000,
