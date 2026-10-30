@@ -13274,6 +13274,30 @@ export type Database = {
           o_product_id: string
         }[]
       }
+      page365_prefill_blank_fields: {
+        Args: { p_lists: boolean; p_product_id: string }
+        Returns: Json
+      }
+      page365_prefill_brand: { Args: { p_name: string }; Returns: string }
+      page365_prefill_from_name: {
+        Args: { p_product_id: string }
+        Returns: Json
+      }
+      page365_prefill_length: { Args: { p_name: string }; Returns: string }
+      page365_prefill_mm: { Args: { p_name: string }; Returns: string }
+      page365_prefill_origin: {
+        Args: { p_metals: string[]; p_name: string }
+        Returns: string
+      }
+      page365_prefill_rest: { Args: { p_name: string }; Returns: string }
+      page365_prefill_ring_size: { Args: { p_name: string }; Returns: string }
+      page365_prefill_secondhand: { Args: { p_name: string }; Returns: boolean }
+      page365_prefill_stones: { Args: { p_name: string }; Returns: string }
+      page365_prefill_type_slug: {
+        Args: { p_kind: string; p_name: string }
+        Returns: string
+      }
+      page365_prefill_weight: { Args: { p_name: string }; Returns: number }
       page365_record_check_error: {
         Args: { p_error: string; p_page365_no: number }
         Returns: undefined
