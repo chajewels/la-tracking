@@ -39,6 +39,7 @@ import { isCreatedTodayPHT, NEW_TODAY_PARAM, NEW_TODAY_VALUE } from '@/lib/new-t
 import { usePermissions } from '@/contexts/PermissionsContext';
 import { toast } from '@/components/ui/use-toast';
 import { downloadCsv as writeCsvFile } from '@/lib/csv';
+import { messengerHref } from '@/lib/messenger-href';
 
 const statusStyles: Record<string, string> = {
   active: 'bg-success/10 text-success border-success/20',
@@ -475,8 +476,8 @@ const AccountList = memo(function AccountList({ embedded = false, searchValue, e
             >
               <Eye className="h-3.5 w-3.5" />
             </Button>
-            {account.customers?.messenger_link && (
-              <a href={account.customers.messenger_link} target="_blank" rel="noopener noreferrer">
+            {messengerHref(account.customers?.messenger_link) && (
+              <a href={messengerHref(account.customers.messenger_link) ?? undefined} target="_blank" rel="noopener noreferrer">
                 <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-info">
                   <MessageCircle className="h-3.5 w-3.5" />
                 </Button>
@@ -600,8 +601,8 @@ const AccountList = memo(function AccountList({ embedded = false, searchValue, e
           >
             <Eye className="h-3.5 w-3.5" />
           </Button>
-          {a.customers?.messenger_link && (
-            <a href={a.customers.messenger_link} target="_blank" rel="noopener noreferrer" aria-label="Open Messenger">
+          {messengerHref(a.customers?.messenger_link) && (
+            <a href={messengerHref(a.customers.messenger_link) ?? undefined} target="_blank" rel="noopener noreferrer" aria-label="Open Messenger">
               <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-info" tabIndex={-1}>
                 <MessageCircle className="h-3.5 w-3.5" />
               </Button>

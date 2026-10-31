@@ -3,6 +3,8 @@ import { resolvePortalAuth } from "../_shared/portal-auth.ts";
 import { emitNotification } from "../_shared/emit-notification.ts";
 import { resolveItemImages, type ImageableLine } from "../_shared/item-images.ts";
 import { PENDING_SUBMISSION_OR } from "../_shared/web-order-rules.ts";
+import { normalizeMessengerLink } from "../_shared/profile-messenger-link.ts";
+import { signProofUrls } from "../_shared/proof-signing.ts";
 
 /** A line row as this function selects it — enough for resolveItemImages. */
 // deno-lint-ignore no-explicit-any
@@ -105,11 +107,24 @@ Deno.serve(async (req) => {
           });
         }
 
+        // H-07 (security audit 2026-10-31): staff see this link as a
+        // clickable link, so only an http(s) web address is stored.
+        const messengerCheck = normalizeMessengerLink(profile.messenger_link);
+        if (!messengerCheck.ok) {
+          return new Response(JSON.stringify({
+            error: "Please enter your Messenger link as a web address, for example m.me/username.",
+            code: "messenger_link_invalid",
+          }), {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
         const updateData: Record<string, any> = {
           full_name: profile.full_name.trim(),
           location: profile.location || null,
           facebook_name: profile.facebook_name || null,
-          messenger_link: profile.messenger_link || null,
+          messenger_link: messengerCheck.value,
           mobile_number: profile.mobile_number || null,
           email: profile.email || null,
           notes: profile.notes || null,
@@ -843,6 +858,9 @@ Deno.serve(async (req) => {
       if (pen.schedule_id) penaltiesBySchedule[pen.schedule_id] = pen;
     }
     for (const sub of submissions) { (submissionsByAccount[sub.account_id] ||= []).push(sub); }
+    // H-01: a 1-hour signed view link per proof (works for PIN/token customers,
+    // who cannot sign in the browser). The stored proof_url stays as before.
+    const proofViewUrls = await signProofUrls(supabase, submissions.map((s: any) => s.proof_url));
 
     const accountCards = (accounts || []).map((acc: any) => {
       const acctSchedule = schedulesByAccount[acc.id] || [];
@@ -968,6 +986,7 @@ Deno.serve(async (req) => {
           sender_name: sub.sender_name,
           notes: sub.notes,
           proof_url: sub.proof_url,
+          proof_view_url: (sub.proof_url && proofViewUrls.get(sub.proof_url)) || null,
           status: sub.status,
           reviewer_notes: sub.reviewer_notes,
           created_at: sub.created_at,

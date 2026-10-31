@@ -5,6 +5,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { formatCurrency } from '@/lib/calculations';
 import { Currency } from '@/lib/types';
 import type { AttentionCashRow, AttentionScheduleRow } from '@/hooks/useDashboardExtras';
+import { messengerHref } from '@/lib/messenger-href';
 
 /**
  * "Needs Attention" — replaced the former OverdueAlerts component,
@@ -77,8 +78,8 @@ export default function NeedsAttentionPanel({ scheduleRows, cashRows, loading }:
                         <span className="text-sm font-semibold text-card-foreground tabular-nums">
                           {formatCurrency(Number(item.actual_remaining ?? 0), item.currency as Currency)}
                         </span>
-                        {customer?.messenger_link && (
-                          <a href={customer.messenger_link} target="_blank" rel="noopener noreferrer">
+                        {messengerHref(customer?.messenger_link) && (
+                          <a href={messengerHref(customer?.messenger_link) ?? undefined} target="_blank" rel="noopener noreferrer">
                             <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-primary" aria-label="Message customer">
                               <MessageCircle className="h-4 w-4" />
                             </Button>

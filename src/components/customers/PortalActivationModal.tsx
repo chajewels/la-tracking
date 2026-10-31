@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Copy, ExternalLink, MessageCircle, Send, Link2, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import { useMessagePools, useStablePicker, fillLine } from '@/lib/message-lines';
+import { openMessenger as openCustomerMessenger } from '@/lib/messenger-href';
 
 const PORTAL_BASE = 'https://portal.chajewelsjp.com';
 
@@ -75,7 +76,7 @@ export default function PortalActivationModal({ open, onOpenChange, customerName
 
   const openMessenger = () => {
     if (messengerLink) {
-      window.open(messengerLink, '_blank');
+      openCustomerMessenger(messengerLink);
     } else {
       window.open(`https://m.me/?text=${encodeURIComponent(message)}`, '_blank');
     }

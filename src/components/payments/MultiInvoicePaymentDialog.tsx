@@ -28,6 +28,7 @@ import {
   type ScheduleViewRow, type WaterfallResult,
 } from '@/lib/business-rules';
 import { getPHTToday } from '@/lib/date-utils';
+import { openMessenger } from '@/lib/messenger-href';
 
 interface ScheduleItem {
   id: string;
@@ -863,7 +864,7 @@ export default function MultiInvoicePaymentDialog({
                   variant="outline"
                   onClick={() => {
                     const messengerLink = accounts[0] && (accounts[0] as AccountInfo & { messengerLink?: string }).messengerLink;
-                    if (messengerLink) window.open(messengerLink, '_blank');
+                    if (messengerLink) openMessenger(messengerLink);
                     else toast.info('No Messenger link set for this customer');
                   }}
                   className="gap-1.5"

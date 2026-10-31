@@ -55,6 +55,7 @@ import { markFormDirty, markFormClean } from '@/lib/pwaUpdate';
 import { getPortalSessionId, savePortalSession, clearPortalSession, hasLegacyPinFlag, isPinRequiredError, isDeadLinkError } from '@/lib/portal-session';
 import { portalAuthBody } from '@/lib/portal-auth';
 import { safeHttpUrl } from '@/lib/safe-url';
+import { normalizeMessengerLink } from '@/lib/messenger-href';
 import { EXTENSION_WINDOW_CLOSED_MESSAGE, extensionWindowOpen } from '../../supabase/functions/_shared/extension-rules.ts';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
@@ -81,10 +82,21 @@ interface Submission {
   sender_name: string | null;
   notes: string | null;
   proof_url: string | null;
+  /** H-01: 1-hour signed view link from customer-portal (absent until that function is deployed). */
+  proof_view_url?: string | null;
   status: string;
   reviewer_notes: string | null;
   created_at: string;
   customer_edited_at: string | null;
+}
+
+/**
+ * H-01 (security audit 2026-10-31): the link a customer opens for her proof.
+ * The signed view link from customer-portal first; the stored public URL only
+ * as a fallback while the payment-proofs bucket is still public.
+ */
+function proofViewHref(sub: { proof_url: string | null; proof_view_url?: string | null }): string | null {
+  return safeHttpUrl(sub.proof_view_url ?? null) ?? safeHttpUrl(sub.proof_url);
 }
 
 interface PortalAccount {
@@ -1347,9 +1359,9 @@ export default function CustomerPortal() {
             <p style={{ fontFamily: 'Inter, sans-serif', fontSize: '13px', color: M.ts, lineHeight: 1.6, marginBottom: 16, whiteSpace: 'pre-wrap' }}>
               {announcement.content}
             </p>
-            {announcement.link_url && (
+            {safeHttpUrl(announcement.link_url) && (
               <a
-                href={announcement.link_url}
+                href={safeHttpUrl(announcement.link_url) ?? undefined}
                 target="_blank"
                 rel="noopener noreferrer"
                 style={{
@@ -2924,6 +2936,7 @@ function SubmissionsTab({ submissions, accountId, currency, portalToken, onRefre
   const [editProofFile, setEditProofFile] = useState<File | null>(null);
   const [editProofPreview, setEditProofPreview] = useState<string | null>(null);
   const [editProofCurrent, setEditProofCurrent] = useState<string | null>(null);
+  const [editProofView, setEditProofView] = useState<string | null>(null);
   const [editProofCurrentBroken, setEditProofCurrentBroken] = useState(false);
   const [editSubmitting, setEditSubmitting] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
@@ -2942,6 +2955,7 @@ function SubmissionsTab({ submissions, accountId, currency, portalToken, onRefre
     setEditProofFile(null);
     setEditProofPreview(null);
     setEditProofCurrent(sub.proof_url);
+    setEditProofView(proofViewHref(sub));
     setEditProofCurrentBroken(false);
     setEditError(null);
   };
@@ -3113,8 +3127,8 @@ function SubmissionsTab({ submissions, accountId, currency, portalToken, onRefre
                 )}
               </div>
 
-              {sub.proof_url && (
-                <a href={safeHttpUrl(sub.proof_url) ?? undefined} target="_blank" rel="noopener noreferrer"
+              {proofViewHref(sub) && (
+                <a href={proofViewHref(sub) ?? undefined} target="_blank" rel="noopener noreferrer"
                   className="flex items-center gap-1.5 hover:underline"
                   style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.gp}}>
                   <ImageIcon className="h-3 w-3" /> View proof of payment
@@ -3219,13 +3233,13 @@ function SubmissionsTab({ submissions, accountId, currency, portalToken, onRefre
                     <div style={{marginBottom:'8px'}}>
                       {!editProofCurrentBroken && !editProofCurrent.match(/\.pdf$/i) && (
                         <img
-                          src={editProofCurrent}
+                          src={editProofView ?? undefined}
                           alt="Current proof"
                           style={{width:'100%',maxHeight:'120px',objectFit:'cover',borderRadius:'2px',marginBottom:'6px',display:'block'}}
                           onError={() => setEditProofCurrentBroken(true)}
                         />
                       )}
-                      <a href={safeHttpUrl(editProofCurrent) ?? undefined} target="_blank" rel="noopener noreferrer"
+                      <a href={editProofView ?? undefined} target="_blank" rel="noopener noreferrer"
                         className="flex items-center gap-1.5 hover:underline"
                         style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.gp}}>
                         <ImageIcon className="h-3 w-3" /> {editProofCurrentBroken ? 'View current proof' : 'View full size'} — or upload new below
@@ -3333,6 +3347,8 @@ function ProfileEditor({ profile, portalToken, onSaved }: {
     if (!fullName.trim()) { setFormError(pt('profile.errFullNameRequired')); return; }
     if (locationType === 'international' && !country.trim()) { setFormError(pt('profile.errCountryRequired')); return; }
     if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) { setFormError(pt('profile.errInvalidEmail')); return; }
+    const messengerCheck = normalizeMessengerLink(messengerLink);
+    if (!messengerCheck.ok) { setFormError(pt('profile.errInvalidMessenger')); return; }
 
     setSaving(true);
     try {
@@ -3348,7 +3364,7 @@ function ProfileEditor({ profile, portalToken, onSaved }: {
             full_name: fullName.trim(),
             location,
             facebook_name: facebookName.trim() || null,
-            messenger_link: messengerLink.trim() || null,
+            messenger_link: messengerCheck.value,
             mobile_number: mobileNumber.trim() || null,
             email: email.trim() || null,
             notes: notes.trim() || null,

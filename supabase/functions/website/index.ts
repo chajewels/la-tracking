@@ -42,6 +42,7 @@ import { listReceipts, receiptPdf, updateReceiptDetails, verifyReceipt } from ".
 import { COMMENT_DAILY_LIMIT, cleanCommentBody, commentsOpen, isCommentLang, toPublicComment } from "../_shared/post-comments.ts";
 import { webLayawaySubmissionIsDeposit, type DepositPaymentRow, type PendingSubmissionRow } from "../_shared/layaway-deposit-rules.ts";
 import { INVALID_PROOF_URL, isOwnProofUrl } from "../_shared/proof-url.ts";
+import { normalizeMessengerLink } from "../_shared/profile-messenger-link.ts";
 import { customerCancellationReason } from "../_shared/customer-reasons.ts";
 import { codFeeJpy, codFeeTable, codModeFrom, codNotOfferedReason } from "../_shared/cod-fee.ts";
 import { sendOrderUpdateEmail } from "../_shared/order-update-email.ts";
@@ -2095,6 +2096,13 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       if (!givenName || !location) {
         return jsonResponse({ error: "profile_required" }, 422);
       }
+      // H-07 (security audit 2026-10-31): the Messenger link is rendered to
+      // staff as a clickable link, so only an http(s) web address is stored
+      // (_shared/profile-messenger-link.ts; the storefront form checks the same rule).
+      const messengerCheck = normalizeMessengerLink(messengerLink);
+      if (!messengerCheck.ok) {
+        return jsonResponse({ error: "messenger_link_invalid" }, 422);
+      }
 
       // Duplicate-customer prevention (owner rules 2026-09-23). This branch
       // would CREATE a customer (no email match above), so a match on full
@@ -2153,7 +2161,7 @@ async function handle(req: Request, requestId: string): Promise<Response> {
       const { data: created, error: insErr } = await supabase
         .from("customers").insert({
           full_name: givenName, email: who.email, auth_user_id: who.id,
-          facebook_name: facebookName, messenger_link: messengerLink,
+          facebook_name: facebookName, messenger_link: messengerCheck.value,
           mobile_number: mobileNumber, location,
         })
         .select(CUSTOMER_FIELDS).maybeSingle();

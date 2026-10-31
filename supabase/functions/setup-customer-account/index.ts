@@ -40,6 +40,7 @@ import { createLoyaltyEmailGate } from "../_shared/loyalty-email-gate.ts";
 import { buildPortalLinkForCustomerId } from "../_shared/portal-link.ts";
 import { sendTemplateEmail } from "../_shared/transactional-email-templates/send-email.ts";
 import { maskEmail } from "../_shared/redact.ts";
+import { normalizeMessengerLink } from "../_shared/profile-messenger-link.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -124,7 +125,13 @@ Deno.serve(async (req) => {
       const fullName = metaStr(metadata.full_name);
       const mobileNumber = metaStr(metadata.mobile_number);
       const facebookName = metaStr(metadata.facebook_name);
-      const messengerLink = metaStr(metadata.messenger_link);
+      // H-07 (security audit 2026-10-31): only an http(s) Messenger link is
+      // stored (staff see it as a clickable link). The sign-up form checks the
+      // same rule first; anything else reaching here was not typed in that
+      // form, so it is left out rather than blocking the account.
+      const messengerCheck = normalizeMessengerLink(metaStr(metadata.messenger_link));
+      const messengerLink = messengerCheck.ok ? messengerCheck.value : null;
+      if (!messengerCheck.ok) console.warn("[setup-customer-account] messenger_link refused (not an http(s) link); stored as empty");
       const locationVal = metaStr(metadata.location);
       const country = metaStr(metadata.country);
 

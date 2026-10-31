@@ -40,6 +40,7 @@ import {
 import { useMessagePools } from '@/lib/message-lines';
 import ReminderCard, { type AlertItem, generateReminderMessage } from '@/components/monitoring/ReminderCard';
 import { fetchPortalAuthByCustomer } from '@/lib/portal-link-customers';
+import { messengerHref, openMessenger } from '@/lib/messenger-href';
 
 type FilterTab = 'all' | 'overdue' | 'grace_period' | 'due_today' | 'due_3_days' | 'due_7_days';
 type NotifFilter = 'all' | 'not_notified' | 'notified';
@@ -262,7 +263,7 @@ export default function Monitoring() {
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <span className="text-xs font-semibold text-card-foreground tabular-nums">{formatCurrency(rem, cur)}</span>
-                {customer?.messenger_link && <a href={customer.messenger_link} target="_blank" rel="noopener noreferrer"><Button size="sm" variant="outline" className="border-info/30 text-info hover:bg-info/10 text-xs h-7 px-2"><MessageCircle className="h-3 w-3" /></Button></a>}
+                {messengerHref(customer?.messenger_link) && <a href={messengerHref(customer.messenger_link) ?? undefined} target="_blank" rel="noopener noreferrer"><Button size="sm" variant="outline" className="border-info/30 text-info hover:bg-info/10 text-xs h-7 px-2"><MessageCircle className="h-3 w-3" /></Button></a>}
               </div>
             </div>
           );
@@ -537,7 +538,7 @@ export default function Monitoring() {
       setCopied(true);
       toast.success('Message copied! Opening Messenger...');
       if (messengerDialog.alert.messengerLink) {
-        window.open(messengerDialog.alert.messengerLink, '_blank');
+        openMessenger(messengerDialog.alert.messengerLink);
       }
     } catch {
       toast.error('Failed to copy message');

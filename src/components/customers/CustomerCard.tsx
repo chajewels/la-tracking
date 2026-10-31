@@ -7,6 +7,7 @@ import LoyaltyTierBadge from '@/components/loyalty/LoyaltyTierBadge';
 import Monogram from '@/components/shared/Monogram';
 import { CustomerOrderPills, CustomerPortalPill, portalPasswordAtOf } from '@/components/customers/CustomerDirectoryTable';
 import type { DbCustomer } from '@/hooks/use-supabase-data';
+import { messengerHref } from '@/lib/messenger-href';
 
 interface CustomerCardProps {
   customer: DbCustomer;
@@ -64,8 +65,8 @@ const CustomerCard = memo(function CustomerCard({ customer: c, activeCount, comp
           <CustomerPortalPill authUserId={c.auth_user_id} portalPasswordAt={portalPasswordAtOf(c)} />
         </span>
         <div className="flex items-center gap-1">
-          {c.messenger_link && (
-            <a href={c.messenger_link} target="_blank" rel="noopener noreferrer" aria-label={`Messenger — ${c.full_name}`}>
+          {messengerHref(c.messenger_link) && (
+            <a href={messengerHref(c.messenger_link) ?? undefined} target="_blank" rel="noopener noreferrer" aria-label={`Messenger — ${c.full_name}`}>
               <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-info" tabIndex={-1}>
                 <MessageCircle className="h-3.5 w-3.5" />
               </Button>

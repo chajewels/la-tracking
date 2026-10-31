@@ -40,6 +40,7 @@ import { getPortalLinkForCustomer, isTokenLink } from '@/lib/portal-link';
 import { fetchPortalAuthByCustomer } from '@/lib/portal-link-customers';
 import type { Currency } from '@/lib/types';
 import { getPHTToday } from '@/lib/date-utils';
+import { openMessenger } from '@/lib/messenger-href';
 
 // ── Penalty Stage Definitions ──
 export type PenaltyStage = 'P1' | 'P2' | 'P3' | 'P4' | 'P5' | 'P6' | 'P7' | 'P8';
@@ -469,7 +470,7 @@ export default function PenaltyFollowUpSection({ totalOverdue, gracePeriodCount 
       setCopied(true);
       toast.success('Message copied! Opening Messenger...');
       if (messengerDialog.alert.messengerLink) {
-        window.open(messengerDialog.alert.messengerLink, '_blank');
+        openMessenger(messengerDialog.alert.messengerLink);
       }
     } catch { toast.error('Failed to copy'); }
   };

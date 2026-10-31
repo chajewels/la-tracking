@@ -80,6 +80,7 @@ import type { Tables } from '@/integrations/supabase/types';
 import { customerSettleByDate, EXTENSION_WINDOW_CLOSED_MESSAGE } from '../../supabase/functions/_shared/extension-rules.ts';
 import { FinalForfeitSettlement } from '@/components/accounts/FinalForfeitSettlement';
 import CancelLayawayDialog from '@/components/accounts/CancelLayawayDialog';
+import { messengerHref } from '@/lib/messenger-href';
 
 const TEST_INVOICES = new Set(['TEST-001', 'TEST-002', 'TEST-003']);
 const LOCKED_TEST_INVOICE = 'TEST-001';
@@ -1409,8 +1410,8 @@ export default function AccountDetail() {
                 />
               </>
             )}
-            {account.customers?.messenger_link && (
-              <a href={account.customers.messenger_link} target="_blank" rel="noopener noreferrer">
+            {messengerHref(account.customers?.messenger_link) && (
+              <a href={messengerHref(account.customers.messenger_link) ?? undefined} target="_blank" rel="noopener noreferrer">
                 <Button variant="outline" className="border-info/30 text-info hover:bg-info/10">
                   <MessageCircle className="h-4 w-4 mr-2" /> Messenger
                 </Button>
@@ -2665,8 +2666,8 @@ export default function AccountDetail() {
                 />
               </>
             )}
-            {account.customers?.messenger_link && (
-              <a href={account.customers.messenger_link} target="_blank" rel="noopener noreferrer">
+            {messengerHref(account.customers?.messenger_link) && (
+              <a href={messengerHref(account.customers.messenger_link) ?? undefined} target="_blank" rel="noopener noreferrer">
                 <Button variant="outline" size="sm" className="border-info/30 text-info hover:bg-info/10">
                   <MessageCircle className="h-3.5 w-3.5 mr-1" /> Messenger
                 </Button>

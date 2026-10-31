@@ -50,6 +50,7 @@ import {
   isEffectivelyPaid, isPartiallyPaid, remainingDue, getUnpaidScheduleItems, getMessageSchedulePaymentCoverage,
   ordinal, SERVICE_LABELS, accountProgress, getNextPaymentStatementDate, canAcceptPayment,
 } from '@/lib/business-rules';
+import { messengerHref } from '@/lib/messenger-href';
 
 /** A payments row as read by useCustomerAccounts (select('*')). */
 type CustomerPaymentRow = Tables<'payments'>;
@@ -609,8 +610,8 @@ export default function CustomerDetail() {
                 })),
               }))}
             />
-            {customer.messenger_link && (
-              <a href={customer.messenger_link} target="_blank" rel="noopener noreferrer">
+            {messengerHref(customer.messenger_link) && (
+              <a href={messengerHref(customer.messenger_link) ?? undefined} target="_blank" rel="noopener noreferrer">
                 <Button variant="outline" className="border-info/30 text-info hover:bg-info/10">
                   <MessageCircle className="h-4 w-4 mr-2" /> Messenger
                 </Button>
@@ -677,7 +678,7 @@ export default function CustomerDetail() {
               { icon: Phone, label: 'Mobile', value: customer.mobile_number },
               { icon: Mail, label: 'Email', value: customer.email },
               { icon: Facebook, label: 'Facebook name', value: customer.facebook_name ? `@${customer.facebook_name}` : null },
-              { icon: MessageCircle, label: 'Messenger', value: customer.messenger_link, href: customer.messenger_link },
+              { icon: MessageCircle, label: 'Messenger', value: customer.messenger_link, href: messengerHref(customer.messenger_link) },
               { icon: MapPin, label: 'Location', value: customer.location },
               // P05 (2026-10-08): the buyer's two name fields Paidy receives.
               { icon: UserRound, label: 'Paidy name', value: [(customer as { family_name?: string | null }).family_name, (customer as { given_name?: string | null }).given_name].filter(Boolean).join(' ') || null },
@@ -1088,8 +1089,8 @@ export default function CustomerDetail() {
               {copied ? <Check className="h-3.5 w-3.5 mr-1" /> : <Copy className="h-3.5 w-3.5 mr-1" />}
               {copied ? 'Copied!' : 'Copy Message'}
             </Button>
-            {customer.messenger_link && (
-              <a href={customer.messenger_link} target="_blank" rel="noopener noreferrer">
+            {messengerHref(customer.messenger_link) && (
+              <a href={messengerHref(customer.messenger_link) ?? undefined} target="_blank" rel="noopener noreferrer">
                 <Button variant="outline" size="sm" className="border-info/30 text-info hover:bg-info/10">
                   <MessageCircle className="h-3.5 w-3.5 mr-1" /> Messenger
                 </Button>
