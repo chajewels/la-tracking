@@ -398,6 +398,30 @@ export async function copyFollowedPhotos(supabase: Supabase, deadline: number) {
  * name_ja, clear ja_pending. A failure leaves it pending; the storefront shows
  * the English name meanwhile.
  */
+/**
+ * 2026-10-31: supabase.functions.invoke() from this service client was refused
+ * 401 by translate-product-description on live (R3694, 00:42 UTC), so pending
+ * names were never translated. Call it the way the Hub's working
+ * function-to-function calls do (media-cutout-worker, add-installment ->
+ * reconcile-account): a plain fetch with Bearer SUPABASE_SERVICE_ROLE_KEY,
+ * which translate-product-description accepts via requireAuth(allowServiceRole)
+ * -> isServiceRole (Bug #168). One request, 20 s, no retry.
+ */
+export async function translateNameAsService(name: string, fetchImpl: typeof fetch = fetch): Promise<string> {
+  const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  const res = await fetchImpl(`${Deno.env.get("SUPABASE_URL")}/functions/v1/translate-product-description`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${key}`, apikey: key, "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+    signal: AbortSignal.timeout(20_000),
+  });
+  const body = await res.json().catch(() => null) as { name_ja?: unknown; error?: unknown } | null;
+  if (!res.ok) throw new Error(`translate-product-description HTTP ${res.status}${body?.error ? `: ${String(body.error)}` : ""}`);
+  const ja = String(body?.name_ja ?? "").trim();
+  if (!ja) throw new Error("empty translation");
+  return ja;
+}
+
 export async function translatePendingNames(supabase: Supabase) {
   const out = { translated: 0, failed: 0 };
   // Reads and writes go through service-role RPCs: this function touches only
@@ -411,9 +435,7 @@ export async function translatePendingNames(supabase: Supabase) {
     const name = String(row.o_name ?? "").trim();
     if (!name) continue;
     try {
-      const { data: tr, error: trErr } = await supabase.functions.invoke("translate-product-description", { body: { name } });
-      const ja = String((tr as { name_ja?: unknown } | null)?.name_ja ?? "").trim();
-      if (trErr || !ja) throw new Error(trErr?.message ?? "empty translation");
+      const ja = await translateNameAsService(name);
       // Written only if the English name has not moved again since (SQL checks).
       const { error: setErr } = await supabase.rpc("page365_set_name_ja", {
         p_product_id: row.o_product_id, p_expected_name: name, p_name_ja: ja,

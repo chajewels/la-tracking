@@ -29,6 +29,29 @@ describe("translate-product-description accepts the scheduled service-role calle
   });
 });
 
+describe("page365-inventory-fetch calls the translator as the service role (live 401, 2026-10-31)", () => {
+  const fetchFn = () => code(src("supabase/functions/page365-inventory-fetch/index.ts"));
+  it("no longer uses supabase.functions.invoke for the translation (refused 401 on live)", () => {
+    expect(fetchFn()).not.toMatch(/functions\.invoke\(\s*"translate-product-description"/);
+  });
+  it("posts to translate-product-description with Bearer SUPABASE_SERVICE_ROLE_KEY, like the working internal calls", () => {
+    const helper = fetchFn().slice(fetchFn().indexOf("export async function translateNameAsService"), fetchFn().indexOf("export async function translatePendingNames"));
+    expect(helper).toContain('Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")');
+    expect(helper).toContain("/functions/v1/translate-product-description");
+    expect(helper).toContain("Authorization: `Bearer ${key}`");
+    expect(helper).toContain('method: "POST"');
+    expect(helper).toContain("JSON.stringify({ name })");
+    expect(helper).toMatch(/if \(!res\.ok\) throw/);
+    expect(helper).toMatch(/if \(!ja\) throw new Error\("empty translation"\)/);
+  });
+  it("the pending loop uses the helper and still writes only through page365_set_name_ja", () => {
+    const loop = fetchFn().slice(fetchFn().indexOf("export async function translatePendingNames"), fetchFn().indexOf("async function followBacklogs"));
+    expect(loop).toContain("await translateNameAsService(name)");
+    expect(loop).toContain('supabase.rpc("page365_set_name_ja"');
+    expect(loop).not.toMatch(/\.from\("website_products"\)/);
+  });
+});
+
 describe("migration 20270226100000: an existing Japanese name is never replaced", () => {
   it("is pinned to the live bodies it was written against", () => {
     expect(MIG).toContain("'a23ec50466ad2c9e3a74585904afd2c8'");

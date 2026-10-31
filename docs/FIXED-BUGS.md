@@ -6,6 +6,9 @@
     page365_set_name_ja would have replaced it. Fixed: allowServiceRole in translate-product-description; migration
     20270226100000 lists and fills only MISSING Japanese names (an existing one is never replaced) and clears stale
     ja_pending. Local proof docs/sql/20270226_page365_ja_names_local_test.sql; pins src/test/page365-ja-names.test.ts.
+    Follow-up (2026-10-31 live, after both were applied/deployed): the caller still got 401 — page365-inventory-fetch
+    used supabase.functions.invoke() from its service client. Now translateNameAsService(): plain fetch with Bearer
+    SUPABASE_SERVICE_ROLE_KEY, the pattern of the Hub's working internal calls (media-cutout-worker, add-installment).
   - DP must never be counted twice in totalPaid
   - Waived penalties must be excluded from totalLAAmount
   - Partial months must be included in totalPaid
