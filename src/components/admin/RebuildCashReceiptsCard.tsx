@@ -12,7 +12,8 @@ import {
 } from '@/components/ui/table';
 import { supabase } from '@/integrations/supabase/client';
 
-// ── Rebuild Cash Receipts (Bug #251 one-off repair sweep) ──────────────────
+// ── Rebuild Cash Receipts (Bug #251 one-off repair sweep; H-01 signed images) ──
+const MAX_BATCHES = 100;
 interface RebuildResult {
   invoice_number: string;
   kind: string;
@@ -20,6 +21,7 @@ interface RebuildResult {
   would_write?: number;
   written?: number;
   overflow?: number;
+  unsigned?: number;
   cells_updated?: number;
   skipped?: string;
   error?: string;
@@ -43,8 +45,13 @@ export default function RebuildCashReceiptsCard() {
     let cursor: string | null = null;
     let iterations = 0;
     try {
-      // Hard cap of 20 iterations so a bug can never infinite-loop.
-      while (iterations < 20) {
+      // Safety cap so a bug can never infinite-loop. It must cover EVERY sheet:
+      // the old cap of 20 × 20 = 400 stopped short of the 473 sheets live on
+      // 2026-11-01, and a re-run restarts from the first sheet, so the last
+      // ones were never reached (H-01: their images would break once the
+      // bucket is private). 100 × 20 = 2,000 sheets; it also stops when the
+      // server reports no next page.
+      while (iterations < MAX_BATCHES) {
         iterations++;
         const { data, error } = await supabase.functions.invoke('rebuild-cash-receipts', {
           body: { dry_run: dryRun, batch_size: 20, cursor },
@@ -58,14 +65,16 @@ export default function RebuildCashReceiptsCard() {
         if (cursor === null) break;
       }
       if (cursor !== null) {
-        toast.warning('Stopped at the 20-batch safety cap — run again to continue.');
+        toast.warning(`Stopped at the ${MAX_BATCHES}-batch safety cap before the last sheet — tell the developer; do not switch proofs to private.`);
       } else {
         const overflowCount = acc.filter(r => (r.overflow ?? 0) > 0).length;
         const errCount = acc.filter(r => r.error).length;
+        const unsignedCount = acc.reduce((n, r) => n + (r.unsigned ?? 0), 0);
         toast.success(
           `${dryRun ? 'Dry run' : 'Repair'} complete: ${acc.length} processed` +
           (overflowCount > 0 ? ` · ${overflowCount} over capacity` : '') +
-          (errCount > 0 ? ` · ${errCount} errors` : ''),
+          (errCount > 0 ? ` · ${errCount} errors` : '') +
+          ` · ${unsignedCount} unsigned image${unsignedCount === 1 ? '' : 's'}`,
         );
       }
     } catch (err: unknown) {
@@ -85,7 +94,7 @@ export default function RebuildCashReceiptsCard() {
           <div>
             <h3 className="text-xs font-semibold uppercase tracking-wider text-card-foreground">Rebuild Cash Receipts</h3>
             <p className="text-[11px] text-muted-foreground mt-0.5 max-w-md">
-              Rewrite every invoice sheet's Cash Receipt tab from database records (Bug #251 repair). Idempotent — safe to re-run.
+              Rewrite every invoice sheet's Cash Receipt tab from database records, with each payment slip embedded through a 10-year signed link (Bug #251 repair; H-01). Idempotent — safe to re-run. Unsigned must be 0 before payment proofs are made private.
             </p>
           </div>
         </div>
@@ -129,16 +138,18 @@ export default function RebuildCashReceiptsCard() {
                 <TableHead className="text-[10px] text-right">Capacity</TableHead>
                 <TableHead className="text-[10px] text-right">{mode === 'dry_run' ? 'Would write' : 'Written'}</TableHead>
                 <TableHead className="text-[10px] text-right">Overflow</TableHead>
+                <TableHead className="text-[10px] text-right">Unsigned</TableHead>
                 <TableHead className="text-[10px]">Status</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {results.map((r, i) => {
                 const overflow = r.overflow ?? 0;
+                const unsigned = r.unsigned ?? 0;
                 return (
                   <TableRow
                     key={`${r.kind}:${r.invoice_number}:${i}`}
-                    className={overflow > 0 ? 'bg-amber-500/5' : r.error ? 'bg-destructive/5' : ''}
+                    className={r.error || unsigned > 0 ? 'bg-destructive/5' : overflow > 0 ? 'bg-amber-500/5' : ''}
                   >
                     <TableCell className="text-[11px] tabular-nums">{r.invoice_number}</TableCell>
                     <TableCell className="text-[11px]">{r.kind}</TableCell>
@@ -147,11 +158,16 @@ export default function RebuildCashReceiptsCard() {
                     <TableCell className={`text-[11px] text-right tabular-nums ${overflow > 0 ? 'text-amber-500 font-medium' : ''}`}>
                       {r.skipped || r.error ? '—' : overflow}
                     </TableCell>
+                    <TableCell className={`text-[11px] text-right tabular-nums ${unsigned > 0 ? 'text-destructive font-medium' : ''}`}>
+                      {r.skipped || r.error ? '—' : unsigned}
+                    </TableCell>
                     <TableCell className="text-[11px]">
                       {r.error
                         ? <span className="text-destructive">{r.error}</span>
                         : r.skipped
                           ? <span className="text-muted-foreground">{r.skipped}</span>
+                          : unsigned > 0
+                            ? <span className="text-destructive">image link not signed — re-run</span>
                           : overflow > 0
                             ? <span className="text-amber-500">over capacity — regenerate</span>
                             : <span className="text-success">ok</span>}

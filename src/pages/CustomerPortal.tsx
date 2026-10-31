@@ -95,8 +95,11 @@ interface Submission {
  * The signed view link from customer-portal first; the stored public URL only
  * as a fallback while the payment-proofs bucket is still public.
  */
+// H-01 step 3: ONLY the signed link customer-portal returns. The stored
+// proof_url is an identifier, not a viewable link (the bucket becomes
+// private); a proof the server did not sign shows no link.
 function proofViewHref(sub: { proof_url: string | null; proof_view_url?: string | null }): string | null {
-  return safeHttpUrl(sub.proof_view_url ?? null) ?? safeHttpUrl(sub.proof_url);
+  return safeHttpUrl(sub.proof_view_url ?? null);
 }
 
 interface PortalAccount {
@@ -3229,7 +3232,12 @@ function SubmissionsTab({ submissions, accountId, currency, portalToken, onRefre
                 {/* Proof Upload */}
                 <div>
                   <label style={{fontFamily:"Inter,sans-serif",fontSize:'10px',color:P.ts,display:'block',marginBottom:'4px'}}>Proof of Payment</label>
-                  {editProofCurrent && !editProofFile && (
+                  {editProofCurrent && !editProofView && !editProofFile && (
+                    <p style={{fontFamily:"Inter,sans-serif",fontSize:'11px',color:P.ts,marginBottom:'8px'}}>
+                      Your current proof is on file — upload a new one below to replace it.
+                    </p>
+                  )}
+                  {editProofCurrent && editProofView && !editProofFile && (
                     <div style={{marginBottom:'8px'}}>
                       {!editProofCurrentBroken && !editProofCurrent.match(/\.pdf$/i) && (
                         <img

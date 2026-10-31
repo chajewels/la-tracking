@@ -10,6 +10,7 @@ import {
   deriveSlotMap,
   type CashReceiptSlot,
 } from "../_shared/cash-receipt.ts";
+import { signReceiptProofs } from "../_shared/proof-signing.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -133,6 +134,9 @@ Deno.serve(async (req) => {
     let skipped = 0;
     let errors = 0;
     let totalOverflow = 0;
+    // H-01: receipt images whose link could not be signed (stored link kept).
+    // Must be 0 across the whole sweep before payment-proofs is made private.
+    let totalUnsigned = 0;
     let lastCursor: string | null = cursor;
 
     for (const item of batch) {
@@ -169,23 +173,30 @@ Deno.serve(async (req) => {
           const capacity = Object.keys(map).length;
           const overflow = Math.max(0, slots.length - capacity);
           totalOverflow += overflow;
+          // Sign the would-be-written images too (no sheet write) so a dry run
+          // already shows any image that could not be signed.
+          const signCheck = await signReceiptProofs(supabase, slots.slice(0, capacity));
+          totalUnsigned += signCheck.unsigned;
           results.push({
             invoice_number: item.invoice_number,
             kind: item.kind,
             capacity,
             would_write: slots.length,
             overflow,
+            unsigned: signCheck.unsigned,
           });
           ok++;
         } else {
-          const rr = await appendManyReceipts(item.cash_receipt_sheet_id, slots);
+          const rr = await appendManyReceipts(item.cash_receipt_sheet_id, slots, supabase);
           totalOverflow += rr.overflow;
+          totalUnsigned += rr.unsigned;
           results.push({
             invoice_number: item.invoice_number,
             kind: item.kind,
             capacity: rr.capacity,
             written: rr.written,
             overflow: rr.overflow,
+            unsigned: rr.unsigned,
             cells_updated: rr.cells_updated,
           });
           ok++;
@@ -212,7 +223,7 @@ Deno.serve(async (req) => {
       total,
       remaining,
       results,
-      summary: { ok, skipped, errors, total_overflow: totalOverflow },
+      summary: { ok, skipped, errors, total_overflow: totalOverflow, total_unsigned: totalUnsigned },
     });
   } catch (error) {
     return json({ error: (error as Error).message }, 500);

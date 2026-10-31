@@ -48,7 +48,7 @@ export function proofObjectPath(url: unknown): string | null {
 }
 
 // deno-lint-ignore no-explicit-any
-type StorageClient = { storage: { from: (bucket: string) => any } };
+export type StorageClient = { storage: { from: (bucket: string) => any } };
 
 /**
  * Signed view links for a batch of stored proof links, keyed by the stored
@@ -96,4 +96,44 @@ export async function signProofUrls(
     console.warn("[proof-signing] createSignedUrls threw:", (e as Error)?.message ?? String(e));
   }
   return out;
+}
+
+// ── Cash Receipt images (H-01 step 3, owner decision D-02 = (a), 2026-11-01) ──
+//
+// The invoice sheets' Cash Receipt tab shows each proof with
+// =IMAGE("<link>", 1). Google fetches that link WITHOUT signing in, so once the
+// bucket is private a stored /object/public/… link shows a broken image. The
+// receipt writers therefore embed a SIGNED link instead, valid for 10 years so
+// receipts kept as records keep their images. Limits (docs/SECURITY-HARDENING.md
+// H-01): such a link cannot be withdrawn file by file — only by rotating the
+// project's storage keys, after which "Rebuild cash receipts" must be run again
+// — so the invoice sheets must stay shared with the team only.
+
+/** 10 years, in seconds (365-day years; a few days short of 10 calendar years). */
+export const RECEIPT_IMAGE_TTL_SECONDS = 10 * 365 * 24 * 60 * 60;
+
+/**
+ * Replace each slot's stored proof link with a 10-year signed link. A slot
+ * whose link cannot be signed KEEPS its stored link (it still opens while the
+ * bucket is public) and is counted in `unsigned`; callers report the count, and
+ * the bucket must not be switched to private while any receipt is unsigned.
+ * Never throws: signProofUrls already swallows storage errors.
+ */
+export async function signReceiptProofs<T extends { proof_url: string }>(
+  supabase: StorageClient,
+  slots: T[],
+): Promise<{ slots: T[]; unsigned: number }> {
+  if (slots.length === 0) return { slots, unsigned: 0 };
+  const signed = await signProofUrls(supabase, slots.map((s) => s.proof_url), RECEIPT_IMAGE_TTL_SECONDS);
+  let unsigned = 0;
+  const out = slots.map((s) => {
+    const url = signed.get(s.proof_url);
+    if (url) return { ...s, proof_url: url };
+    unsigned++;
+    return s;
+  });
+  if (unsigned > 0) {
+    console.error(`[proof-signing] ${unsigned} of ${slots.length} receipt image(s) could not be signed; their stored link was kept`);
+  }
+  return { slots: out, unsigned };
 }
