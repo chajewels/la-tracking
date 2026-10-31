@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, Volume2, VolumeX, X } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { parseImageUrls, fetchPhpJpyRate, formatPromoPrice, DEFAULT_PHP_JPY_RATE } from '@/lib/promo-media';
+import { safeHttpUrl } from '@/lib/safe-url';
 
 interface Promo {
   id: string;
@@ -403,9 +404,9 @@ export default function PromoBanner({ customerId = '', invoiceNumber = '' }: Pro
                         {s.description}
                       </p>
                     )}
-                    {s.link_url && (
+                    {safeHttpUrl(s.link_url) && (
                       <a
-                        href={s.link_url}
+                        href={safeHttpUrl(s.link_url) ?? undefined}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="mt-3 inline-flex items-center px-4 py-2 text-xs font-semibold uppercase tracking-wider rounded bg-white text-black hover:bg-white/90 transition"

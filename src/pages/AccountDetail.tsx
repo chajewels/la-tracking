@@ -63,7 +63,7 @@ import { getPHTToday, formatPHTDisplay } from '@/lib/date-utils';
 import { getPortalLinkForCustomer, isTokenLink } from '@/lib/portal-link';
 import Page365StockPanel from '@/components/page365/Page365StockPanel';
 import Page365SyncPanel from '@/components/page365/Page365SyncPanel';
-import { getProofSignedUrl } from '@/lib/proof-url';
+import { openProof } from '@/lib/proof-url';
 import { useMessagePools, useStablePicker, fillLine } from '@/lib/message-lines';
 import {
   isEffectivelyPaid, isPartiallyPaid, remainingDue, remainingPrincipalDue, computeRemainingBalance,
@@ -80,6 +80,7 @@ import type { Tables } from '@/integrations/supabase/types';
 import { customerSettleByDate, EXTENSION_WINDOW_CLOSED_MESSAGE } from '../../supabase/functions/_shared/extension-rules.ts';
 import { FinalForfeitSettlement } from '@/components/accounts/FinalForfeitSettlement';
 import CancelLayawayDialog from '@/components/accounts/CancelLayawayDialog';
+import { messengerHref } from '@/lib/messenger-href';
 
 const TEST_INVOICES = new Set(['TEST-001', 'TEST-002', 'TEST-003']);
 const LOCKED_TEST_INVOICE = 'TEST-001';
@@ -1409,12 +1410,12 @@ export default function AccountDetail() {
                 />
               </>
             )}
-            {account.customers?.messenger_link && (
-              <a href={account.customers.messenger_link} target="_blank" rel="noopener noreferrer">
-                <Button variant="outline" className="border-info/30 text-info hover:bg-info/10">
+            {messengerHref(account.customers?.messenger_link) && (
+              <Button asChild variant="outline" className="border-info/30 text-info hover:bg-info/10">
+                <a href={messengerHref(account.customers.messenger_link) ?? undefined} target="_blank" rel="noopener noreferrer">
                   <MessageCircle className="h-4 w-4 mr-2" /> Messenger
-                </Button>
-              </a>
+                </a>
+              </Button>
             )}
             <InvoiceGeneratorSheet
               accountId={account.id}
@@ -2438,7 +2439,7 @@ export default function AccountDetail() {
                             <div className="text-[10px] sm:text-xs text-muted-foreground mt-0.5">
                               <button
                                 type="button"
-                                onClick={() => getProofSignedUrl(proof.url).then(url => { if (url) window.open(url, '_blank', 'noopener,noreferrer'); })}
+                                onClick={() => { void openProof(proof.url); }}
                                 className="text-primary hover:underline">
                                 📎 View Proof
                               </button>
@@ -2665,12 +2666,12 @@ export default function AccountDetail() {
                 />
               </>
             )}
-            {account.customers?.messenger_link && (
-              <a href={account.customers.messenger_link} target="_blank" rel="noopener noreferrer">
-                <Button variant="outline" size="sm" className="border-info/30 text-info hover:bg-info/10">
+            {messengerHref(account.customers?.messenger_link) && (
+              <Button asChild variant="outline" size="sm" className="border-info/30 text-info hover:bg-info/10">
+                <a href={messengerHref(account.customers.messenger_link) ?? undefined} target="_blank" rel="noopener noreferrer">
                   <MessageCircle className="h-3.5 w-3.5 mr-1" /> Messenger
-                </Button>
-              </a>
+                </a>
+              </Button>
             )}
           </div>
         </div>

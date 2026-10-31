@@ -40,6 +40,7 @@ import { getPortalLinkForCustomer, isTokenLink } from '@/lib/portal-link';
 import { fetchPortalAuthByCustomer } from '@/lib/portal-link-customers';
 import type { Currency } from '@/lib/types';
 import { getPHTToday } from '@/lib/date-utils';
+import { messengerHref, openMessenger } from '@/lib/messenger-href';
 
 // ── Penalty Stage Definitions ──
 export type PenaltyStage = 'P1' | 'P2' | 'P3' | 'P4' | 'P5' | 'P6' | 'P7' | 'P8';
@@ -467,9 +468,10 @@ export default function PenaltyFollowUpSection({ totalOverdue, gracePeriodCount 
     try {
       await navigator.clipboard.writeText(messengerDialog.message);
       setCopied(true);
-      toast.success('Message copied! Opening Messenger...');
-      if (messengerDialog.alert.messengerLink) {
-        window.open(messengerDialog.alert.messengerLink, '_blank');
+      if (openMessenger(messengerDialog.alert.messengerLink)) {
+        toast.success('Message copied! Opening Messenger...');
+      } else {
+        toast.info('Message copied. The saved Messenger link is not a web address, so it cannot be opened.');
       }
     } catch { toast.error('Failed to copy'); }
   };
@@ -792,7 +794,7 @@ export default function PenaltyFollowUpSection({ totalOverdue, gracePeriodCount 
                 {copied ? <Check className="h-3.5 w-3.5 text-success" /> : <Copy className="h-3.5 w-3.5" />}
                 {copied ? 'Copied!' : 'Copy Message'}
               </Button>
-              {messengerDialog?.alert.messengerLink && (
+              {messengerHref(messengerDialog?.alert.messengerLink) && (
                 <Button className="gap-2 text-xs" onClick={handleCopyAndOpenMessenger}>
                   <MessageCircle className="h-3.5 w-3.5" />
                   Copy & Open Messenger

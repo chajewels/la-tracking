@@ -4,6 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import PageMeta from '@/components/seo/PageMeta';
 import { pt } from '@/i18n/portal';
+import { normalizeMessengerLink } from '@/lib/messenger-href';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -172,6 +173,11 @@ export default function PortalSetup() {
       toast.error(pt('auth.errEnterCountry'));
       return;
     }
+    const messengerCheck = normalizeMessengerLink(messengerLink);
+    if (!messengerCheck.ok) {
+      toast.error(pt('auth.errInvalidMessenger'));
+      return;
+    }
     if (password.length < 8) {
       toast.error(pt('auth.errPasswordMin'));
       return;
@@ -195,7 +201,7 @@ export default function PortalSetup() {
           full_name: fullName.trim(),
           mobile_number: mobileNumber.trim() || null,
           facebook_name: facebookName.trim(),
-          messenger_link: messengerLink.trim() || null,
+          messenger_link: messengerCheck.value,
           location: location.trim() || null,
           country: country.trim(),
         },

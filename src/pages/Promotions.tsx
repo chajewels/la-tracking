@@ -23,6 +23,7 @@ import { supabase } from '@/integrations/supabase/client';
 import type { Tables, TablesInsert } from '@/integrations/supabase/types';
 import { useAuth } from '@/contexts/AuthContext';
 import { parseImageUrls, fetchPhpJpyRate, formatPromoPrice } from '@/lib/promo-media';
+import { safeHttpUrl } from '@/lib/safe-url';
 
 interface Promotion {
   id: string;
@@ -728,9 +729,9 @@ export default function Promotions() {
                             <Badge variant="destructive" className="text-[10px]">Expired</Badge>
                           )}
                         </div>
-                        {p.link_url && (
+                        {safeHttpUrl(p.link_url) && (
                           <a
-                            href={p.link_url}
+                            href={safeHttpUrl(p.link_url) ?? undefined}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="text-xs text-muted-foreground hover:text-primary inline-flex items-center gap-1"

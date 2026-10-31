@@ -3,6 +3,8 @@ import { resolvePortalAuth } from "../_shared/portal-auth.ts";
 import { emitNotification } from "../_shared/emit-notification.ts";
 import { resolveItemImages, type ImageableLine } from "../_shared/item-images.ts";
 import { PENDING_SUBMISSION_OR } from "../_shared/web-order-rules.ts";
+import { customerProfileMessengerLink } from "../_shared/profile-messenger-link.ts";
+import { signProofUrls } from "../_shared/proof-signing.ts";
 
 /** A line row as this function selects it — enough for resolveItemImages. */
 // deno-lint-ignore no-explicit-any
@@ -105,13 +107,59 @@ Deno.serve(async (req) => {
           });
         }
 
+        // H-07 (security audit 2026-10-31): staff see this link as a
+        // clickable link, so only an http(s) web address is stored.
+        // A link she left unchanged (already stored) is kept when it is safe.
+        const { data: storedCustomer } = await supabase
+          .from("customers").select("messenger_link, email").eq("id", customerId).maybeSingle();
+
+        // H-22 (security 2026-10-31): the website links a new sign-in to the
+        // customer row holding that VERIFIED email (website POST /auth/customer,
+        // setup-customer-account). So a portal customer must never set her
+        // row's email to an address she has not proved: otherwise she could
+        // type someone else's email and receive that person's future orders.
+        // The only change allowed here is to her own confirmed sign-in email;
+        // anything else is refused and staff change it on request.
+        const norm = (v: unknown) => (typeof v === "string" ? v.trim().toLowerCase() : "");
+        const submittedEmail = norm(profile.email);
+        const storedEmail = norm(storedCustomer?.email);
+        let emailToStore: string | null = storedCustomer?.email ?? null;
+        if (submittedEmail !== storedEmail) {
+          let verifiedLoginEmail = "";
+          const bearer = (req.headers.get("Authorization") || "").match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
+          if (bearer) {
+            const { data: who } = await supabase.auth.getUser(bearer);
+            if (who?.user?.email_confirmed_at) verifiedLoginEmail = norm(who.user.email);
+          }
+          if (!submittedEmail || submittedEmail !== verifiedLoginEmail) {
+            return new Response(JSON.stringify({
+              error: "To change your email address, please message Cha Jewels and we will update it for you.",
+              code: "email_change_not_allowed",
+            }), {
+              status: 400,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+          emailToStore = submittedEmail;
+        }
+        const messengerCheck = customerProfileMessengerLink(profile.messenger_link, storedCustomer?.messenger_link ?? null);
+        if (!messengerCheck.ok) {
+          return new Response(JSON.stringify({
+            error: "Please enter your Messenger link as a web address, for example m.me/username.",
+            code: "messenger_link_invalid",
+          }), {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
         const updateData: Record<string, any> = {
           full_name: profile.full_name.trim(),
           location: profile.location || null,
           facebook_name: profile.facebook_name || null,
-          messenger_link: profile.messenger_link || null,
+          messenger_link: messengerCheck.value,
           mobile_number: profile.mobile_number || null,
-          email: profile.email || null,
+          email: emailToStore,
           notes: profile.notes || null,
         };
 
@@ -121,6 +169,18 @@ Deno.serve(async (req) => {
           .eq("id", customerId);
 
         if (updateErr) {
+          // H-22: the email is already held by another signed-in customer
+          // (unique index customers_email_unique_when_authed) — same answer as
+          // any other refused email change, never a generic 500.
+          if ((updateErr as { code?: string }).code === "23505") {
+            return new Response(JSON.stringify({
+              error: "To change your email address, please message Cha Jewels and we will update it for you.",
+              code: "email_change_not_allowed",
+            }), {
+              status: 409,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
           return new Response(JSON.stringify({ error: "Failed to update profile" }), {
             status: 500,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -843,6 +903,12 @@ Deno.serve(async (req) => {
       if (pen.schedule_id) penaltiesBySchedule[pen.schedule_id] = pen;
     }
     for (const sub of submissions) { (submissionsByAccount[sub.account_id] ||= []).push(sub); }
+    // H-01: a 1-hour signed view link per proof (works for PIN/token customers,
+    // who cannot sign in the browser). The stored proof_url stays as before.
+    // Only files stored under THIS customer's own layaway / cash order ids are
+    // signed (both lists are every order she has, any status).
+    const ownProofPrefixes = new Set<string>([...accountIds, ...cashOrderIds].map(String));
+    const proofViewUrls = await signProofUrls(supabase, submissions.map((s: any) => s.proof_url), undefined, ownProofPrefixes);
 
     const accountCards = (accounts || []).map((acc: any) => {
       const acctSchedule = schedulesByAccount[acc.id] || [];
@@ -968,6 +1034,7 @@ Deno.serve(async (req) => {
           sender_name: sub.sender_name,
           notes: sub.notes,
           proof_url: sub.proof_url,
+          proof_view_url: (sub.proof_url && proofViewUrls.get(sub.proof_url)) || null,
           status: sub.status,
           reviewer_notes: sub.reviewer_notes,
           created_at: sub.created_at,

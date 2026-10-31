@@ -7,6 +7,7 @@ import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { todayStr, categorizeByDueDate, remainingDue, alertTypeConfig } from '@/lib/business-rules';
+import { messengerHref } from '@/lib/messenger-href';
 
 /** The dashboard-summary counts this panel reads (a subset of useDashboardSummary's data). */
 interface OperationsSummary {
@@ -103,12 +104,12 @@ export default function OperationsPanel({ summary, displayCurrency, countOnly = 
                   </p>
                 </div>
                 <div className="flex gap-1 ml-2">
-                  {cust?.messenger_link && (
-                    <a href={cust.messenger_link} target="_blank" rel="noopener noreferrer">
-                      <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-info" title="Open Messenger">
+                  {messengerHref(cust?.messenger_link) && (
+                    <Button asChild variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-info" title="Open Messenger">
+                      <a href={messengerHref(cust.messenger_link) ?? undefined} target="_blank" rel="noopener noreferrer" aria-label="Open Messenger">
                         <MessageCircle className="h-3.5 w-3.5" />
-                      </Button>
-                    </a>
+                      </a>
+                    </Button>
                   )}
                   <Link to={`/accounts/${acc?.id}`}>
                     <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary" title="View Account">
