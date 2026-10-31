@@ -55,17 +55,27 @@ type StorageClient = { storage: { from: (bucket: string) => any } };
  * value. A link that cannot be signed (not in the bucket, object missing,
  * storage error) is simply absent from the map — callers fall back to showing
  * no link, never to a broken or foreign one.
+ *
+ * `allowedFirstSegments` (customer-facing callers): only an object whose first
+ * path segment is one of these ids is signed. Proofs are stored under the
+ * account / cash order they were uploaded for (upload-proof:
+ * `${accountId}/${name}`; live 2026-10-31: every id-prefixed proof belongs to
+ * the submission's own customer), so a customer who stores another account's
+ * path in her own submission never gets a signed link to it once the bucket
+ * is private.
  */
 export async function signProofUrls(
   supabase: StorageClient,
   storedUrls: Array<string | null | undefined>,
   ttlSeconds: number = PROOF_VIEW_TTL_SECONDS,
+  allowedFirstSegments?: ReadonlySet<string>,
 ): Promise<Map<string, string>> {
   const byPath = new Map<string, string[]>();
   for (const stored of storedUrls) {
     if (typeof stored !== "string") continue;
     const path = proofObjectPath(stored);
     if (!path) continue;
+    if (allowedFirstSegments && !allowedFirstSegments.has(path.split("/")[0])) continue;
     const list = byPath.get(path) ?? [];
     if (!list.includes(stored)) list.push(stored);
     byPath.set(path, list);

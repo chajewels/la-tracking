@@ -63,7 +63,7 @@ import { getPHTToday, formatPHTDisplay } from '@/lib/date-utils';
 import { getPortalLinkForCustomer, isTokenLink } from '@/lib/portal-link';
 import Page365StockPanel from '@/components/page365/Page365StockPanel';
 import Page365SyncPanel from '@/components/page365/Page365SyncPanel';
-import { getProofSignedUrl } from '@/lib/proof-url';
+import { openProof } from '@/lib/proof-url';
 import { useMessagePools, useStablePicker, fillLine } from '@/lib/message-lines';
 import {
   isEffectivelyPaid, isPartiallyPaid, remainingDue, remainingPrincipalDue, computeRemainingBalance,
@@ -2439,7 +2439,7 @@ export default function AccountDetail() {
                             <div className="text-[10px] sm:text-xs text-muted-foreground mt-0.5">
                               <button
                                 type="button"
-                                onClick={() => getProofSignedUrl(proof.url).then(url => { if (url) window.open(url, '_blank', 'noopener,noreferrer'); })}
+                                onClick={() => { void openProof(proof.url); }}
                                 className="text-primary hover:underline">
                                 📎 View Proof
                               </button>

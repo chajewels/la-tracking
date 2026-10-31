@@ -10,6 +10,7 @@ import { UserPlus } from 'lucide-react';
 import DecoDialogHeader, { decoTitleClass } from '@/components/shared/DecoDialogHeader';
 import { useCreateCustomer, DbCustomer } from '@/hooks/use-supabase-data';
 import { toast } from 'sonner';
+import { staffMessengerLink } from '@/lib/messenger-href';
 import CountrySelect from '@/components/customers/CountrySelect';
 import { LocationType, toLocationString } from '@/lib/countries';
 import { supabase } from '@/integrations/supabase/client';
@@ -102,6 +103,11 @@ export default function NewCustomerDialog({ onCreated, trigger, open, onOpenChan
       toast.error('Please select a country');
       return;
     }
+    const messengerCheck = staffMessengerLink(messengerLink);
+    if (!messengerCheck.ok) {
+      toast.error('Messenger link must be a web address, for example m.me/username');
+      return;
+    }
     const location = toLocationString(locationType, country) || undefined;
 
     // Check BEFORE creating. A failed check never falls through to the create.
@@ -130,7 +136,7 @@ export default function NewCustomerDialog({ onCreated, trigger, open, onOpenChan
       const customer = await createCustomer.mutateAsync({
         full_name: fullName.trim(),
         facebook_name: facebookName.trim() || undefined,
-        messenger_link: messengerLink.trim() || undefined,
+        messenger_link: messengerCheck.value ?? undefined,
         mobile_number: mobileNumber.trim() || undefined,
         email: email.trim() || undefined,
         notes: notes.trim() || undefined,

@@ -50,7 +50,7 @@ import {
   isEffectivelyPaid, isPartiallyPaid, remainingDue, getUnpaidScheduleItems, getMessageSchedulePaymentCoverage,
   ordinal, SERVICE_LABELS, accountProgress, getNextPaymentStatementDate, canAcceptPayment,
 } from '@/lib/business-rules';
-import { messengerHref } from '@/lib/messenger-href';
+import { messengerHref, staffMessengerLink } from '@/lib/messenger-href';
 
 /** A payments row as read by useCustomerAccounts (select('*')). */
 type CustomerPaymentRow = Tables<'payments'>;
@@ -187,12 +187,14 @@ export default function CustomerDetail() {
   const saveCustomerEdit = useCallback(async () => {
     if (!customer) return;
     if (!editFields.full_name.trim()) { toast.error('Name is required'); return; }
+    const messengerCheck = staffMessengerLink(editFields.messenger_link);
+    if (!messengerCheck.ok) { toast.error('Messenger link must be a web address, for example m.me/username'); return; }
     setEditSaving(true);
     try {
       const { error } = await supabase.from('customers').update({
         full_name: editFields.full_name.trim(),
         facebook_name: editFields.facebook_name.trim() || null,
-        messenger_link: editFields.messenger_link.trim() || null,
+        messenger_link: messengerCheck.value,
         mobile_number: editFields.mobile_number.trim() || null,
         email: editFields.email.trim() || null,
         family_name: editFields.family_name.trim() || null,

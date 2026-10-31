@@ -2010,13 +2010,13 @@ export default function CashOrderDetail() {
                         </div>
                         {!voided && proofByDate.has(p.date_paid) && (
                           <div className="mt-1">
-                            <a
-                              href="#"
-                              onClick={(e) => { e.preventDefault(); void openProof(proofByDate.get(p.date_paid)!.url); }}
+                            <button
+                              type="button"
+                              onClick={() => { void openProof(proofByDate.get(p.date_paid)!.url); }}
                               className="text-[11px] text-primary hover:underline"
                             >
                               📎 View Proof · {proofByDate.get(p.date_paid)!.sender}
-                            </a>
+                            </button>
                           </div>
                         )}
                         {p.remarks && (
@@ -2168,10 +2168,10 @@ export default function CashOrderDetail() {
                                     <span className="text-xs text-card-foreground truncate flex-1" title={sub.proof_url!.split('/').pop()}>
                                       {decodeURIComponent(sub.proof_url!.split('/').pop() || 'proof.pdf').split('?')[0]}
                                     </span>
-                                    <a href="#" onClick={(e) => { e.preventDefault(); void openProof(sub.proof_url); }}
+                                    <button type="button" onClick={() => { void openProof(sub.proof_url); }}
                                       className="text-[10px] text-primary underline whitespace-nowrap">
                                       View Proof
-                                    </a>
+                                    </button>
                                   </div>
                                 ) : (
                                   <>

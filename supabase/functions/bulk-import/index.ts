@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isServiceRole, parseJwtClaims } from "../_shared/jwt-claims.ts";
 import { checkPermission } from "../_shared/check-permission.ts";
+import { safeMessengerHref } from "../_shared/profile-messenger-link.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -226,7 +227,8 @@ Deno.serve(async (req) => {
               customer_code: c.customer_code,
               full_name: c.full_name,
               facebook_name: c.facebook_name || null,
-              messenger_link: c.messenger_link || null,
+              // H-07: only a safe http(s) web address is stored; anything else is dropped.
+              messenger_link: safeMessengerHref(c.messenger_link),
               mobile_number: c.mobile_number || null,
               email: c.email || null,
             })

@@ -864,8 +864,7 @@ export default function MultiInvoicePaymentDialog({
                   variant="outline"
                   onClick={() => {
                     const messengerLink = accounts[0] && (accounts[0] as AccountInfo & { messengerLink?: string }).messengerLink;
-                    if (messengerLink) openMessenger(messengerLink);
-                    else toast.info('No Messenger link set for this customer');
+                    if (!openMessenger(messengerLink)) toast.info('No usable Messenger link set for this customer');
                   }}
                   className="gap-1.5"
                 >

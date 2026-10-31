@@ -536,9 +536,10 @@ export default function Monitoring() {
     try {
       await navigator.clipboard.writeText(messengerDialog.message);
       setCopied(true);
-      toast.success('Message copied! Opening Messenger...');
-      if (messengerDialog.alert.messengerLink) {
-        openMessenger(messengerDialog.alert.messengerLink);
+      if (openMessenger(messengerDialog.alert.messengerLink)) {
+        toast.success('Message copied! Opening Messenger...');
+      } else {
+        toast.info('Message copied. The saved Messenger link is not a web address, so it cannot be opened.');
       }
     } catch {
       toast.error('Failed to copy message');
@@ -846,7 +847,7 @@ export default function Monitoring() {
               {copied ? <Check className="h-4 w-4 text-success" /> : <Copy className="h-4 w-4" />}
               {copied ? 'Copied!' : 'Copy Message'}
             </Button>
-            {messengerDialog?.alert.messengerLink && (
+            {messengerHref(messengerDialog?.alert.messengerLink) && (
               <Button className="flex-1 gap-2" onClick={handleCopyAndOpenMessenger}>
                 <MessageCircle className="h-4 w-4" />
                 Copy & Open Messenger

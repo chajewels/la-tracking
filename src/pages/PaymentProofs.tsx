@@ -16,7 +16,8 @@ import StatusPill from '@/components/shared/StatusPill';
 import { SUBMISSION_STATUS_TONE } from '@/components/shared/status-tone';
 import IllustratedState, { LedgerIllustration } from '@/components/shared/LedgerIllustration';
 import ProofsSearchBar from '@/components/search/ProofsSearchBar';
-import { getProofSignedUrl } from '@/lib/proof-url';
+import { getProofSignedUrl, openProof } from '@/lib/proof-url';
+import { toast } from 'sonner';
 
 /** The columns the proof index selects (see the query below). */
 interface ProofRow {
@@ -128,7 +129,10 @@ const PaymentProofs = memo(function PaymentProofs({ embedded = false, searchValu
 
   const download = async (sub: ProofRow, downloadName: string) => {
     try {
-      const signedUrl = await getProofSignedUrl(sub.proof_url) || sub.proof_url;
+      // H-01: always a signed link — the stored public URL stops working once
+      // the payment-proofs bucket is private.
+      const signedUrl = await getProofSignedUrl(sub.proof_url);
+      if (!signedUrl) throw new Error('could not sign the proof link');
       const res = await fetch(signedUrl);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const blob = await res.blob();
@@ -141,7 +145,8 @@ const PaymentProofs = memo(function PaymentProofs({ embedded = false, searchValu
       document.body.removeChild(a);
       URL.revokeObjectURL(blobUrl);
     } catch (err) {
-      console.error('Download failed:', err);
+      console.error('Download failed:', (err as Error)?.message ?? err);
+      toast.error('Could not download this proof. Please try again.');
     }
   };
 
@@ -215,7 +220,7 @@ const PaymentProofs = memo(function PaymentProofs({ embedded = false, searchValu
         <div className="inline-flex gap-1">
           <button
             type="button"
-            onClick={() => getProofSignedUrl(sub.proof_url).then(url => { if (url) window.open(url, '_blank', 'noopener,noreferrer'); })}
+            onClick={() => { void openProof(sub.proof_url); }}
             className={actionBtn}>
             <Eye className="h-3 w-3" /> View
           </button>

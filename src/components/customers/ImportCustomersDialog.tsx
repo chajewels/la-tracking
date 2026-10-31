@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { staffMessengerLink } from '@/lib/messenger-href';
 import { useQueryClient } from '@tanstack/react-query';
 import { toLocationString, type LocationType } from '@/lib/countries';
 import {
@@ -96,6 +97,7 @@ function validateRow(row: ParsedRow): string[] {
   if (lt && !VALID_LOCATION_TYPES.includes(lt as LocationType)) {
     errs.push(`location_type must be japan | philippines | international`);
   }
+  if (!staffMessengerLink(row.messenger_link).ok) errs.push('messenger_link must be a web address, for example m.me/username');
   return errs;
 }
 
@@ -253,7 +255,7 @@ export default function ImportCustomersDialog({ open, onOpenChange }: ImportCust
           .insert({
             full_name: row.full_name.trim(),
             facebook_name: row.facebook_name.trim() || null,
-            messenger_link: row.messenger_link.trim() || null,
+            messenger_link: (() => { const m = staffMessengerLink(row.messenger_link); return m.ok ? m.value : null; })(),
             mobile_number: row.mobile_number.trim() || null,
             email: row.email.trim() || null,
             location,

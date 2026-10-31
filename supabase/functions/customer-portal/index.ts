@@ -860,7 +860,10 @@ Deno.serve(async (req) => {
     for (const sub of submissions) { (submissionsByAccount[sub.account_id] ||= []).push(sub); }
     // H-01: a 1-hour signed view link per proof (works for PIN/token customers,
     // who cannot sign in the browser). The stored proof_url stays as before.
-    const proofViewUrls = await signProofUrls(supabase, submissions.map((s: any) => s.proof_url));
+    // Only files stored under THIS customer's own layaway / cash order ids are
+    // signed (both lists are every order she has, any status).
+    const ownProofPrefixes = new Set<string>([...accountIds, ...cashOrderIds].map(String));
+    const proofViewUrls = await signProofUrls(supabase, submissions.map((s: any) => s.proof_url), undefined, ownProofPrefixes);
 
     const accountCards = (accounts || []).map((acc: any) => {
       const acctSchedule = schedulesByAccount[acc.id] || [];

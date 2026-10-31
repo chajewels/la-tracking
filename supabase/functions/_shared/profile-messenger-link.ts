@@ -13,14 +13,21 @@
  * lib/profile-messenger-link.ts, so the form can say what is wrong. The Hub is
  * the authority. PURE (no Deno APIs): src/lib/messenger-href.ts imports it too.
  *
- * Rule:
+ * SAVE rule (normalizeMessengerLink — customer save paths):
  *  - empty after trimming → no link (null);
  *  - written with a scheme → only http: or https: is accepted;
  *  - written without one (the forms' hint is "m.me/username") → https:// is
  *    added, exactly as a person typing it means;
  *  - the result must parse as a URL with a dotted host and no user/password,
  *    contain no whitespace or control character, and be at most 200 characters.
- * Anything else is refused (`ok: false`).
+ * Anything else is refused (`ok: false`). The stored value is the parsed URL's
+ * canonical form (url.href), so "https:m.me/x" is stored as "https://m.me/x".
+ *
+ * DISPLAY rule (safeMessengerHref — every Messenger link the Hub renders or
+ * opens, whoever saved it): only SAFETY, not tidiness — no control character
+ * or backslash, http(s) only (https:// added when there is no scheme), a dotted
+ * host, no user/password; no length cap and no whitespace refusal, so a long
+ * Facebook link a staff member saved still opens. Returns url.href or null.
  */
 export const MESSENGER_LINK_MAX = 200;
 
@@ -47,5 +54,25 @@ export function normalizeMessengerLink(raw: unknown): MessengerLinkResult {
   if (url.protocol !== "https:" && url.protocol !== "http:") return { ok: false };
   if (url.username || url.password) return { ok: false };
   if (!url.hostname.includes(".") || url.hostname.startsWith(".") || url.hostname.endsWith(".")) return { ok: false };
-  return { ok: true, value: candidate };
+  return { ok: true, value: url.href };
+}
+
+// deno-lint-ignore no-control-regex
+const DISPLAY_BAD_CHARS = /[\u0000-\u001f\u007f]/;
+
+export function safeMessengerHref(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  if (!trimmed || DISPLAY_BAD_CHARS.test(trimmed) || trimmed.includes("\\")) return null;
+  const candidate = HAS_SCHEME.test(trimmed) ? trimmed : `https://${trimmed.replace(/^\/+/, "")}`;
+  let url: URL;
+  try {
+    url = new URL(candidate);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+  if (url.username || url.password) return null;
+  if (!url.hostname.includes(".") || url.hostname.startsWith(".") || url.hostname.endsWith(".")) return null;
+  return url.href;
 }
