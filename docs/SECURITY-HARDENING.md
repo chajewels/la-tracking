@@ -49,9 +49,10 @@ Review of #455 + #691 found no blocker; all 6 should-fix items and the notes wer
 - After: an unchanged email (case-insensitive) is kept; the ONLY change allowed from the portal is to the customer's own confirmed sign-in email (Bearer JWT, `email_confirmed_at` set). Anything else → 400 `email_change_not_allowed`, and the portal shows "To change your email address, please message Cha Jewels and we will update it for you." Staff still change emails in the Hub (duplicate checks apply there).
 - `notes` is a shared field by design (the portal labels it "Any notes for Cha Jewels…" and shows it back to her). Staff screens now say so ("the customer can see and edit these in her portal — do not write internal notes here"). Live: 6 customers have notes, 4 of them have portal access.
 - Live audit: 20 `portal_profile_update` rows since 2026-03 (the audit stores no old value, so how many changed email cannot be told).
+- A change to her own sign-in email that another signed-in customer already holds (unique index `customers_email_unique_when_authed`) returns 409 `email_change_not_allowed`, not a generic 500. With a link/PIN session the portal shows the email field read-only with "To change your email address, please message Cha Jewels."
 - Deploy: `customer-portal` (already in the deploy list above).
 
 ### Markup and remaining review notes (2026-10-31)
-- The 12 Messenger buttons that were a `<Button>` inside an `<a>` (invalid nested controls; read twice by screen readers) are now one control (`Button asChild`), icon-only ones labelled "Open Messenger".
+- The 12 Messenger buttons that were a `<Button>` inside an `<a>` (invalid nested controls; read twice by screen readers) are now one control (`Button asChild`), icon-only ones have an accessible name ("Open Messenger", "Message customer" or "Messenger — <name>").
 - Kept on purpose: the proof download uses a temporary link without `target` — Storage serves it as an attachment, so the Hub page stays; a missing file is caught before the click. The "not a web address" branch in the Monitoring / Penalty follow-up Messenger handlers stays as a defensive fallback (their buttons are already gated).
 - Tests: `src/test/security-batch1.test.ts` now 17 tests (H-22 and the button markup added).

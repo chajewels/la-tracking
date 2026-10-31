@@ -123,6 +123,8 @@ describe("H-22: a portal customer cannot set an email she has not proved", () =>
     expect(read(join(SRC, "pages/CustomerPortal.tsx"))).toMatch(/json\.code === 'email_change_not_allowed' \? pt\('profile\.errEmailChange'\)/);
     expect(read(join(SRC, "i18n/portal.ts"))).toMatch(/errEmailChange: 'To change your email address, please message Cha Jewels/);
     expect(read(join(SRC, "components/customers/EditCustomerDialog.tsx"))).toMatch(/The customer can see and edit these in her portal/);
+    expect(read(join(SRC, "pages/CustomerPortal.tsx"))).toMatch(/readOnly=\{!!portalToken\}/);
+    expect(read(join(SRC, "../supabase/functions/customer-portal/index.ts"))).toMatch(/code === "23505"/);
   });
 });
 

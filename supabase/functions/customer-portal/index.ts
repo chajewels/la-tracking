@@ -169,6 +169,18 @@ Deno.serve(async (req) => {
           .eq("id", customerId);
 
         if (updateErr) {
+          // H-22: the email is already held by another signed-in customer
+          // (unique index customers_email_unique_when_authed) — same answer as
+          // any other refused email change, never a generic 500.
+          if ((updateErr as { code?: string }).code === "23505") {
+            return new Response(JSON.stringify({
+              error: "To change your email address, please message Cha Jewels and we will update it for you.",
+              code: "email_change_not_allowed",
+            }), {
+              status: 409,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
           return new Response(JSON.stringify({ error: "Failed to update profile" }), {
             status: 500,
             headers: { ...corsHeaders, "Content-Type": "application/json" },

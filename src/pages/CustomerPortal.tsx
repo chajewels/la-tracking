@@ -3475,7 +3475,11 @@ function ProfileEditor({ profile, portalToken, onSaved }: {
             </div>
             <div className="space-y-1.5">
               <Label className={fieldLabelClass}>{pt('profile.email')}</Label>
-              <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={fieldClass} />
+              {/* H-22: with a link/PIN session the email cannot change here
+                  (the server refuses it); say so instead of failing on Save. */}
+              <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={fieldClass}
+                readOnly={!!portalToken} aria-readonly={!!portalToken} />
+              {portalToken && <p className="text-[11px] text-muted-foreground">{pt('profile.emailLockedHint')}</p>}
             </div>
           </div>
 

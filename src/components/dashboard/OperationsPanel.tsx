@@ -106,7 +106,7 @@ export default function OperationsPanel({ summary, displayCurrency, countOnly = 
                 <div className="flex gap-1 ml-2">
                   {messengerHref(cust?.messenger_link) && (
                     <Button asChild variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-info" title="Open Messenger">
-                      <a href={messengerHref(cust.messenger_link) ?? undefined} target="_blank" rel="noopener noreferrer">
+                      <a href={messengerHref(cust.messenger_link) ?? undefined} target="_blank" rel="noopener noreferrer" aria-label="Open Messenger">
                         <MessageCircle className="h-3.5 w-3.5" />
                       </a>
                     </Button>
