@@ -392,13 +392,6 @@ export async function copyFollowedPhotos(supabase: Supabase, deadline: number) {
 }
 
 /**
- * 2026-10-29: a Hub name that followed Page365 had its name_ja cleared
- * (page365_listing_names.ja_pending). Translate a few per tick through
- * translate-product-description (a service-role call is allowed there), write
- * name_ja, clear ja_pending. A failure leaves it pending; the storefront shows
- * the English name meanwhile.
- */
-/**
  * 2026-10-31: supabase.functions.invoke() from this service client was refused
  * 401 by translate-product-description on live (R3694, 00:42 UTC), so pending
  * names were never translated. The call now carries the SAME bearer the
@@ -425,6 +418,13 @@ export async function translateNameAsService(name: string, serviceToken: string,
   return ja;
 }
 
+/**
+ * 2026-10-29: a Hub name that followed Page365 had its name_ja cleared
+ * (page365_listing_names.ja_pending). Translate a few per tick through
+ * translate-product-description (a service-role call is allowed there), write
+ * name_ja, clear ja_pending. A failure leaves it pending; the storefront shows
+ * the English name meanwhile.
+ */
 export async function translatePendingNames(supabase: Supabase, serviceToken: string) {
   const out = { translated: 0, failed: 0 };
   // Reads and writes go through service-role RPCs: this function touches only
