@@ -63,6 +63,7 @@ Reference docs (read the relevant one when a task touches that area):
 - docs/UI-CONVENTIONS.md — help screenshots, brand style, splash, realtime sync, sidebar, frontend workflow; moved 2026-10-28
 - docs/DISPLAY-RULES.md — date columns, customer message templates, portal link rule; moved 2026-10-28
 - docs/REMINDERS.md — web payment reminders + cart reminders mechanics; moved 2026-10-28
+- docs/SECURITY-HARDENING.md — security audit 2026-10-31: Messenger-link rule (_shared/profile-messenger-link.ts, src/lib/messenger-href.ts), signed proof links (openProof, proof_view_url) and the receipts =IMAGE blocker before payment-proofs goes private
 - Every doc named in a "Rules moved from CLAUDE.md" pointer below holds the
   full text moved out verbatim on 2026-09-24 / 2026-10-02 / 2026-10-18 under that heading;
   CLAUDE.md keeps the one-line rules and the pointer.
