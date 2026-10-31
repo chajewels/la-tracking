@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Copy, ExternalLink, MessageCircle, Send, Link2, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import { useMessagePools, useStablePicker, fillLine } from '@/lib/message-lines';
+import { messengerHref } from '@/lib/messenger-href';
 
 const PORTAL_BASE = 'https://portal.chajewelsjp.com';
 
@@ -74,11 +75,11 @@ export default function PortalActivationModal({ open, onOpenChange, customerName
   };
 
   const openMessenger = () => {
-    if (messengerLink) {
-      window.open(messengerLink, '_blank');
-    } else {
-      window.open(`https://m.me/?text=${encodeURIComponent(message)}`, '_blank');
-    }
+    // A saved link that is not a web address falls back to the generic share
+    // link, exactly as when no link is saved (H-07 display rule).
+    const href = messengerHref(messengerLink);
+    if (href) window.open(href, '_blank', 'noopener,noreferrer');
+    else window.open(`https://m.me/?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer');
   };
 
   const openWhatsApp = () => {

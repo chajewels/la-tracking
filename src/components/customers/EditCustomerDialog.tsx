@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { staffMessengerLink } from '@/lib/messenger-href';
 import { useQueryClient } from '@tanstack/react-query';
 import CountrySelect from '@/components/customers/CountrySelect';
 import { LocationType, toLocationString } from '@/lib/countries';
@@ -82,6 +83,11 @@ export default function EditCustomerDialog({ open, onOpenChange, editId, editFor
       toast.error('Please select a country');
       return;
     }
+    const messengerCheck = staffMessengerLink(editForm.messenger_link);
+    if (!messengerCheck.ok) {
+      toast.error('Messenger link must be a web address, for example m.me/username — or leave it empty');
+      return;
+    }
     setSaving(true);
     const location = toLocationString(editForm.locationType, editForm.country);
     try {
@@ -109,7 +115,7 @@ export default function EditCustomerDialog({ open, onOpenChange, editId, editFor
         // immutable post-creation. Forensic repairs go via SQL Editor only.
         // See CLAUDE.md "CUSTOMER CODE STANDARD" section.
         facebook_name: editForm.facebook_name.trim() || null,
-        messenger_link: editForm.messenger_link.trim() || null,
+        messenger_link: messengerCheck.value,
         mobile_number: editForm.mobile_number.trim() || null,
         email: editForm.email.trim() || null,
         notes: editForm.notes.trim() || null,
@@ -212,6 +218,7 @@ export default function EditCustomerDialog({ open, onOpenChange, editId, editFor
             </div>
             <div className="space-y-2">
               <Label>Notes</Label>
+              <p className="text-[11px] text-muted-foreground">The customer can see and edit these in her portal — do not write internal notes here.</p>
               <Textarea value={editForm.notes} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} rows={2} />
             </div>
             {matches.length > 0 && (

@@ -47,8 +47,7 @@ import AccountStatement from '@/components/statements/AccountStatement';
 import { supabase } from '@/integrations/supabase/client';
 import { resolveItemImages } from '@/lib/resolve-item-images';
 import ShipmentTrackingCard from '@/components/shipping/ShipmentTrackingCard';
-import { getProofSignedUrl } from '@/lib/proof-url';
-import { openSafeUrl, safeHttpUrl } from '@/lib/safe-url';
+import { getProofSignedUrl, openProof } from '@/lib/proof-url';
 import { useMessagePools, useStablePicker, fillLine } from '@/lib/message-lines';
 import { useAutoRefresh } from '@/hooks/use-auto-refresh';
 import { useDeleteCashOrder, useReviveWebCashOrder } from '@/hooks/use-supabase-data';
@@ -73,6 +72,7 @@ import { getPortalLinkForCustomer, isTokenLink } from '@/lib/portal-link';
 import Page365StockPanel from '@/components/page365/Page365StockPanel';
 import Page365SyncPanel from '@/components/page365/Page365SyncPanel';
 import type { TablesUpdate } from '@/integrations/supabase/types';
+import { messengerHref } from '@/lib/messenger-href';
 
 /** Edge-function HTTP error: supabase-js puts the Response on context. Types only. */
 type FnErrorWithBody = { context: { body?: BodyInit | null } };
@@ -2010,14 +2010,13 @@ export default function CashOrderDetail() {
                         </div>
                         {!voided && proofByDate.has(p.date_paid) && (
                           <div className="mt-1">
-                            <a
-                              href={safeHttpUrl(proofByDate.get(p.date_paid)!.url) ?? undefined}
-                              target="_blank"
-                              rel="noreferrer"
+                            <button
+                              type="button"
+                              onClick={() => { void openProof(proofByDate.get(p.date_paid)!.url); }}
                               className="text-[11px] text-primary hover:underline"
                             >
                               📎 View Proof · {proofByDate.get(p.date_paid)!.sender}
-                            </a>
+                            </button>
                           </div>
                         )}
                         {p.remarks && (
@@ -2169,23 +2168,23 @@ export default function CashOrderDetail() {
                                     <span className="text-xs text-card-foreground truncate flex-1" title={sub.proof_url!.split('/').pop()}>
                                       {decodeURIComponent(sub.proof_url!.split('/').pop() || 'proof.pdf').split('?')[0]}
                                     </span>
-                                    <a href={safeHttpUrl(sub.proof_url) ?? undefined} target="_blank" rel="noopener noreferrer"
+                                    <button type="button" onClick={() => { void openProof(sub.proof_url); }}
                                       className="text-[10px] text-primary underline whitespace-nowrap">
                                       View Proof
-                                    </a>
+                                    </button>
                                   </div>
                                 ) : (
                                   <>
                                     <button
                                       type="button"
-                                      onClick={() => openSafeUrl(sub.proof_url)}
+                                      onClick={() => { void openProof(sub.proof_url); }}
                                       className="block w-full text-left">
                                       <ProofImage url={sub.proof_url!}
                                         className="w-full max-h-48 object-cover rounded border border-[hsl(var(--border))] hover:opacity-90 transition-opacity cursor-zoom-in" />
                                     </button>
                                     <button
                                       type="button"
-                                      onClick={() => openSafeUrl(sub.proof_url)}
+                                      onClick={() => { void openProof(sub.proof_url); }}
                                       className="text-[10px] text-primary underline inline-flex items-center gap-1">
                                       <ImageIcon className="h-3 w-3" /> View Proof
                                     </button>
@@ -2271,12 +2270,12 @@ export default function CashOrderDetail() {
                 />
               </>
             )}
-            {order.customers?.messenger_link && (
-              <a href={order.customers.messenger_link} target="_blank" rel="noopener noreferrer">
-                <Button variant="outline" size="sm" className="border-info/30 text-info hover:bg-info/10">
+            {messengerHref(order.customers?.messenger_link) && (
+              <Button asChild variant="outline" size="sm" className="border-info/30 text-info hover:bg-info/10">
+                <a href={messengerHref(order.customers?.messenger_link) ?? undefined} target="_blank" rel="noopener noreferrer">
                   <MessageCircle className="h-3.5 w-3.5 mr-1" /> Messenger
-                </Button>
-              </a>
+                </a>
+              </Button>
             )}
           </div>
         </div>

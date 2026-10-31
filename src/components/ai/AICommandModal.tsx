@@ -9,6 +9,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { staffMessengerLink } from '@/lib/messenger-href';
 import { toLocationString, type LocationType } from '@/lib/countries';
 import { blankToNull, MATCH_FIELD_LABELS, type FindCustomerMatchesRpc } from '@/lib/customer-matches';
 
@@ -302,6 +303,12 @@ export default function AICommandModal({ open, onOpenChange }: AICommandModalPro
         const locationType = coerceLocationType(p.location_type);
         const country = String((p as Record<string, unknown>).country ?? '').trim();
         const locationString = toLocationString(locationType, country) ?? 'philippines';
+        const messengerCheck = staffMessengerLink(p.messenger_link ? String(p.messenger_link) : null);
+        if (!messengerCheck.ok) {
+          pushAssistant('Customer NOT created — the Messenger link must be a web address, for example m.me/username.');
+          setPendingConfirm(null);
+          return;
+        }
         // Duplicate-customer prevention (owner rules 2026-09-23): check first;
         // a match or a failed check means nothing is inserted.
         const { data: found, error: checkErr } = await (supabase.rpc as unknown as FindCustomerMatchesRpc)(
@@ -337,7 +344,7 @@ export default function AICommandModal({ open, onOpenChange }: AICommandModalPro
             email: p.email ? String(p.email).trim() : null,
             mobile_number: p.mobile_number ? String(p.mobile_number).trim() : null,
             facebook_name: p.facebook_name ? String(p.facebook_name).trim() : null,
-            messenger_link: p.messenger_link ? String(p.messenger_link).trim() : null,
+            messenger_link: messengerCheck.value,
             location: locationString,
           });
         if (error) {

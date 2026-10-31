@@ -2,8 +2,7 @@ import { useState, useEffect, useMemo, useCallback, useRef, memo, type ReactNode
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import type { Database } from '@/integrations/supabase/types';
-import { getProofSignedUrl } from '@/lib/proof-url';
-import { openSafeUrl, safeHttpUrl } from '@/lib/safe-url';
+import { getProofSignedUrl, openProof } from '@/lib/proof-url';
 import { useAuth } from '@/contexts/AuthContext';
 import AppLayout from '@/components/layout/AppLayout';
 
@@ -311,13 +310,11 @@ const ActionDialogModal = memo(function ActionDialogModal({
                   <span className="text-xs text-foreground truncate flex-1" title={actionDialog.sub.proof_url.split('/').pop()}>
                     {decodeURIComponent(actionDialog.sub.proof_url.split('/').pop() || 'proof.pdf').split('?')[0]}
                   </span>
-                  <a
-                    href={safeHttpUrl(actionDialog.sub.proof_url) ?? undefined}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                  <button
+                    type="button" onClick={() => { void openProof(actionDialog.sub.proof_url); }}
                     className="text-[10px] text-primary underline whitespace-nowrap">
                     View Proof
-                  </a>
+                  </button>
                 </div>
               ) : (
                 <>
@@ -332,7 +329,7 @@ const ActionDialogModal = memo(function ActionDialogModal({
                   </button>
                   <button
                     type="button"
-                    onClick={() => openSafeUrl(actionDialog.sub.proof_url)}
+                    onClick={() => { void openProof(actionDialog.sub.proof_url); }}
                     className="text-[10px] text-primary underline inline-flex items-center gap-1">
                     <ImageIcon className="h-3 w-3" /> View Proof
                   </button>
@@ -688,9 +685,9 @@ function ProofPanel({ url, onExpand, imageClassName = 'w-full max-h-72 object-co
           <span className="text-xs text-foreground truncate flex-1" title={url.split('/').pop()}>
             {proofFileName(url)}
           </span>
-          <a href={safeHttpUrl(url) ?? undefined} target="_blank" rel="noopener noreferrer" className="text-[10px] text-primary underline whitespace-nowrap">
+          <button type="button" onClick={() => { void openProof(url); }} className="text-[10px] text-primary underline whitespace-nowrap">
             View Proof
-          </a>
+          </button>
         </div>
       ) : (
         <>
@@ -699,15 +696,15 @@ function ProofPanel({ url, onExpand, imageClassName = 'w-full max-h-72 object-co
               className={cn(imageClassName, 'rounded border border-[hsl(var(--border))] hover:opacity-90 transition-opacity cursor-zoom-in')} />
           </button>
           <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={() => openSafeUrl(url)} className="text-[10px] text-primary underline flex items-center gap-1">
+            <button type="button" onClick={() => { void openProof(url); }} className="text-[10px] text-primary underline flex items-center gap-1">
               <ImageIcon className="h-3 w-3" /> View Proof
             </button>
             <button onClick={(e) => onExpand(url, e.currentTarget)} className="text-[10px] text-muted-foreground underline flex items-center gap-1">
               View full size
             </button>
-            <a href={safeHttpUrl(url) ?? undefined} download target="_blank" rel="noopener noreferrer" className="text-[10px] text-muted-foreground underline flex items-center gap-1">
+            <button type="button" onClick={() => { void openProof(url, { download: true }); }} className="text-[10px] text-muted-foreground underline flex items-center gap-1">
               Download
-            </a>
+            </button>
           </div>
         </>
       )}
@@ -1518,10 +1515,10 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
         if (!hasProof(url)) return isPaidy(sub) ? <StatusPill label="Paidy" tone="info" /> : isSquare(sub) ? <StatusPill label="Card" tone="info" /> : <StatusPill label="No proof" tone="danger" />;
         if (isPdf(url)) {
           return (
-            <a href={safeHttpUrl(url) ?? undefined} target="_blank" rel="noopener noreferrer" aria-label="View Proof (PDF)" title={proofFileName(url)}
+            <button type="button" onClick={() => { void openProof(url); }} aria-label="View Proof (PDF)" title={proofFileName(url)}
               className="flex h-10 w-10 items-center justify-center rounded border border-gold-500/25 bg-gold-500/5 text-gold-300 hover:border-gold-500/60">
               <FileText className="h-4 w-4" />
-            </a>
+            </button>
           );
         }
         return (
@@ -1645,18 +1642,18 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
               </div>
               <div className="flex flex-wrap gap-2">
                 {isPdf(sub.proof_url) ? (
-                  <a href={safeHttpUrl(sub.proof_url) ?? undefined} target="_blank" rel="noopener noreferrer" className="text-[10px] text-primary underline whitespace-nowrap">View Proof</a>
+                  <button type="button" onClick={() => { void openProof(sub.proof_url); }} className="text-[10px] text-primary underline whitespace-nowrap">View Proof</button>
                 ) : (
                   <>
-                    <button type="button" onClick={() => openSafeUrl(sub.proof_url)} className="text-[10px] text-primary underline flex items-center gap-1">
+                    <button type="button" onClick={() => { void openProof(sub.proof_url); }} className="text-[10px] text-primary underline flex items-center gap-1">
                       <ImageIcon className="h-3 w-3" /> View Proof
                     </button>
                     <button onClick={(e) => setProofDialog(sub.proof_url!, e.currentTarget)} className="text-[10px] text-muted-foreground underline flex items-center gap-1">
                       View full size
                     </button>
-                    <a href={safeHttpUrl(sub.proof_url) ?? undefined} download target="_blank" rel="noopener noreferrer" className="text-[10px] text-muted-foreground underline flex items-center gap-1">
+                    <button type="button" onClick={() => { void openProof(sub.proof_url, { download: true }); }} className="text-[10px] text-muted-foreground underline flex items-center gap-1">
                       Download
-                    </a>
+                    </button>
                   </>
                 )}
               </div>
@@ -2168,21 +2165,21 @@ const PaymentSubmissions = memo(function PaymentSubmissions({ embedded = false, 
           {proofDialog && (
             <div className="mt-2 space-y-2">
               {proofDialog.match(/\.pdf$/i) ? (
-                <a href={safeHttpUrl(proofDialog) ?? undefined} target="_blank" rel="noopener noreferrer" className="text-primary underline text-sm flex items-center gap-2">
+                <button type="button" onClick={() => { void openProof(proofDialog); }} className="text-primary underline text-sm flex items-center gap-2">
                   <FileText className="h-4 w-4" /> Open PDF
-                </a>
+                </button>
               ) : (
                 <>
                   <ProofImage url={proofDialog} className="w-full rounded-lg border border-[hsl(var(--border))]" />
                   <div className="flex gap-3 pt-1">
-                    <a href={safeHttpUrl(proofDialog) ?? undefined} download target="_blank" rel="noopener noreferrer"
+                    <button type="button" onClick={() => { void openProof(proofDialog, { download: true }); }}
                       className="text-xs text-muted-foreground underline flex items-center gap-1">
                       Download
-                    </a>
-                    <a href={safeHttpUrl(proofDialog) ?? undefined} target="_blank" rel="noopener noreferrer"
+                    </button>
+                    <button type="button" onClick={() => { void openProof(proofDialog); }}
                       className="text-xs text-primary underline flex items-center gap-1">
                       <ImageIcon className="h-3 w-3" /> Open in new tab
-                    </a>
+                    </button>
                   </div>
                 </>
               )}
