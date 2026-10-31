@@ -132,7 +132,10 @@ export async function signReceiptProofs<T extends { proof_url: string }>(
   const out = slots.map((s) => {
     const url = signed.get(s.proof_url);
     if (url) return { ...s, proof_url: url };
-    if (proofObjectPath(s.proof_url) !== null) unsigned++;
+    // Counted when the link points into payment-proofs, even if its path is
+    // one the signer refuses ("..", an encoded "/"): such a link would still
+    // break once the bucket is private, so "0 unsigned" must not hide it.
+    if (proofObjectPath(s.proof_url) !== null || /\/payment-proofs\//.test(s.proof_url)) unsigned++;
     return s;
   });
   if (unsigned > 0) {

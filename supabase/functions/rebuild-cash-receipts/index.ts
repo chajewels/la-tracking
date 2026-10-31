@@ -97,7 +97,9 @@ Deno.serve(async (req) => {
           .range(from, from + 999);
         if (error) throw error;
         rows.push(...(data ?? []));
-        if (!data || data.length < 1000) return rows;
+        // Stop on an EMPTY page only, so a lower API row limit can never end
+        // the list early (one extra empty fetch at most).
+        if (!data || data.length === 0) return rows;
       }
     };
     const layawayRows = await allSheets("layaway_accounts");

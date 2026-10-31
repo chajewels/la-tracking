@@ -78,6 +78,7 @@ export default function RebuildCashReceiptsCard() {
         // H-01 go-live gate: an Apply run with 0 errors AND 0 unsigned. A sheet
         // that errored was not rewritten and keeps its old public links.
         if (errCount > 0 || unsignedCount > 0) toast.error(`${summary} — NOT safe to make proofs private`);
+        else if (dryRun) toast.success(`${summary} — now run Apply repair (only an Apply run counts)`);
         else toast.success(summary);
       }
     } catch (err: unknown) {

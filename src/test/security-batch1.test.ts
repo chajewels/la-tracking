@@ -264,6 +264,9 @@ describe("H-01 step 3: receipt images use 10-year signed links", () => {
     const f = await signReceiptProofs(down, [foreign]);
     expect(f.unsigned).toBe(0);
     expect(f.slots[0].proof_url).toBe("https://example.com/slip.jpg");
+    // a payment-proofs link the signer refuses ("..") IS counted: it would break after the switch
+    const odd = { ...foreign, proof_url: `${H}/storage/v1/object/public/payment-proofs/a/../b.jpg` };
+    expect((await signReceiptProofs(down, [odd])).unsigned).toBe(1);
   });
 
   it("=IMAGE( is built in exactly one place: _shared/cash-receipt.ts", () => {
@@ -319,7 +322,9 @@ describe("H-01 step 3: receipt images use 10-year signed links", () => {
     expect(card).toMatch(/if \(errCount > 0 \|\| unsignedCount > 0\) toast\.error\(`\$\{summary\} — NOT safe to make proofs private`\);/);
     // the sheet list is paged, never capped by the API's row limit
     expect(rb).toMatch(/\.range\(from, from \+ 999\)/);
-    expect(rb).toMatch(/if \(!data \|\| data\.length < 1000\) return rows;/);
+    expect(rb).toMatch(/if \(!data \|\| data\.length === 0\) return rows;/);
+    expect(rb).toMatch(/for \(let from = 0; ; from \+= 1000\)/);
+    expect(card).toMatch(/only an Apply run counts/);
   });
 
   it("the portal shows ONLY the server-signed link (no fallback to the stored link)", () => {
