@@ -392,13 +392,40 @@ export async function copyFollowedPhotos(supabase: Supabase, deadline: number) {
 }
 
 /**
+ * 2026-10-31: supabase.functions.invoke() from this service client was refused
+ * 401 by translate-product-description on live (R3694, 00:42 UTC), so pending
+ * names were never translated. The call now carries the SAME bearer the
+ * scheduler sent to this function (pg_cron, Vault key
+ * email_queue_service_role_key) — proven live the same day: a POST to
+ * translate-product-description with that key returned 200 {"name_ja": ...}
+ * (net._http_response 3300). translate-product-description accepts it through
+ * requireAuth(allowServiceRole) -> isServiceRole (Bug #168), exactly as this
+ * function does. One request, 20 s, no retry. Only the scheduled tick reaches
+ * here (service caller), so the token is always that service bearer.
+ */
+export async function translateNameAsService(name: string, serviceToken: string, fetchImpl: typeof fetch = fetch): Promise<string> {
+  if (!serviceToken) throw new Error("no service token to call translate-product-description");
+  const res = await fetchImpl(`${Deno.env.get("SUPABASE_URL")}/functions/v1/translate-product-description`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${serviceToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+    signal: AbortSignal.timeout(20_000),
+  });
+  const body = await res.json().catch(() => null) as { name_ja?: unknown; error?: unknown } | null;
+  if (!res.ok) throw new Error(`translate-product-description HTTP ${res.status}${body?.error ? `: ${String(body.error)}` : ""}`);
+  const ja = String(body?.name_ja ?? "").trim();
+  if (!ja) throw new Error("empty translation");
+  return ja;
+}
+
+/**
  * 2026-10-29: a Hub name that followed Page365 had its name_ja cleared
  * (page365_listing_names.ja_pending). Translate a few per tick through
  * translate-product-description (a service-role call is allowed there), write
  * name_ja, clear ja_pending. A failure leaves it pending; the storefront shows
  * the English name meanwhile.
  */
-export async function translatePendingNames(supabase: Supabase) {
+export async function translatePendingNames(supabase: Supabase, serviceToken: string) {
   const out = { translated: 0, failed: 0 };
   // Reads and writes go through service-role RPCs: this function touches only
   // its own page365_* tables directly (an outage changes nothing on the website).
@@ -411,9 +438,7 @@ export async function translatePendingNames(supabase: Supabase) {
     const name = String(row.o_name ?? "").trim();
     if (!name) continue;
     try {
-      const { data: tr, error: trErr } = await supabase.functions.invoke("translate-product-description", { body: { name } });
-      const ja = String((tr as { name_ja?: unknown } | null)?.name_ja ?? "").trim();
-      if (trErr || !ja) throw new Error(trErr?.message ?? "empty translation");
+      const ja = await translateNameAsService(name, serviceToken);
       // Written only if the English name has not moved again since (SQL checks).
       const { error: setErr } = await supabase.rpc("page365_set_name_ja", {
         p_product_id: row.o_product_id, p_expected_name: name, p_name_ja: ja,
@@ -429,14 +454,14 @@ export async function translatePendingNames(supabase: Supabase) {
 }
 
 /** After the landed photos: followed photos, then pending Japanese names. */
-async function followBacklogs(supabase: Supabase, deadline: number) {
+async function followBacklogs(supabase: Supabase, deadline: number, serviceToken: string) {
   const followed = await copyFollowedPhotos(supabase, deadline);
-  const names = await translatePendingNames(supabase);
+  const names = await translatePendingNames(supabase, serviceToken);
   return { followed, names };
 }
 
 /** PR 3: one cron tick. */
-async function scheduleTick(supabase: Supabase) {
+async function scheduleTick(supabase: Supabase, serviceToken: string) {
   const t0 = Date.now();
 
   // Close any scheduled run that ended without being closed (a staff fetch
@@ -464,7 +489,7 @@ async function scheduleTick(supabase: Supabase) {
   if (decision.act === "wait") {
     // Nothing to read this tick: copy landed products' photos instead.
     const photos = await copyLandedPhotos(supabase, t0 + SCHEDULE_BUDGET_MS - CHUNK_RESERVE_MS);
-    const follow = await followBacklogs(supabase, t0 + SCHEDULE_BUDGET_MS - CHUNK_RESERVE_MS);
+    const follow = await followBacklogs(supabase, t0 + SCHEDULE_BUDGET_MS - CHUNK_RESERVE_MS, serviceToken);
     return { skipped: decision.reason, last_scheduled_at: last?.created_at, interval_minutes: intervalMinutes, photos, follow };
   }
 
@@ -501,7 +526,7 @@ async function scheduleTick(supabase: Supabase) {
   const photos = step?.run?.status && step.run.status !== "fetching"
     ? await copyLandedPhotos(supabase, t0 + SCHEDULE_BUDGET_MS - CHUNK_RESERVE_MS)
     : null;
-  const follow = photos ? await followBacklogs(supabase, t0 + SCHEDULE_BUDGET_MS - CHUNK_RESERVE_MS) : null;
+  const follow = photos ? await followBacklogs(supabase, t0 + SCHEDULE_BUDGET_MS - CHUNK_RESERVE_MS, serviceToken) : null;
   return { run_id: runId, interval_minutes: intervalMinutes, kind: step?.run?.kind, status: step?.run?.status ?? "fetching", fetched: step?.fetched,
            open: step?.open, listed: step?.listed, finished: step?.finished ?? null, photos, follow, elapsed_ms: Date.now() - t0 };
 }
@@ -526,7 +551,7 @@ Deno.serve(async (req) => {
 
     if (ctx.isService) {
       if (action !== "schedule") return jsonResponse({ error: "The service role may only run the scheduled fetch" }, 400);
-      return jsonResponse(await scheduleTick(supabase));
+      return jsonResponse(await scheduleTick(supabase, ctx.token));
     }
     if (action === "schedule") return jsonResponse({ error: "The scheduled fetch runs from pg_cron only" }, 403);
 

@@ -29,6 +29,41 @@ describe("translate-product-description accepts the scheduled service-role calle
   });
 });
 
+describe("page365-inventory-fetch calls the translator as the service role (live 401, 2026-10-31)", () => {
+  const fetchFn = () => code(src("supabase/functions/page365-inventory-fetch/index.ts"));
+  it("no longer uses supabase.functions.invoke for the translation (refused 401 on live)", () => {
+    expect(fetchFn()).not.toMatch(/functions\.invoke\(\s*"translate-product-description"/);
+  });
+  it("posts to translate-product-description with the scheduler's own bearer (proven 200 live)", () => {
+    const helper = fetchFn().slice(fetchFn().indexOf("export async function translateNameAsService"), fetchFn().indexOf("export async function translatePendingNames"));
+    expect(helper).toContain("/functions/v1/translate-product-description");
+    expect(helper).toContain("Authorization: `Bearer ${serviceToken}`");
+    expect(helper).not.toContain("SUPABASE_SERVICE_ROLE_KEY");
+    expect(helper).toContain('method: "POST"');
+    expect(helper).toContain("JSON.stringify({ name })");
+    expect(helper).toMatch(/if \(!serviceToken\) throw/);
+    expect(helper).toMatch(/if \(!res\.ok\) throw/);
+    expect(helper).toMatch(/if \(!ja\) throw new Error\("empty translation"\)/);
+  });
+  it("the token is the one the scheduled (service) caller sent, threaded through every hop", () => {
+    const f = fetchFn();
+    expect(f).toContain("return jsonResponse(await scheduleTick(supabase, ctx.token));");
+    expect(f).toContain("async function scheduleTick(supabase: Supabase, serviceToken: string)");
+    expect(f.match(/followBacklogs\(supabase, t0 \+ SCHEDULE_BUDGET_MS - CHUNK_RESERVE_MS, serviceToken\)/g)?.length).toBe(2);
+    expect(f).toContain("await translatePendingNames(supabase, serviceToken)");
+    expect(f).toContain("await translateNameAsService(name, serviceToken)");
+    // only the service branch runs scheduleTick
+    const svc = f.slice(f.indexOf("if (ctx.isService) {"), f.indexOf('if (action === "schedule") return jsonResponse'));
+    expect(svc).toContain("scheduleTick(supabase, ctx.token)");
+  });
+  it("the pending loop uses the helper and still writes only through page365_set_name_ja", () => {
+    const loop = fetchFn().slice(fetchFn().indexOf("export async function translatePendingNames"), fetchFn().indexOf("async function followBacklogs"));
+    expect(loop).toContain("await translateNameAsService(name, serviceToken)");
+    expect(loop).toContain('supabase.rpc("page365_set_name_ja"');
+    expect(loop).not.toMatch(/\.from\("website_products"\)/);
+  });
+});
+
 describe("migration 20270226100000: an existing Japanese name is never replaced", () => {
   it("is pinned to the live bodies it was written against", () => {
     expect(MIG).toContain("'a23ec50466ad2c9e3a74585904afd2c8'");

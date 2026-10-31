@@ -106,7 +106,7 @@ describe("wiring", () => {
     const e = code(src("supabase/functions/page365-inventory-fetch/index.ts"));
     expect(e).toContain("export async function copyFollowedPhotos");
     expect(e).toContain("export async function translatePendingNames");
-    expect(e).toContain("followBacklogs(supabase, t0 + SCHEDULE_BUDGET_MS - CHUNK_RESERVE_MS)");
+    expect(e).toContain("followBacklogs(supabase, t0 + SCHEDULE_BUDGET_MS - CHUNK_RESERVE_MS, serviceToken)");
     // The fetch reads / writes the Catalog only through service-role RPCs.
     expect(e).toContain('supabase.rpc("page365_pending_ja_names"');
     expect(e).toContain('supabase.rpc("page365_set_name_ja"');
