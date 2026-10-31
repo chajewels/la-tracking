@@ -6575,3 +6575,20 @@ Lesson: a memory seeded from history must be compared with what the Hub actually
 newest history row; and a re-run of an earlier migration's CREATE OR REPLACE silently reverts a later fix —
 the fix migration must always follow it.
 
+
+### OPEN — Every Hub e-mail refused by Lovable (`missing_unsubscribe`) since 2026-10-31 20:50 JST; extension trigger blocked the managed-email update (recorded 2026-11-01)
+STATUS: OPEN until the e-mails send again (close this entry on the first `sent` row in `email_send_log`).
+Lovable's e-mail API refuses every Hub send with 400 `missing_unsubscribe` ("Transactional emails must
+include an unsubscribe_token") — the reverse of the September "do not set unsubscribe_token" refusal —
+because the project must complete Lovable's managed-email update first. That update stopped on
+`public.notify_extension_event()` (trigger `trg_notify_extension_event` on `extension_requests`), which
+POSTed the customer's "extension-requested" e-mail to `/functions/v1/send-transactional-email` through
+`net.http_post`; Lovable will not remove the endpoint while a trigger depends on it. Fix in
+`fix/extension-email-off-db-trigger`: migration `20270227100000_extension_trigger_no_email_call.sql`
+removes only that e-mail block (both `staff_notify` calls kept verbatim, trigger untouched, md5-guarded
+pre-flight + rollback self-check), and `request-extension` sends the customer copy itself (same template
+and data, only with a non-empty e-mail, non-blocking, idempotency key from the new row id). Remaining:
+release → owner-approved apply → deploy request-extension → owner presses "Try again" → review Lovable's
+rewrite before publish (keep `recordEmailAttempt()` logging, `renderEmail`, English-only layaway mails,
+frozen dependencies). Full account: docs/EMAIL-DELIVERY.md "2026-10-31 outage". Do not reintroduce: a
+database trigger that calls an e-mail edge function.
