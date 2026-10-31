@@ -70,12 +70,15 @@ export default function RebuildCashReceiptsCard() {
         const overflowCount = acc.filter(r => (r.overflow ?? 0) > 0).length;
         const errCount = acc.filter(r => r.error).length;
         const unsignedCount = acc.reduce((n, r) => n + (r.unsigned ?? 0), 0);
-        toast.success(
+        const summary =
           `${dryRun ? 'Dry run' : 'Repair'} complete: ${acc.length} processed` +
           (overflowCount > 0 ? ` · ${overflowCount} over capacity` : '') +
-          (errCount > 0 ? ` · ${errCount} errors` : '') +
-          ` · ${unsignedCount} unsigned image${unsignedCount === 1 ? '' : 's'}`,
-        );
+          ` · ${errCount} error${errCount === 1 ? '' : 's'}` +
+          ` · ${unsignedCount} unsigned image${unsignedCount === 1 ? '' : 's'}`;
+        // H-01 go-live gate: an Apply run with 0 errors AND 0 unsigned. A sheet
+        // that errored was not rewritten and keeps its old public links.
+        if (errCount > 0 || unsignedCount > 0) toast.error(`${summary} — NOT safe to make proofs private`);
+        else toast.success(summary);
       }
     } catch (err: unknown) {
       toast.error((err as { message?: string }).message || 'Rebuild failed');
@@ -94,7 +97,7 @@ export default function RebuildCashReceiptsCard() {
           <div>
             <h3 className="text-xs font-semibold uppercase tracking-wider text-card-foreground">Rebuild Cash Receipts</h3>
             <p className="text-[11px] text-muted-foreground mt-0.5 max-w-md">
-              Rewrite every invoice sheet's Cash Receipt tab from database records, with each payment slip embedded through a 10-year signed link (Bug #251 repair; H-01). Idempotent — safe to re-run. Unsigned must be 0 before payment proofs are made private.
+              Rewrite every invoice sheet's Cash Receipt tab from database records, with each payment slip embedded through a 10-year signed link (Bug #251 repair; H-01). Idempotent — safe to re-run. Before payment proofs are made private, an Apply run must finish with 0 errors and 0 unsigned.
             </p>
           </div>
         </div>

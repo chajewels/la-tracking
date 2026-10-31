@@ -91,13 +91,11 @@ interface Submission {
 }
 
 /**
- * H-01 (security audit 2026-10-31): the link a customer opens for her proof.
- * The signed view link from customer-portal first; the stored public URL only
- * as a fallback while the payment-proofs bucket is still public.
+ * H-01 (security audit 2026-10-31; step 3 2026-11-01): the link a customer
+ * opens for her proof is ONLY the signed link customer-portal returns. The
+ * stored proof_url is an identifier, not a viewable link (the bucket becomes
+ * private); a proof the server did not sign shows no link.
  */
-// H-01 step 3: ONLY the signed link customer-portal returns. The stored
-// proof_url is an identifier, not a viewable link (the bucket becomes
-// private); a proof the server did not sign shows no link.
 function proofViewHref(sub: { proof_url: string | null; proof_view_url?: string | null }): string | null {
   return safeHttpUrl(sub.proof_view_url ?? null);
 }

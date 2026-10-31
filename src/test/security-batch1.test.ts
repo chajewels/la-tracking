@@ -259,6 +259,26 @@ describe("H-01 step 3: receipt images use 10-year signed links", () => {
     const d = await signReceiptProofs(down, [slot("acc/1.jpg", 1), slot("acc/2.jpg", 2)]);
     expect(d.unsigned).toBe(2);
     expect((await signReceiptProofs(down, [])).unsigned).toBe(0);
+    // a link outside payment-proofs is kept and NOT counted (the switch does not affect it)
+    const foreign = { slot_index: 1, proof_url: "https://example.com/slip.jpg", invoice_number: "1", payment_date: "x", amount: 1 };
+    const f = await signReceiptProofs(down, [foreign]);
+    expect(f.unsigned).toBe(0);
+    expect(f.slots[0].proof_url).toBe("https://example.com/slip.jpg");
+  });
+
+  it("=IMAGE( is built in exactly one place: _shared/cash-receipt.ts", () => {
+    const strip = (x: string) => x.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+    const hits: string[] = [];
+    const walk = (dir: string) => {
+      for (const name of readdirSync(dir)) {
+        const q = join(dir, name);
+        if (statSync(q).isDirectory()) { if (name !== "node_modules" && name !== "test") walk(q); continue; }
+        if (/\.(ts|tsx)$/.test(name) && /=IMAGE\(/i.test(strip(read(q)))) hits.push(q.replace(join(SRC, ".."), ""));
+      }
+    };
+    walk(join(SRC, "../supabase/functions"));
+    walk(SRC);
+    expect(hits).toEqual(["/supabase/functions/_shared/cash-receipt.ts"]);
   });
 
   it("every receipt writer signs before writing; no caller can skip it", () => {
@@ -295,6 +315,11 @@ describe("H-01 step 3: receipt images use 10-year signed links", () => {
     expect(max * batch).toBeGreaterThanOrEqual(2000);
     expect(card).toMatch(/while \(iterations < MAX_BATCHES\)/);
     expect(card).toMatch(/unsigned image/);
+    // go-live gate: errors AND unsigned must both be 0
+    expect(card).toMatch(/if \(errCount > 0 \|\| unsignedCount > 0\) toast\.error\(`\$\{summary\} — NOT safe to make proofs private`\);/);
+    // the sheet list is paged, never capped by the API's row limit
+    expect(rb).toMatch(/\.range\(from, from \+ 999\)/);
+    expect(rb).toMatch(/if \(!data \|\| data\.length < 1000\) return rows;/);
   });
 
   it("the portal shows ONLY the server-signed link (no fallback to the stored link)", () => {

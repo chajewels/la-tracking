@@ -114,9 +114,12 @@ export const RECEIPT_IMAGE_TTL_SECONDS = 10 * 365 * 24 * 60 * 60;
 
 /**
  * Replace each slot's stored proof link with a 10-year signed link. A slot
- * whose link cannot be signed KEEPS its stored link (it still opens while the
- * bucket is public) and is counted in `unsigned`; callers report the count, and
- * the bucket must not be switched to private while any receipt is unsigned.
+ * whose payment-proofs link cannot be signed KEEPS its stored link (it still
+ * opens while the bucket is public) and is counted in `unsigned`; callers
+ * report the count, and the bucket must not be switched to private while any
+ * receipt is unsigned. A link that is not in payment-proofs at all is kept and
+ * NOT counted: the switch does not affect it (there are none today — every
+ * writer validates proof_url into this bucket).
  * Never throws: signProofUrls already swallows storage errors.
  */
 export async function signReceiptProofs<T extends { proof_url: string }>(
@@ -129,7 +132,7 @@ export async function signReceiptProofs<T extends { proof_url: string }>(
   const out = slots.map((s) => {
     const url = signed.get(s.proof_url);
     if (url) return { ...s, proof_url: url };
-    unsigned++;
+    if (proofObjectPath(s.proof_url) !== null) unsigned++;
     return s;
   });
   if (unsigned > 0) {

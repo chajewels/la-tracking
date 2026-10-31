@@ -82,19 +82,26 @@ Deno.serve(async (req) => {
     // Build the deterministic work set: ALL layaway rows first, then ALL cash
     // orders (cash orders are first-class — never skipped), each ordered by
     // invoice_number so the cursor is stable across calls.
-    const { data: layawayRows, error: layErr } = await supabase
-      .from("layaway_accounts")
-      .select("id, invoice_number, currency, cash_receipt_sheet_id")
-      .not("cash_receipt_sheet_id", "is", null)
-      .order("invoice_number", { ascending: true });
-    if (layErr) throw layErr;
-
-    const { data: cashRows, error: cashErr } = await supabase
-      .from("cash_orders")
-      .select("id, invoice_number, currency, cash_receipt_sheet_id")
-      .not("cash_receipt_sheet_id", "is", null)
-      .order("invoice_number", { ascending: true });
-    if (cashErr) throw cashErr;
+    // Paged (1,000 rows a page) so no sheet is ever silently dropped by the
+    // API's row cap (H-01: every sheet must get signed images). Ordered by
+    // invoice_number then id so pages and the cursor are stable.
+    const allSheets = async (table: "layaway_accounts" | "cash_orders") => {
+      const rows: any[] = [];
+      for (let from = 0; ; from += 1000) {
+        const { data, error } = await supabase
+          .from(table)
+          .select("id, invoice_number, currency, cash_receipt_sheet_id")
+          .not("cash_receipt_sheet_id", "is", null)
+          .order("invoice_number", { ascending: true })
+          .order("id", { ascending: true })
+          .range(from, from + 999);
+        if (error) throw error;
+        rows.push(...(data ?? []));
+        if (!data || data.length < 1000) return rows;
+      }
+    };
+    const layawayRows = await allSheets("layaway_accounts");
+    const cashRows = await allSheets("cash_orders");
 
     interface WorkItem {
       kind: "layaway" | "cash_order";
