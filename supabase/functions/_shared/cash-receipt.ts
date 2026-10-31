@@ -1,4 +1,5 @@
 import { getServiceAccountAccessToken } from "./google-auth.ts";
+import { signReceiptProofs, type StorageClient } from "./proof-signing.ts";
 
 /**
  * Single cash receipt slot data — used by append-cash-receipt (1 slot at a
@@ -6,7 +7,7 @@ import { getServiceAccountAccessToken } from "./google-auth.ts";
  */
 export interface CashReceiptSlot {
   slot_index: number;       // 1-based; validated against the derived per-sheet map
-  proof_url: string;        // public URL of receipt image
+  proof_url: string;        // the STORED proof link (identifier); the writers below embed a 10-year signed link (H-01)
   invoice_number: string;
   payment_date: string;     // formatted display string (e.g., "May 2, 2026")
   amount: number;           // numeric amount in JPY
@@ -160,10 +161,15 @@ export function buildSlotUpdates(
 export async function appendOneReceipt(
   sheetId: string,
   slot: CashReceiptSlot,
-): Promise<{ cells_updated: number }> {
+  storage: StorageClient,
+): Promise<{ cells_updated: number; unsigned: number }> {
   const map = await deriveSlotMap(sheetId);
-  const updates = buildSlotUpdates(slot, map);
-  return await sendBatchUpdate(sheetId, updates);
+  // H-01: the image is embedded through a 10-year signed link, never the
+  // stored public-shaped link (Google reads it without signing in).
+  const signed = await signReceiptProofs(storage, [slot]);
+  const updates = buildSlotUpdates(signed.slots[0], map);
+  const res = await sendBatchUpdate(sheetId, updates);
+  return { cells_updated: res.cells_updated, unsigned: signed.unsigned };
 }
 
 /**
@@ -175,12 +181,13 @@ export async function appendOneReceipt(
 export async function appendManyReceipts(
   sheetId: string,
   slots: CashReceiptSlot[],
-): Promise<{ cells_updated: number; capacity: number; written: number; overflow: number }> {
+  storage: StorageClient,
+): Promise<{ cells_updated: number; capacity: number; written: number; overflow: number; unsigned: number }> {
   const map = await deriveSlotMap(sheetId);
   const capacity = Object.keys(map).length;
 
   if (slots.length === 0) {
-    return { cells_updated: 0, capacity, written: 0, overflow: 0 };
+    return { cells_updated: 0, capacity, written: 0, overflow: 0, unsigned: 0 };
   }
 
   const writable = slots.filter((s) => s.slot_index <= capacity);
@@ -194,11 +201,19 @@ export async function appendManyReceipts(
   }
 
   if (writable.length === 0) {
-    return { cells_updated: 0, capacity, written: 0, overflow: overflow.length };
+    return { cells_updated: 0, capacity, written: 0, overflow: overflow.length, unsigned: 0 };
+  }
+
+  // H-01: every image is embedded through a 10-year signed link (one storage
+  // call for the whole sheet); a link that cannot be signed keeps its stored
+  // link and is counted in `unsigned`.
+  const signed = await signReceiptProofs(storage, writable);
+  if (signed.unsigned > 0) {
+    console.error(`[cash-receipt] sheet ${sheetId}: ${signed.unsigned} receipt image(s) unsigned (stored link kept)`);
   }
 
   const allUpdates: Array<{ range: string; values: string[][] }> = [];
-  for (const slot of writable) {
+  for (const slot of signed.slots) {
     allUpdates.push(...buildSlotUpdates(slot, map));
   }
 
@@ -208,6 +223,7 @@ export async function appendManyReceipts(
     capacity,
     written: writable.length,
     overflow: overflow.length,
+    unsigned: signed.unsigned,
   };
 }
 

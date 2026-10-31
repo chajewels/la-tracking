@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { normalizeMessengerLink, safeMessengerHref, customerProfileMessengerLink, MESSENGER_LINK_MAX } from "../../supabase/functions/_shared/profile-messenger-link.ts";
-import { proofObjectPath, signProofUrls } from "../../supabase/functions/_shared/proof-signing.ts";
+import { proofObjectPath, signProofUrls, signReceiptProofs, RECEIPT_IMAGE_TTL_SECONDS } from "../../supabase/functions/_shared/proof-signing.ts";
 import { messengerHref, staffMessengerLink } from "../lib/messenger-href";
 
 // Security batch 1 (owner-requested audit, 2026-10-31): H-07 Messenger links,
@@ -213,5 +213,124 @@ describe("H-01: proofs are opened through signed links", () => {
     expect(portal).not.toMatch(/href=\{safeHttpUrl\((?:sub\.proof_url|editProofCurrent)\)/);
     expect(portal).toMatch(/proof_view_url/);
     expect(read(join(SRC, "../supabase/functions/customer-portal/index.ts"))).toMatch(/proof_view_url: \(sub\.proof_url && proofViewUrls\.get\(sub\.proof_url\)\) \|\| null/);
+  });
+});
+
+// H-01 step 3 (owner decision D-02 = (a), 2026-11-01): the invoice sheets'
+// Cash Receipt tab embeds each slip with =IMAGE(), which Google fetches without
+// signing in, so the receipt writers embed a 10-year signed link instead of the
+// stored public-shaped link. Must be in place (and the rebuild run with
+// 0 unsigned) before payment-proofs is made private.
+describe("H-01 step 3: receipt images use 10-year signed links", () => {
+  const H = "https://abcdefghijklmnop.supabase.co";
+  const stored = (p: string) => `${H}/storage/v1/object/public/payment-proofs/${p}`;
+  const slot = (p: string, i: number) => ({ slot_index: i, proof_url: stored(p), invoice_number: "19144", payment_date: "May 2, 2026", amount: 1000 });
+
+  it("signs every image for 10 years in ONE storage call and keeps the other fields", async () => {
+    const calls: Array<[string[], number]> = [];
+    const fake = { storage: { from: (b: string) => {
+      expect(b).toBe("payment-proofs");
+      return { createSignedUrls: async (paths: string[], ttl: number) => {
+        calls.push([paths, ttl]);
+        return { data: paths.map((p) => ({ path: p, signedUrl: `${H}/storage/v1/object/sign/payment-proofs/${p}?token=t`, error: null })), error: null };
+      } };
+    } } };
+    const { slots, unsigned } = await signReceiptProofs(fake, [slot("acc/1.jpg", 1), slot("acc/2.jpg", 2), slot("acc/1.jpg", 3)]);
+    expect(RECEIPT_IMAGE_TTL_SECONDS).toBe(315_360_000);
+    expect(calls).toEqual([[["acc/1.jpg", "acc/2.jpg"], RECEIPT_IMAGE_TTL_SECONDS]]);
+    expect(unsigned).toBe(0);
+    expect(slots.map((s) => s.proof_url)).toEqual([
+      `${H}/storage/v1/object/sign/payment-proofs/acc/1.jpg?token=t`,
+      `${H}/storage/v1/object/sign/payment-proofs/acc/2.jpg?token=t`,
+      `${H}/storage/v1/object/sign/payment-proofs/acc/1.jpg?token=t`,
+    ]);
+    expect(slots.map((s) => [s.slot_index, s.invoice_number, s.amount])).toEqual([[1, "19144", 1000], [2, "19144", 1000], [3, "19144", 1000]]);
+  });
+
+  it("an image that cannot be signed keeps its stored link and is COUNTED, never thrown", async () => {
+    const partial = { storage: { from: () => ({ createSignedUrls: async (paths: string[]) => ({
+      data: paths.map((p) => p === "acc/missing.jpg" ? { path: p, signedUrl: null, error: "Object not found" } : { path: p, signedUrl: `${H}/s/${p}`, error: null }),
+      error: null,
+    }) }) } };
+    const r = await signReceiptProofs(partial, [slot("acc/1.jpg", 1), slot("acc/missing.jpg", 2)]);
+    expect(r.unsigned).toBe(1);
+    expect(r.slots[1].proof_url).toBe(stored("acc/missing.jpg"));
+    const down = { storage: { from: () => ({ createSignedUrls: async () => ({ data: null, error: { message: "down" } }) }) } };
+    const d = await signReceiptProofs(down, [slot("acc/1.jpg", 1), slot("acc/2.jpg", 2)]);
+    expect(d.unsigned).toBe(2);
+    expect((await signReceiptProofs(down, [])).unsigned).toBe(0);
+    // a link outside payment-proofs is kept and NOT counted (the switch does not affect it)
+    const foreign = { slot_index: 1, proof_url: "https://example.com/slip.jpg", invoice_number: "1", payment_date: "x", amount: 1 };
+    const f = await signReceiptProofs(down, [foreign]);
+    expect(f.unsigned).toBe(0);
+    expect(f.slots[0].proof_url).toBe("https://example.com/slip.jpg");
+    // a payment-proofs link the signer refuses ("..") IS counted: it would break after the switch
+    const odd = { ...foreign, proof_url: `${H}/storage/v1/object/public/payment-proofs/a/../b.jpg` };
+    expect((await signReceiptProofs(down, [odd])).unsigned).toBe(1);
+  });
+
+  it("=IMAGE( is built in exactly one place: _shared/cash-receipt.ts", () => {
+    const strip = (x: string) => x.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+    const hits: string[] = [];
+    const walk = (dir: string) => {
+      for (const name of readdirSync(dir)) {
+        const q = join(dir, name);
+        if (statSync(q).isDirectory()) { if (name !== "node_modules" && name !== "test") walk(q); continue; }
+        if (/\.(ts|tsx)$/.test(name) && /=IMAGE\(/i.test(strip(read(q)))) hits.push(q.replace(join(SRC, ".."), ""));
+      }
+    };
+    walk(join(SRC, "../supabase/functions"));
+    walk(SRC);
+    expect(hits).toEqual(["/supabase/functions/_shared/cash-receipt.ts"]);
+  });
+
+  it("every receipt writer signs before writing; no caller can skip it", () => {
+    const strip = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+    const cr = strip(read(join(SRC, "../supabase/functions/_shared/cash-receipt.ts")));
+    // the client is a REQUIRED parameter of both writers
+    expect(cr).toMatch(/export async function appendOneReceipt\(\s*sheetId: string,\s*slot: CashReceiptSlot,\s*storage: StorageClient,\s*\)/);
+    expect(cr).toMatch(/export async function appendManyReceipts\(\s*sheetId: string,\s*slots: CashReceiptSlot\[\],\s*storage: StorageClient,\s*\)/);
+    // the slot built into =IMAGE() is the SIGNED one
+    expect(cr).toMatch(/buildSlotUpdates\(signed\.slots\[0\], map\)/);
+    expect(cr).toMatch(/for \(const slot of signed\.slots\) \{\s*allUpdates\.push\(\.\.\.buildSlotUpdates\(slot, map\)\);/);
+    expect(cr).not.toMatch(/for \(const slot of writable\)/);
+    const F = (f: string) => strip(read(join(SRC, `../supabase/functions/${f}/index.ts`)));
+    expect(F("generate-invoice")).toMatch(/appendManyReceipts\(createdSheetId, slots, supabase\)/);
+    expect(F("review-payment-submission").match(/appendManyReceipts\([^)]*, slots, supabase\)/g)?.length).toBe(2);
+    expect(F("review-payment-submission")).not.toMatch(/appendManyReceipts\([^,)]*, slots\)/);
+    expect(F("rebuild-cash-receipts")).toMatch(/appendManyReceipts\(item\.cash_receipt_sheet_id, slots, supabase\)/);
+    expect(F("append-cash-receipt")).toMatch(/appendOneReceipt\(body\.sheet_id, slot, storage\)/);
+    // no other function writes receipts
+    const fnDir = join(SRC, "../supabase/functions");
+    const writers = readdirSync(fnDir).filter((d) => d !== "_shared" && statSync(join(fnDir, d)).isDirectory())
+      .filter((d) => { try { return /append(?:Many|One)Receipts?\(/.test(strip(read(join(fnDir, d, "index.ts")))); } catch { return false; } });
+    expect(writers.sort()).toEqual(["append-cash-receipt", "generate-invoice", "rebuild-cash-receipts", "review-payment-submission"]);
+  });
+
+  it("the rebuild reports unsigned images (dry run too) and reaches every sheet", () => {
+    const rb = read(join(SRC, "../supabase/functions/rebuild-cash-receipts/index.ts"));
+    expect(rb).toMatch(/signReceiptProofs\(supabase, slots\.slice\(0, capacity\)\)/);
+    expect(rb).toMatch(/total_unsigned: totalUnsigned/);
+    const card = read(join(SRC, "components/admin/RebuildCashReceiptsCard.tsx"));
+    const max = Number(card.match(/const MAX_BATCHES = (\d+);/)?.[1]);
+    const batch = Number(card.match(/batch_size: (\d+)/)?.[1]);
+    // 473 sheets live on 2026-11-01; the old 20 × 20 cap stopped at 400.
+    expect(max * batch).toBeGreaterThanOrEqual(2000);
+    expect(card).toMatch(/while \(iterations < MAX_BATCHES\)/);
+    expect(card).toMatch(/unsigned image/);
+    // go-live gate: errors AND unsigned must both be 0
+    expect(card).toMatch(/if \(errCount > 0 \|\| unsignedCount > 0\) toast\.error\(`\$\{summary\} — NOT safe to make proofs private`\);/);
+    // the sheet list is paged, never capped by the API's row limit
+    expect(rb).toMatch(/\.range\(from, from \+ 999\)/);
+    expect(rb).toMatch(/if \(!data \|\| data\.length === 0\) return rows;/);
+    expect(rb).toMatch(/for \(let from = 0; ; from \+= 1000\)/);
+    expect(card).toMatch(/only an Apply run counts/);
+  });
+
+  it("the portal shows ONLY the server-signed link (no fallback to the stored link)", () => {
+    const portal = read(join(SRC, "pages/CustomerPortal.tsx"));
+    expect(portal).toMatch(/function proofViewHref\([^)]*\): string \| null \{\s*return safeHttpUrl\(sub\.proof_view_url \?\? null\);\s*\}/);
+    expect(portal).not.toMatch(/safeHttpUrl\(sub\.proof_url\)/);
+    expect(portal).toMatch(/editProofCurrent && !editProofView && !editProofFile/);
   });
 });

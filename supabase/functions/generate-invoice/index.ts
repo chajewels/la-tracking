@@ -672,12 +672,12 @@ Deno.serve(async (req) => {
             : Math.round(r.submitted_amount / phpJpyRate),
         }));
 
-        const receiptResult = await appendManyReceipts(createdSheetId, slots);
+        const receiptResult = await appendManyReceipts(createdSheetId, slots, supabase);
         embeddedReceiptCount = receiptResult.written;
         console.log(
           `[generate-invoice] embedded ${embeddedReceiptCount} receipts into sheet ${createdSheetId} ` +
           `(rate=${phpJpyRate}): ${receiptResult.cells_updated} cells updated, ` +
-          `capacity=${receiptResult.capacity}, overflow=${receiptResult.overflow}`,
+          `capacity=${receiptResult.capacity}, overflow=${receiptResult.overflow}, unsigned=${receiptResult.unsigned}`,
         );
       }
     } catch (receiptErr) {

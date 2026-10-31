@@ -10,6 +10,7 @@ import {
   deriveSlotMap,
   type CashReceiptSlot,
 } from "../_shared/cash-receipt.ts";
+import { signReceiptProofs } from "../_shared/proof-signing.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -81,19 +82,28 @@ Deno.serve(async (req) => {
     // Build the deterministic work set: ALL layaway rows first, then ALL cash
     // orders (cash orders are first-class — never skipped), each ordered by
     // invoice_number so the cursor is stable across calls.
-    const { data: layawayRows, error: layErr } = await supabase
-      .from("layaway_accounts")
-      .select("id, invoice_number, currency, cash_receipt_sheet_id")
-      .not("cash_receipt_sheet_id", "is", null)
-      .order("invoice_number", { ascending: true });
-    if (layErr) throw layErr;
-
-    const { data: cashRows, error: cashErr } = await supabase
-      .from("cash_orders")
-      .select("id, invoice_number, currency, cash_receipt_sheet_id")
-      .not("cash_receipt_sheet_id", "is", null)
-      .order("invoice_number", { ascending: true });
-    if (cashErr) throw cashErr;
+    // Paged (1,000 rows a page) so no sheet is ever silently dropped by the
+    // API's row cap (H-01: every sheet must get signed images). Ordered by
+    // invoice_number then id so pages and the cursor are stable.
+    const allSheets = async (table: "layaway_accounts" | "cash_orders") => {
+      const rows: any[] = [];
+      for (let from = 0; ; from += 1000) {
+        const { data, error } = await supabase
+          .from(table)
+          .select("id, invoice_number, currency, cash_receipt_sheet_id")
+          .not("cash_receipt_sheet_id", "is", null)
+          .order("invoice_number", { ascending: true })
+          .order("id", { ascending: true })
+          .range(from, from + 999);
+        if (error) throw error;
+        rows.push(...(data ?? []));
+        // Stop on an EMPTY page only, so a lower API row limit can never end
+        // the list early (one extra empty fetch at most).
+        if (!data || data.length === 0) return rows;
+      }
+    };
+    const layawayRows = await allSheets("layaway_accounts");
+    const cashRows = await allSheets("cash_orders");
 
     interface WorkItem {
       kind: "layaway" | "cash_order";
@@ -133,6 +143,9 @@ Deno.serve(async (req) => {
     let skipped = 0;
     let errors = 0;
     let totalOverflow = 0;
+    // H-01: receipt images whose link could not be signed (stored link kept).
+    // Must be 0 across the whole sweep before payment-proofs is made private.
+    let totalUnsigned = 0;
     let lastCursor: string | null = cursor;
 
     for (const item of batch) {
@@ -169,23 +182,30 @@ Deno.serve(async (req) => {
           const capacity = Object.keys(map).length;
           const overflow = Math.max(0, slots.length - capacity);
           totalOverflow += overflow;
+          // Sign the would-be-written images too (no sheet write) so a dry run
+          // already shows any image that could not be signed.
+          const signCheck = await signReceiptProofs(supabase, slots.slice(0, capacity));
+          totalUnsigned += signCheck.unsigned;
           results.push({
             invoice_number: item.invoice_number,
             kind: item.kind,
             capacity,
             would_write: slots.length,
             overflow,
+            unsigned: signCheck.unsigned,
           });
           ok++;
         } else {
-          const rr = await appendManyReceipts(item.cash_receipt_sheet_id, slots);
+          const rr = await appendManyReceipts(item.cash_receipt_sheet_id, slots, supabase);
           totalOverflow += rr.overflow;
+          totalUnsigned += rr.unsigned;
           results.push({
             invoice_number: item.invoice_number,
             kind: item.kind,
             capacity: rr.capacity,
             written: rr.written,
             overflow: rr.overflow,
+            unsigned: rr.unsigned,
             cells_updated: rr.cells_updated,
           });
           ok++;
@@ -212,7 +232,7 @@ Deno.serve(async (req) => {
       total,
       remaining,
       results,
-      summary: { ok, skipped, errors, total_overflow: totalOverflow },
+      summary: { ok, skipped, errors, total_overflow: totalOverflow, total_unsigned: totalUnsigned },
     });
   } catch (error) {
     return json({ error: (error as Error).message }, 500);
