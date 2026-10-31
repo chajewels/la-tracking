@@ -1325,7 +1325,7 @@ Deno.serve(async (req) => {
               : Math.round(r.submitted_amount / phpJpyRate),
           }));
 
-          const rr = await appendManyReceipts(cashOrder.cash_receipt_sheet_id, slots);
+          const rr = await appendManyReceipts(cashOrder.cash_receipt_sheet_id, slots, supabase);
           if (rr.overflow > 0) {
             console.error(
               `[review-payment-submission] cash-receipt overflow: cash_order_id=${cashOrder.id} ` +
@@ -2002,7 +2002,7 @@ Deno.serve(async (req) => {
               : Math.round(r.submitted_amount / phpJpyRate),
           }));
 
-          const rr = await appendManyReceipts(account.cash_receipt_sheet_id, slots);
+          const rr = await appendManyReceipts(account.cash_receipt_sheet_id, slots, supabase);
           if (rr.overflow > 0) {
             console.error(
               `[review-payment-submission] cash-receipt overflow: account_id=${submission.account_id} ` +

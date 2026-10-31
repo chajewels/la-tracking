@@ -266,6 +266,14 @@
     30-slot adds column AD) — and all are handled from their own
     merges. Also exports buildSlotUpdates(slot, map), appendOneReceipt
     and appendManyReceipts, plus the =IMAGE formula construction.
+    H-01 step 3 (2026-11-01): both writers take the database client
+    as a required parameter and embed each slip through a 10-year
+    SIGNED link (signReceiptProofs in _shared/proof-signing.ts), never
+    the stored public-shaped proof_url — Google reads =IMAGE links
+    without signing in, and payment-proofs becomes private. An image
+    that cannot be signed keeps its stored link and is reported as
+    `unsigned` (rebuild-cash-receipts: per sheet + total_unsigned).
+    See docs/SECURITY-HARDENING.md "H-01 step 3".
   - append-cash-receipt edge function — manual single-slot repair
     tool that delegates to appendOneReceipt (derives the map itself).
     slot_index is validated only as a positive integer; buildSlotUpdates

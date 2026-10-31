@@ -1,3 +1,4 @@
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { appendOneReceipt, type CashReceiptSlot } from "../_shared/cash-receipt.ts";
 import { isServiceRole, parseJwtClaims } from "../_shared/jwt-claims.ts";
 
@@ -64,12 +65,16 @@ Deno.serve(async (req) => {
       amount: body.amount,
     };
 
-    // Delegate to shared helper
-    const result = await appendOneReceipt(body.sheet_id, slot);
+    // Delegate to shared helper (signs the image link for 10 years, H-01)
+    const storage = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    );
+    const result = await appendOneReceipt(body.sheet_id, slot, storage);
 
     console.log(
       `[append-cash-receipt] Wrote slot ${body.slot_index} to sheet ${body.sheet_id}: ` +
-      `${result.cells_updated} cells updated`,
+      `${result.cells_updated} cells updated, unsigned=${result.unsigned}`,
     );
 
     return jsonResponse(200, {
@@ -77,6 +82,7 @@ Deno.serve(async (req) => {
       slot_index: body.slot_index,
       sheet_id: body.sheet_id,
       cells_updated: result.cells_updated,
+      unsigned: result.unsigned,
     });
   } catch (err) {
     console.error("[append-cash-receipt] error:", err);
