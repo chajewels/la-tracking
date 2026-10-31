@@ -104,6 +104,55 @@ the same key square-sync used, so the customer can never receive it twice. Only 
 the release (`square_refunds.refund_email_replay`), after a 30-minute grace, at most 3 re-sends, then bell
 `refund_email_failed`. Everything else stays REPORT-ONLY. docs/SQUARE.md "QA/QC review fixes".
 
+## 2026-10-31 outage — every Hub e-mail refused with `missing_unsubscribe`, and the extension trigger blocks Lovable's fix (recorded 2026-11-01)
+
+**What is happening (owner-confirmed 2026-11-01).** Since 2026-10-31 20:50 JST every Hub e-mail is
+refused by the Lovable e-mail API with HTTP 400 `missing_unsubscribe`, message *"Transactional emails
+must include an unsubscribe_token"*. This is the OPPOSITE of the September refusal recorded in
+`send-transactional-email/index.ts` ("do not set unsubscribe_token manually"): same error code, reversed
+meaning. Lovable has moved the project into its required managed-email update (Lovable → More → Emails
+shows "Email update needs changes first"), and until that update completes nothing sends. Every
+attempt is still logged (`email_send_log` status `failed`), so `email_delivery_report()` reads
+*refused* and the health card / Dashboard banner show the outage. REPORT-ONLY still holds: nothing
+re-sends by itself; the owner re-sends what matters by hand once the emails work again.
+
+**The blocker Lovable reported.** Its migration stops every time on ONE item: `public.notify_extension_event()`
+(trigger `trg_notify_extension_event`, AFTER INSERT OR UPDATE on `public.extension_requests`) called
+`/functions/v1/send-transactional-email` through `net.http_post` to send the customer's
+"extension-requested" copy. Lovable will not delete that endpoint while a database trigger depends on
+it, and its guide forbids e-mail SQL changes, so the Hub removes the dependency itself.
+
+**The fix (PR `fix/extension-email-off-db-trigger`, migration `20270227100000_extension_trigger_no_email_call.sql`).**
+- The trigger function keeps BOTH `staff_notify` calls (bell on request, bell on status change) with
+  identical arguments and the same outer `EXCEPTION WHEN OTHERS THEN NULL`; only the inner
+  customer-e-mail block (customer lookup, portal URL, amount string, the HTTP POST) and the eight
+  variables it alone used are removed. The trigger itself is untouched; `CREATE OR REPLACE` keeps the
+  ACL. The migration refuses unless live carries the recorded body (whitespace-collapsed md5
+  `783e7cb6f20561335d87c4b717461ba5`, the drift-audit hash) or is already this body (replay = no-op),
+  and rolls back if the new body still contains an e-mail call or not exactly 2 `staff_notify` calls.
+  Live md5 could not be checked from the repo (no SQL was run) — UNVERIFIED until the owner's apply.
+- `request-extension` now sends the CUSTOMER copy right after the staff copy: same template
+  `extension-requested`, same templateData (customerName, invoiceNumber, reason, currency,
+  remainingBalance, portalUrl), only when `customers.email` is non-empty (trimmed), its own try/catch
+  (a mail failure never fails the request), idempotency key `extension-requested:<extension_requests.id>:customer`
+  so a retry cannot double-send. Portal link via `buildPortalLinkForCustomerId` (PORTAL LINK RULE) —
+  the trigger's own token lookup is retired with it.
+- NOT touched (Lovable rewrites them in its update): `send-transactional-email`, `process-email-queue`,
+  `_shared/transactional-email-templates/send-email.ts`, `_shared/storefront-email.ts`, `auth-email-hook`.
+
+**Remaining steps, in order.**
+1. Release the PR `develop` → `main` (migration + `request-extension` in the same PR, Git Workflow rule).
+2. Owner-approved apply of `20270227100000` through the Lovable database connection (one sender, Claude Code).
+3. Deploy `request-extension` (Lovable; source assertion on the new customer block, e.g.
+   `grep -c ':customer\`' supabase/functions/request-extension/index.ts` → 1).
+4. Owner presses "Try again" in Lovable → More → Emails.
+5. REVIEW LOVABLE'S REWRITE BEFORE PUBLISH — especially that every sender still calls
+   `recordEmailAttempt()` (the `email_send_log` rows feed `email_delivery_report()` and the health card),
+   that `renderEmail` is still the only renderer, that layaway emails stay English-only, and that
+   package.json / bun.lock are untouched (DEPENDENCIES ARE FROZEN). Any dropped logging is a defect to
+   fix before the first live send.
+6. Confirm the first successful send in `email_send_log`, then close the OPEN entry in docs/FIXED-BUGS.md.
+
 ## Rules moved from CLAUDE.md (2026-10-28)
 
 Moved verbatim from CLAUDE.md on 2026-10-28 (Option A split); CLAUDE.md keeps a one-line pointer and every money rule.
