@@ -109,6 +109,34 @@ describe("H-07: a Messenger link is an http(s) web address or nothing", () => {
   });
 });
 
+describe("H-22: a portal customer cannot set an email she has not proved", () => {
+  const portal = () => read(join(SRC, "../supabase/functions/customer-portal/index.ts"));
+  it("update_profile only allows her own confirmed sign-in email, otherwise refuses", () => {
+    const s = portal();
+    expect(s).toMatch(/if \(submittedEmail !== storedEmail\) \{/);
+    expect(s).toMatch(/if \(who\?\.user\?\.email_confirmed_at\) verifiedLoginEmail = norm\(who\.user\.email\);/);
+    expect(s).toMatch(/code: "email_change_not_allowed"/);
+    expect(s).toMatch(/email: emailToStore,/);
+    expect(s).not.toMatch(/email: profile\.email \|\| null/);
+  });
+  it("the portal form explains it, and staff see that Notes are customer-visible", () => {
+    expect(read(join(SRC, "pages/CustomerPortal.tsx"))).toMatch(/json\.code === 'email_change_not_allowed' \? pt\('profile\.errEmailChange'\)/);
+    expect(read(join(SRC, "i18n/portal.ts"))).toMatch(/errEmailChange: 'To change your email address, please message Cha Jewels/);
+    expect(read(join(SRC, "components/customers/EditCustomerDialog.tsx"))).toMatch(/The customer can see and edit these in her portal/);
+  });
+});
+
+describe("Messenger buttons are one control (no <Button> inside <a>)", () => {
+  it("every Messenger link button uses Button asChild", () => {
+    const offenders: string[] = [];
+    for (const f of tsxFiles(SRC)) {
+      const s = read(f);
+      if (/<a href=\{messengerHref\([^}]*\) \?\? undefined\}[^>]*>\s*<Button/.test(s)) offenders.push(f);
+    }
+    expect(offenders).toEqual([]);
+  });
+});
+
 describe("H-01: proofs are opened through signed links", () => {
   const HOST = "https://abcdefghijklmnop.supabase.co";
   it("reads the object path from a stored proof link", () => {

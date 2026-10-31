@@ -613,11 +613,11 @@ export default function CustomerDetail() {
               }))}
             />
             {messengerHref(customer.messenger_link) && (
-              <a href={messengerHref(customer.messenger_link) ?? undefined} target="_blank" rel="noopener noreferrer">
-                <Button variant="outline" className="border-info/30 text-info hover:bg-info/10">
+              <Button asChild variant="outline" className="border-info/30 text-info hover:bg-info/10">
+                <a href={messengerHref(customer.messenger_link) ?? undefined} target="_blank" rel="noopener noreferrer">
                   <MessageCircle className="h-4 w-4 mr-2" /> Messenger
-                </Button>
-              </a>
+                </a>
+              </Button>
             )}
         </div>
         </div>
@@ -698,7 +698,7 @@ export default function CustomerDetail() {
           {customer.notes && (
             <div className="mt-3 pt-3 hairline-t">
               <p className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.12em] text-ink-muted">
-                <StickyNote className="h-3 w-3" aria-hidden /> Notes
+                <StickyNote className="h-3 w-3" aria-hidden /> Notes · the customer can see and edit these in her portal
               </p>
               <p className="mt-1 whitespace-pre-wrap break-words text-sm text-card-foreground">{customer.notes}</p>
             </div>
@@ -1092,11 +1092,11 @@ export default function CustomerDetail() {
               {copied ? 'Copied!' : 'Copy Message'}
             </Button>
             {messengerHref(customer.messenger_link) && (
-              <a href={messengerHref(customer.messenger_link) ?? undefined} target="_blank" rel="noopener noreferrer">
-                <Button variant="outline" size="sm" className="border-info/30 text-info hover:bg-info/10">
+              <Button asChild variant="outline" size="sm" className="border-info/30 text-info hover:bg-info/10">
+                <a href={messengerHref(customer.messenger_link) ?? undefined} target="_blank" rel="noopener noreferrer">
                   <MessageCircle className="h-3.5 w-3.5 mr-1" /> Messenger
-                </Button>
-              </a>
+                </a>
+              </Button>
             )}
           </div>
         </div>

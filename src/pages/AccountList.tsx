@@ -477,11 +477,11 @@ const AccountList = memo(function AccountList({ embedded = false, searchValue, e
               <Eye className="h-3.5 w-3.5" />
             </Button>
             {messengerHref(account.customers?.messenger_link) && (
-              <a href={messengerHref(account.customers.messenger_link) ?? undefined} target="_blank" rel="noopener noreferrer">
-                <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-info">
+              <Button asChild variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-info">
+                <a href={messengerHref(account.customers.messenger_link) ?? undefined} target="_blank" rel="noopener noreferrer" aria-label="Open Messenger">
                   <MessageCircle className="h-3.5 w-3.5" />
-                </Button>
-              </a>
+                </a>
+              </Button>
             )}
             <Link to={`/accounts/${account.id}`}>
               <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary">
@@ -602,11 +602,11 @@ const AccountList = memo(function AccountList({ embedded = false, searchValue, e
             <Eye className="h-3.5 w-3.5" />
           </Button>
           {messengerHref(a.customers?.messenger_link) && (
-            <a href={messengerHref(a.customers.messenger_link) ?? undefined} target="_blank" rel="noopener noreferrer" aria-label="Open Messenger">
-              <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-info" tabIndex={-1}>
+            <Button asChild variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-info">
+              <a href={messengerHref(a.customers.messenger_link) ?? undefined} target="_blank" rel="noopener noreferrer" aria-label="Open Messenger">
                 <MessageCircle className="h-3.5 w-3.5" />
-              </Button>
-            </a>
+              </a>
+            </Button>
           )}
           <Link to={`/accounts/${a.id}`} aria-label={`Open account ${a.invoice_number}`}>
             <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary" tabIndex={-1}>

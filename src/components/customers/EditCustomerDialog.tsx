@@ -218,6 +218,7 @@ export default function EditCustomerDialog({ open, onOpenChange, editId, editFor
             </div>
             <div className="space-y-2">
               <Label>Notes</Label>
+              <p className="text-[11px] text-muted-foreground">The customer can see and edit these in her portal — do not write internal notes here.</p>
               <Textarea value={editForm.notes} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} rows={2} />
             </div>
             {matches.length > 0 && (

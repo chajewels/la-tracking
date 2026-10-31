@@ -338,6 +338,7 @@ export const portalEn = {
     errCountryRequired: 'Please select a country.',
     errInvalidEmail: 'Please enter a valid email address.',
     errInvalidMessenger: 'Please enter your Messenger link as a web address, for example m.me/username.',
+    errEmailChange: 'To change your email address, please message Cha Jewels and we will update it for you.',
     errUpdateFailed: 'Failed to update profile.',
     errGeneric: 'Something went wrong. Please try again.',
   },

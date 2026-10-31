@@ -111,7 +111,37 @@ Deno.serve(async (req) => {
         // clickable link, so only an http(s) web address is stored.
         // A link she left unchanged (already stored) is kept when it is safe.
         const { data: storedCustomer } = await supabase
-          .from("customers").select("messenger_link").eq("id", customerId).maybeSingle();
+          .from("customers").select("messenger_link, email").eq("id", customerId).maybeSingle();
+
+        // H-22 (security 2026-10-31): the website links a new sign-in to the
+        // customer row holding that VERIFIED email (website POST /auth/customer,
+        // setup-customer-account). So a portal customer must never set her
+        // row's email to an address she has not proved: otherwise she could
+        // type someone else's email and receive that person's future orders.
+        // The only change allowed here is to her own confirmed sign-in email;
+        // anything else is refused and staff change it on request.
+        const norm = (v: unknown) => (typeof v === "string" ? v.trim().toLowerCase() : "");
+        const submittedEmail = norm(profile.email);
+        const storedEmail = norm(storedCustomer?.email);
+        let emailToStore: string | null = storedCustomer?.email ?? null;
+        if (submittedEmail !== storedEmail) {
+          let verifiedLoginEmail = "";
+          const bearer = (req.headers.get("Authorization") || "").match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
+          if (bearer) {
+            const { data: who } = await supabase.auth.getUser(bearer);
+            if (who?.user?.email_confirmed_at) verifiedLoginEmail = norm(who.user.email);
+          }
+          if (!submittedEmail || submittedEmail !== verifiedLoginEmail) {
+            return new Response(JSON.stringify({
+              error: "To change your email address, please message Cha Jewels and we will update it for you.",
+              code: "email_change_not_allowed",
+            }), {
+              status: 400,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+          emailToStore = submittedEmail;
+        }
         const messengerCheck = customerProfileMessengerLink(profile.messenger_link, storedCustomer?.messenger_link ?? null);
         if (!messengerCheck.ok) {
           return new Response(JSON.stringify({
@@ -129,7 +159,7 @@ Deno.serve(async (req) => {
           facebook_name: profile.facebook_name || null,
           messenger_link: messengerCheck.value,
           mobile_number: profile.mobile_number || null,
-          email: profile.email || null,
+          email: emailToStore,
           notes: profile.notes || null,
         };
 

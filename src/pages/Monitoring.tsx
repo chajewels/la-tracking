@@ -263,7 +263,7 @@ export default function Monitoring() {
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <span className="text-xs font-semibold text-card-foreground tabular-nums">{formatCurrency(rem, cur)}</span>
-                {messengerHref(customer?.messenger_link) && <a href={messengerHref(customer.messenger_link) ?? undefined} target="_blank" rel="noopener noreferrer"><Button size="sm" variant="outline" className="border-info/30 text-info hover:bg-info/10 text-xs h-7 px-2"><MessageCircle className="h-3 w-3" /></Button></a>}
+                {messengerHref(customer?.messenger_link) && <Button asChild size="sm" variant="outline" className="border-info/30 text-info hover:bg-info/10 text-xs h-7 px-2"><a href={messengerHref(customer.messenger_link) ?? undefined} target="_blank" rel="noopener noreferrer" aria-label="Open Messenger"><MessageCircle className="h-3 w-3" /></a></Button>}
               </div>
             </div>
           );

@@ -37,12 +37,21 @@ Owner instruction: fix W-01, W-02, W-03, H-07, H-01 first. W-01..W-03 are storef
 
 ### Verification (branch `security/proofs-signed-links-messenger`, base `develop` `2437cbe4`)
 - `npx tsc -p tsconfig.app.json --noEmit` exit 0; `check-no-explicit-any` 0; `check-anon-policies` clean.
-- CI vitest list 48 files / 1,174 tests pass (after the correction batch), including new `src/test/security-batch1.test.ts` (14 tests after the correction batch; the original 4 fail against the old code: raw Messenger hrefs, unchecked save paths, raw promo links, direct proof links).
+- CI vitest list 48 files / 1,174 tests pass (after the correction batch), including new `src/test/security-batch1.test.ts` (17 tests after the correction batches; the original 4 fail against the old code: raw Messenger hrefs, unchecked save paths, raw promo links, direct proof links).
 - `deno lint` (322 files) clean; `deno check` of `website`, `customer-portal`, `setup-customer-account`, `bulk-import` clean; CI Deno suite 629 passed / 0 failed.
 - `npm run build` succeeds.
 
 ### Correction batch (independent review, 2026-10-31)
 Review of #455 + #691 found no blocker; all 6 should-fix items and the notes were applied; a second review of the corrections found 2 more (an unchanged long link blocking the portal profile save; bulk-import batch proofs missing from the checklist), both applied, plus the canonical-length check: display rule separated from the save rule (long links kept), buttons gated on a usable link, failed proof opens/downloads now say so, AccountDetail + PaymentProofs moved to `openProof` (no popup-blocked open, no public fallback), `href="#"` proof links became buttons, downloads leave no empty tab, portal signs only the customer's own files, staff save paths checked, canonical `url.href` stored, the new 422 recorded in `docs/WEBSITE-VERCEL.md`, pre-switch checklist above extended.
 
-### New finding recorded during this batch (not fixed here)
-- **H-22 (to investigate):** `customer-portal` update_profile lets a portal customer overwrite her own `customers.email` and `customers.notes` with no verification. The storefront links a customer to a sign-in by email, so an unverified email change may let one customer's record be linked to another person's sign-in; and if `notes` is staff-only, customers can overwrite it. Needs a read of how `email` and `notes` are used before any change.
+### H-22 (High) — portal customer could set someone else's email (fixed in this batch, 2026-10-31)
+- Before: `customer-portal` update_profile stored `profile.email` as typed. The website links a new sign-in to the customer row holding that VERIFIED email (`website` POST /auth/customer, `setup-customer-account`), so a portal customer (565 live customers use token-only access) could type another person's email and that person's later website sign-up would land on her row — the victim's orders would then show in the attacker's portal. A linked customer could also block someone's sign-up (409 `email_already_linked`).
+- After: an unchanged email (case-insensitive) is kept; the ONLY change allowed from the portal is to the customer's own confirmed sign-in email (Bearer JWT, `email_confirmed_at` set). Anything else → 400 `email_change_not_allowed`, and the portal shows "To change your email address, please message Cha Jewels and we will update it for you." Staff still change emails in the Hub (duplicate checks apply there).
+- `notes` is a shared field by design (the portal labels it "Any notes for Cha Jewels…" and shows it back to her). Staff screens now say so ("the customer can see and edit these in her portal — do not write internal notes here"). Live: 6 customers have notes, 4 of them have portal access.
+- Live audit: 20 `portal_profile_update` rows since 2026-03 (the audit stores no old value, so how many changed email cannot be told).
+- Deploy: `customer-portal` (already in the deploy list above).
+
+### Markup and remaining review notes (2026-10-31)
+- The 12 Messenger buttons that were a `<Button>` inside an `<a>` (invalid nested controls; read twice by screen readers) are now one control (`Button asChild`), icon-only ones labelled "Open Messenger".
+- Kept on purpose: the proof download uses a temporary link without `target` — Storage serves it as an attachment, so the Hub page stays; a missing file is caught before the click. The "not a web address" branch in the Monitoring / Penalty follow-up Messenger handlers stays as a defensive fallback (their buttons are already gated).
+- Tests: `src/test/security-batch1.test.ts` now 17 tests (H-22 and the button markup added).

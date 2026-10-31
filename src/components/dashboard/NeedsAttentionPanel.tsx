@@ -79,11 +79,11 @@ export default function NeedsAttentionPanel({ scheduleRows, cashRows, loading }:
                           {formatCurrency(Number(item.actual_remaining ?? 0), item.currency as Currency)}
                         </span>
                         {messengerHref(customer?.messenger_link) && (
-                          <a href={messengerHref(customer?.messenger_link) ?? undefined} target="_blank" rel="noopener noreferrer">
-                            <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-primary" aria-label="Message customer">
+                          <Button asChild variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-primary" aria-label="Message customer">
+                            <a href={messengerHref(customer?.messenger_link) ?? undefined} target="_blank" rel="noopener noreferrer">
                               <MessageCircle className="h-4 w-4" />
-                            </Button>
-                          </a>
+                            </a>
+                          </Button>
                         )}
                         {account?.id && (
                           <Link to={`/accounts/${account.id}`}>

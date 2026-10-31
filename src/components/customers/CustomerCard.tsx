@@ -66,11 +66,11 @@ const CustomerCard = memo(function CustomerCard({ customer: c, activeCount, comp
         </span>
         <div className="flex items-center gap-1">
           {messengerHref(c.messenger_link) && (
-            <a href={messengerHref(c.messenger_link) ?? undefined} target="_blank" rel="noopener noreferrer" aria-label={`Messenger — ${c.full_name}`}>
-              <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-info" tabIndex={-1}>
+            <Button asChild variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-info">
+              <a href={messengerHref(c.messenger_link) ?? undefined} target="_blank" rel="noopener noreferrer" aria-label={`Messenger — ${c.full_name}`}>
                 <MessageCircle className="h-3.5 w-3.5" />
-              </Button>
-            </a>
+              </a>
+            </Button>
           )}
           <Link to={`/customers/${c.id}`} aria-label={`Open ${c.full_name}`}>
             <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-primary" tabIndex={-1}>

@@ -3373,7 +3373,10 @@ function ProfileEditor({ profile, portalToken, onSaved }: {
         }),
       });
       const json = await res.json();
-      if (!res.ok) { setFormError(json.error || pt('profile.errUpdateFailed')); return; }
+      if (!res.ok) {
+        setFormError(json.code === 'email_change_not_allowed' ? pt('profile.errEmailChange') : (json.error || pt('profile.errUpdateFailed')));
+        return;
+      }
       onSaved(json.profile);
       setEditing(false);
       setSuccessMsg(true);

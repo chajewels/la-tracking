@@ -139,11 +139,11 @@ export default memo(function CustomerDirectoryTable({ customers, accountStats, t
       cell: (c) => (
         <span className="inline-flex items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
           {messengerHref(c.messenger_link) && (
-            <a href={messengerHref(c.messenger_link) ?? undefined} target="_blank" rel="noopener noreferrer" aria-label={`Messenger — ${c.full_name}`}>
-              <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-info" tabIndex={-1}>
+            <Button asChild variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-info">
+              <a href={messengerHref(c.messenger_link) ?? undefined} target="_blank" rel="noopener noreferrer" aria-label={`Messenger — ${c.full_name}`}>
                 <MessageCircle className="h-3.5 w-3.5" />
-              </Button>
-            </a>
+              </a>
+            </Button>
           )}
           <Button
             variant="ghost"

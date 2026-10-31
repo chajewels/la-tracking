@@ -2271,11 +2271,11 @@ export default function CashOrderDetail() {
               </>
             )}
             {messengerHref(order.customers?.messenger_link) && (
-              <a href={messengerHref(order.customers?.messenger_link) ?? undefined} target="_blank" rel="noopener noreferrer">
-                <Button variant="outline" size="sm" className="border-info/30 text-info hover:bg-info/10">
+              <Button asChild variant="outline" size="sm" className="border-info/30 text-info hover:bg-info/10">
+                <a href={messengerHref(order.customers?.messenger_link) ?? undefined} target="_blank" rel="noopener noreferrer">
                   <MessageCircle className="h-3.5 w-3.5 mr-1" /> Messenger
-                </Button>
-              </a>
+                </a>
+              </Button>
             )}
           </div>
         </div>

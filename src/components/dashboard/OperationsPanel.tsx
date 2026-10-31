@@ -105,11 +105,11 @@ export default function OperationsPanel({ summary, displayCurrency, countOnly = 
                 </div>
                 <div className="flex gap-1 ml-2">
                   {messengerHref(cust?.messenger_link) && (
-                    <a href={messengerHref(cust.messenger_link) ?? undefined} target="_blank" rel="noopener noreferrer">
-                      <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-info" title="Open Messenger">
+                    <Button asChild variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-info" title="Open Messenger">
+                      <a href={messengerHref(cust.messenger_link) ?? undefined} target="_blank" rel="noopener noreferrer">
                         <MessageCircle className="h-3.5 w-3.5" />
-                      </Button>
-                    </a>
+                      </a>
+                    </Button>
                   )}
                   <Link to={`/accounts/${acc?.id}`}>
                     <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary" title="View Account">
