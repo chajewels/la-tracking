@@ -55,7 +55,7 @@ import { markFormDirty, markFormClean } from '@/lib/pwaUpdate';
 import { getPortalSessionId, savePortalSession, clearPortalSession, hasLegacyPinFlag, isPinRequiredError, isDeadLinkError } from '@/lib/portal-session';
 import { portalAuthBody } from '@/lib/portal-auth';
 import { safeHttpUrl } from '@/lib/safe-url';
-import { normalizeMessengerLink } from '@/lib/messenger-href';
+import { customerProfileMessengerLink } from '@/lib/messenger-href';
 import { EXTENSION_WINDOW_CLOSED_MESSAGE, extensionWindowOpen } from '../../supabase/functions/_shared/extension-rules.ts';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
@@ -3347,7 +3347,8 @@ function ProfileEditor({ profile, portalToken, onSaved }: {
     if (!fullName.trim()) { setFormError(pt('profile.errFullNameRequired')); return; }
     if (locationType === 'international' && !country.trim()) { setFormError(pt('profile.errCountryRequired')); return; }
     if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) { setFormError(pt('profile.errInvalidEmail')); return; }
-    const messengerCheck = normalizeMessengerLink(messengerLink);
+    // A link she left unchanged (e.g. a long one staff saved) never blocks the save.
+    const messengerCheck = customerProfileMessengerLink(messengerLink, profile.messenger_link ?? null);
     if (!messengerCheck.ok) { setFormError(pt('profile.errInvalidMessenger')); return; }
 
     setSaving(true);

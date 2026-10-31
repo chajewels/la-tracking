@@ -11,9 +11,9 @@
 // in which case no link or button is rendered. A link saved without a scheme ("m.me/username",
 // the forms' own hint) becomes https://m.me/username, so it now opens instead
 // of resolving as a broken relative link.
-import { normalizeMessengerLink, safeMessengerHref } from '../../supabase/functions/_shared/profile-messenger-link.ts';
+import { normalizeMessengerLink, safeMessengerHref, customerProfileMessengerLink } from '../../supabase/functions/_shared/profile-messenger-link.ts';
 
-export { normalizeMessengerLink };
+export { normalizeMessengerLink, customerProfileMessengerLink };
 
 export function messengerHref(link: string | null | undefined): string | null {
   return safeMessengerHref(link);

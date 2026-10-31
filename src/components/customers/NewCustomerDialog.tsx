@@ -105,7 +105,7 @@ export default function NewCustomerDialog({ onCreated, trigger, open, onOpenChan
     }
     const messengerCheck = staffMessengerLink(messengerLink);
     if (!messengerCheck.ok) {
-      toast.error('Messenger link must be a web address, for example m.me/username');
+      toast.error('Messenger link must be a web address, for example m.me/username — or leave it empty');
       return;
     }
     const location = toLocationString(locationType, country) || undefined;

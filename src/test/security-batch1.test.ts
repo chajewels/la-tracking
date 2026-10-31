@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { normalizeMessengerLink, safeMessengerHref, MESSENGER_LINK_MAX } from "../../supabase/functions/_shared/profile-messenger-link.ts";
+import { normalizeMessengerLink, safeMessengerHref, customerProfileMessengerLink, MESSENGER_LINK_MAX } from "../../supabase/functions/_shared/profile-messenger-link.ts";
 import { proofObjectPath, signProofUrls } from "../../supabase/functions/_shared/proof-signing.ts";
 import { messengerHref, staffMessengerLink } from "../lib/messenger-href";
 
@@ -48,6 +48,12 @@ describe("H-07: a Messenger link is an http(s) web address or nothing", () => {
     expect(messengerHref("m.me/ana cruz")).toBe("https://m.me/ana%20cruz");
     expect(safeMessengerHref("Ana Cruz")).toBeNull();
     expect(staffMessengerLink("  ")).toEqual({ ok: true, value: null });
+    // A customer re-saving her profile is never blocked by a link she did not change.
+    expect(customerProfileMessengerLink(long, long)).toEqual({ ok: true, value: long });
+    expect(customerProfileMessengerLink(long, null)).toEqual({ ok: false });
+    expect(customerProfileMessengerLink("javascript:alert(1)", "javascript:alert(1)")).toEqual({ ok: false });
+    // The stored (canonical) form is what is measured.
+    expect(normalizeMessengerLink("m.me/" + "\u00e9".repeat(80))).toEqual({ ok: false });
   });
 
   it("Messenger buttons only appear for a usable link, and fallbacks still work", () => {
@@ -89,7 +95,7 @@ describe("H-07: a Messenger link is an http(s) web address or nothing", () => {
     expect(fn("website")).toMatch(/normalizeMessengerLink\(messengerLink\)/);
     expect(fn("website")).toMatch(/error: "messenger_link_invalid"/);
     expect(fn("website")).toMatch(/messenger_link: messengerCheck\.value/);
-    expect(fn("customer-portal")).toMatch(/normalizeMessengerLink\(profile\.messenger_link\)/);
+    expect(fn("customer-portal")).toMatch(/customerProfileMessengerLink\(profile\.messenger_link, storedCustomer\?\.messenger_link \?\? null\)/);
     expect(fn("customer-portal")).toMatch(/messenger_link: messengerCheck\.value/);
     expect(fn("setup-customer-account")).toMatch(/normalizeMessengerLink\(metaStr\(metadata\.messenger_link\)\)/);
     expect(read(join(SRC, "pages/PortalSetup.tsx"))).toMatch(/messenger_link: messengerCheck\.value/);

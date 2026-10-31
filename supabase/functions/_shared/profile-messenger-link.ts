@@ -54,7 +54,24 @@ export function normalizeMessengerLink(raw: unknown): MessengerLinkResult {
   if (url.protocol !== "https:" && url.protocol !== "http:") return { ok: false };
   if (url.username || url.password) return { ok: false };
   if (!url.hostname.includes(".") || url.hostname.startsWith(".") || url.hostname.endsWith(".")) return { ok: false };
+  if (url.href.length > MESSENGER_LINK_MAX) return { ok: false };
   return { ok: true, value: url.href };
+}
+
+/**
+ * A customer re-saving her profile: the SAVE rule, except that a link she did
+ * not change (the value already stored, e.g. a long link staff saved) is kept
+ * when the DISPLAY rule accepts it — so an untouched field never blocks her
+ * from updating anything else.
+ */
+export function customerProfileMessengerLink(raw: unknown, stored: string | null | undefined): MessengerLinkResult {
+  const r = normalizeMessengerLink(raw);
+  if (r.ok) return r;
+  if (typeof raw === "string" && typeof stored === "string" && raw.trim() === stored.trim()) {
+    const kept = safeMessengerHref(stored);
+    if (kept) return { ok: true, value: kept };
+  }
+  return { ok: false };
 }
 
 // deno-lint-ignore no-control-regex

@@ -3,7 +3,7 @@ import { resolvePortalAuth } from "../_shared/portal-auth.ts";
 import { emitNotification } from "../_shared/emit-notification.ts";
 import { resolveItemImages, type ImageableLine } from "../_shared/item-images.ts";
 import { PENDING_SUBMISSION_OR } from "../_shared/web-order-rules.ts";
-import { normalizeMessengerLink } from "../_shared/profile-messenger-link.ts";
+import { customerProfileMessengerLink } from "../_shared/profile-messenger-link.ts";
 import { signProofUrls } from "../_shared/proof-signing.ts";
 
 /** A line row as this function selects it — enough for resolveItemImages. */
@@ -109,7 +109,10 @@ Deno.serve(async (req) => {
 
         // H-07 (security audit 2026-10-31): staff see this link as a
         // clickable link, so only an http(s) web address is stored.
-        const messengerCheck = normalizeMessengerLink(profile.messenger_link);
+        // A link she left unchanged (already stored) is kept when it is safe.
+        const { data: storedCustomer } = await supabase
+          .from("customers").select("messenger_link").eq("id", customerId).maybeSingle();
+        const messengerCheck = customerProfileMessengerLink(profile.messenger_link, storedCustomer?.messenger_link ?? null);
         if (!messengerCheck.ok) {
           return new Response(JSON.stringify({
             error: "Please enter your Messenger link as a web address, for example m.me/username.",

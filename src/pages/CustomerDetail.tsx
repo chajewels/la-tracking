@@ -188,7 +188,7 @@ export default function CustomerDetail() {
     if (!customer) return;
     if (!editFields.full_name.trim()) { toast.error('Name is required'); return; }
     const messengerCheck = staffMessengerLink(editFields.messenger_link);
-    if (!messengerCheck.ok) { toast.error('Messenger link must be a web address, for example m.me/username'); return; }
+    if (!messengerCheck.ok) { toast.error('Messenger link must be a web address, for example m.me/username — or leave it empty'); return; }
     setEditSaving(true);
     try {
       const { error } = await supabase.from('customers').update({
