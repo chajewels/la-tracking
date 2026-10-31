@@ -1146,6 +1146,7 @@ export type Database = {
         Row: {
           closer_pct: number
           coordinator_pct: number
+          cutoff_day: number | null
           merge_groups: Json
           month: string
           pool_per_item_php: number
@@ -1159,6 +1160,7 @@ export type Database = {
         Insert: {
           closer_pct?: number
           coordinator_pct?: number
+          cutoff_day?: number | null
           merge_groups?: Json
           month: string
           pool_per_item_php?: number
@@ -1172,6 +1174,7 @@ export type Database = {
         Update: {
           closer_pct?: number
           coordinator_pct?: number
+          cutoff_day?: number | null
           merge_groups?: Json
           month?: string
           pool_per_item_php?: number
@@ -11847,6 +11850,11 @@ export type Database = {
       cod_fee_table_valid: { Args: { p_table: Json }; Returns: boolean }
       cod_limit_jpy: { Args: never; Returns: number }
       cod_mode: { Args: never; Returns: string }
+      commission_period_is_closed: {
+        Args: { p_date: string }
+        Returns: boolean
+      }
+      commission_period_month: { Args: { p_date: string }; Returns: string }
       confirm_loyalty_award_claim: {
         Args: {
           p_source_id: string
